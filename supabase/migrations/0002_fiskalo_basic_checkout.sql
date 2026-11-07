@@ -4,6 +4,15 @@ create sequence if not exists public.fiskalo_basic_coupon_seq;
 alter table public.fiskalo_basic_products
   add column if not exists vat_rate numeric(5,2) not null default 18
   check (vat_rate in (0,8,18));
+alter table public.fiskalo_basic_products
+  add constraint fiskalo_basic_product_atk_mapping_check
+  check (
+    length(trim(atk_unit_code)) > 0 and
+    length(trim(atk_item_category_code)) > 0 and
+    ((vat_rate=18 and atk_vat_code='E') or
+     (vat_rate=8 and atk_vat_code='D') or
+     (vat_rate=0 and atk_vat_code in ('A','C')))
+  );
 
 create table if not exists public.fiskalo_basic_sale_items (
   id uuid primary key default gen_random_uuid(),
