@@ -40,7 +40,7 @@ create or replace function public.fiskalo_basic_create_sale(
   p_business_id uuid,p_pos_id uuid,p_payment_method text,p_lines jsonb
 ) returns uuid language plpgsql security definer set search_path=public,pg_temp as $$
 declare
-  sale_uuid uuid;
+  sale_uuid uuid:=gen_random_uuid();
   next_coupon bigint;
   line jsonb;
   product_row public.fiskalo_basic_products%rowtype;
@@ -63,8 +63,11 @@ begin
   if not exists(select 1 from public.fiskalo_basic_pos where id=p_pos_id and business_id=p_business_id) then
     raise exception 'POS does not belong to this business';
   end if;
+  next_coupon:=nextval('public.fiskalo_basic_coupon_seq');
+  insert into public.fiskalo_basic_sales(id,business_id,pos_id,coupon_id,operator_id,status,subtotal,vat_total,total,payment_method)
+    values(sale_uuid,p_business_id,p_pos_id,next_coupon,auth.uid(),'paid',0,0,0,p_payment_method);
 
-  -- Lock products in stable ID order before modifying stock.
+  -- Lock products in stable ID order, then deduct stock and append immutable sale lines.
   for line in select value from jsonb_array_elements(p_lines) order by (value->>'product_id') loop
     qty := (line->>'quantity')::numeric;
     if qty <= 0 then raise exception 'Quantity must be positive'; end if;
@@ -77,18 +80,11 @@ begin
     gross := net+vat;
     update public.fiskalo_basic_products set stock=stock-qty where id=product_row.id;
     insert into public.fiskalo_basic_sale_items(sale_id,product_id,description,quantity,unit_price,vat_rate,line_net,line_vat,line_total)
-      values(coalesce(sale_uuid,gen_random_uuid()),product_row.id,product_row.name,qty,product_row.price,product_row.vat_rate,net,vat,gross);
-    if sale_uuid is null then
-      -- First line creates the parent sale after totals are known below; use a temporary ID
-      -- and insert the parent row immediately with provisional zero totals.
-      sale_uuid := (select sale_id from public.fiskalo_basic_sale_items order by ctid desc limit 1);
-    end if;
+      values(sale_uuid,product_row.id,product_row.name,qty,product_row.price,product_row.vat_rate,net,vat,gross);
     sum_net:=sum_net+net; sum_vat:=sum_vat+vat; sum_total:=sum_total+gross; item_count:=item_count+1;
   end loop;
   if item_count=0 then raise exception 'Sale must contain at least one valid item'; end if;
-  next_coupon:=nextval('public.fiskalo_basic_coupon_seq');
-  insert into public.fiskalo_basic_sales(id,business_id,pos_id,coupon_id,operator_id,status,subtotal,vat_total,total,payment_method)
-    values(sale_uuid,p_business_id,p_pos_id,next_coupon,auth.uid(),'paid',sum_net,sum_vat,sum_total,p_payment_method);
+  update public.fiskalo_basic_sales set subtotal=sum_net,vat_total=sum_vat,total=sum_total where id=sale_uuid;
   return sale_uuid;
 end $$;
 revoke all on function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) from public,anon;
