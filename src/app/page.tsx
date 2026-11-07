@@ -102,7 +102,7 @@ export default function Home(){
           transaction_id:String(doc?.atk_transaction_id??queued?.atkTransactionId??"")||null,
           nui_kf:doc?.nui_kf??queued?.nuiKf??null,
           daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
-          submission_state:doc?.submission_state??queued?.status??null,
+          submission_state:queued?.status?.toLowerCase()==="accepted"?"accepted":doc?.submission_state??queued?.status??null,
           offline_issued_at:doc?.offline_issued_at??queued?.offlineIssuedAtUtc??null,
           recovery_deadline_at:doc?.recovery_deadline_at??queued?.recoveryDeadlineUtc??null,
           qr_svg_base64:queued?.qrSvgBase64??null,
