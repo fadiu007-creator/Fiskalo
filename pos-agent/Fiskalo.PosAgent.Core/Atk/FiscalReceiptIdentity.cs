@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using Atk;
+using Google.Protobuf;
 
 namespace Fiskalo.PosAgent.Core.Atk;
 
@@ -34,6 +36,33 @@ public static class FiscalReceiptIdentity
     public static bool IsValidNuiKf(string? value) =>
         value is { Length: NuiKfLength } &&
         value.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'Z');
+
+    public static bool IsNuiKfEmbeddedInSignedCoupons(
+        string? posPayloadBase64,
+        string? citizenPayloadBase64,
+        string? nuiKf)
+    {
+        if (!IsValidNuiKf(nuiKf) ||
+            string.IsNullOrWhiteSpace(posPayloadBase64) ||
+            string.IsNullOrWhiteSpace(citizenPayloadBase64))
+            return false;
+
+        try
+        {
+            var pos = PosCoupon.Parser.ParseFrom(Convert.FromBase64String(posPayloadBase64));
+            var citizen = CitizenCoupon.Parser.ParseFrom(Convert.FromBase64String(citizenPayloadBase64));
+            return pos.VerificationNo == nuiKf &&
+                   citizen.VerificationNo == nuiKf &&
+                   pos.BusinessId == citizen.BusinessId &&
+                   pos.CouponId == citizen.CouponId &&
+                   pos.BranchId == citizen.BranchId &&
+                   pos.PosId == citizen.PosId;
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidProtocolBufferException)
+        {
+            return false;
+        }
+    }
 
     public static string BuildCitizenQrPayload(SignedAtkCoupon signedCitizenCoupon)
     {
