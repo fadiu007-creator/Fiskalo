@@ -14,6 +14,7 @@ public sealed class FiscalQueueStore
     private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromMinutes(15);
 
     private readonly string _path;
+    private readonly string _connectivityPath;
     private readonly IFiscalQueueProtector _protector;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -21,6 +22,7 @@ public sealed class FiscalQueueStore
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Queue path is required.", nameof(path));
         _path = Path.GetFullPath(path);
+        _connectivityPath = _path + ".connectivity";
         _protector = protector ?? throw new ArgumentNullException(nameof(protector));
     }
 
@@ -75,8 +77,7 @@ public sealed class FiscalQueueStore
 
             if (nuiKf is not null && items.Any(x => string.Equals(x.NuiKf, nuiKf, StringComparison.Ordinal)))
                 throw new InvalidOperationException("NUIKF collision detected in the local fiscal queue. Generate a new identifier.");
-            var offlineStart = items.Where(x => x.Status == FiscalQueueStatus.Queued)
-                .Select(x => (DateTimeOffset?)(x.OfflineIssuedAtUtc ?? x.CreatedAtUtc)).Min() ?? timestamp;
+            var monitoredOutageStart = await LoadConnectivityOutageAsync(cancellationToken);
             var item = new FiscalQueueItem
             {
                 IdempotencyKey = idempotencyKey,
@@ -84,7 +85,8 @@ public sealed class FiscalQueueStore
                 PayloadBase64 = payloadBase64,
                 SignatureBase64 = signatureBase64,
                 CreatedAtUtc = timestamp,
-                RecoveryDeadlineUtc = offlineStart.Add(RecoveryWindow),
+                RecoveryDeadlineUtc = (monitoredOutageStart ?? timestamp).Add(RecoveryWindow),
+                OfflineIssuedAtUtc = monitoredOutageStart,
                 NextAttemptAtUtc = timestamp,
                 NuiKf = nuiKf,
                 CitizenPayloadBase64 = citizenPayloadBase64,
@@ -164,24 +166,19 @@ public sealed class FiscalQueueStore
             if (items[index].Status != FiscalQueueStatus.Submitting)
                 throw new InvalidOperationException("Only a submitting document can be safely returned to the retry queue.");
 
-            // The first confirmed no-connect failure starts one outage clock for every
-            // outstanding coupon. This timestamp is retained even as earlier items
-            // are accepted, so later queued coupons cannot receive a later 48h deadline.
-            var outageStart = items
-                .Where(x => x.Status is FiscalQueueStatus.Queued or FiscalQueueStatus.Submitting)
-                .Select(x => x.OfflineIssuedAtUtc)
-                .Where(x => x.HasValue)
-                .Select(x => x!.Value)
-                .DefaultIfEmpty(timestamp)
-                .Min();
-            var deadline = outageStart.Add(RecoveryWindow);
+            // Prefer the outage time captured by the continuous connectivity monitor.
+            // Fall back to this first confirmed no-connect failure if the monitor was
+            // unable to persist a probe result.
+            var outageStart = await LoadConnectivityOutageAsync(cancellationToken) ??
+                items[index].OfflineIssuedAtUtc ?? timestamp;
             for (var i = 0; i < items.Count; i++)
             {
                 if (items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.Submitting)) continue;
+                if (items[i].OfflineIssuedAtUtc is not null) continue;
                 items[i] = items[i] with
                 {
-                    OfflineIssuedAtUtc = items[i].OfflineIssuedAtUtc ?? outageStart,
-                    RecoveryDeadlineUtc = deadline
+                    OfflineIssuedAtUtc = outageStart,
+                    RecoveryDeadlineUtc = outageStart.Add(RecoveryWindow)
                 };
             }
 
@@ -191,6 +188,8 @@ public sealed class FiscalQueueStore
             {
                 Status = FiscalQueueStatus.Queued,
                 NextAttemptAtUtc = timestamp.AddSeconds(delaySeconds),
+                OfflineIssuedAtUtc = item.OfflineIssuedAtUtc ?? outageStart,
+                RecoveryDeadlineUtc = item.OfflineIssuedAtUtc is null ? outageStart.Add(RecoveryWindow) : item.RecoveryDeadlineUtc,
                 LastError = Truncate(error, 500)
             };
             items[index] = item;
@@ -199,6 +198,7 @@ public sealed class FiscalQueueStore
         }
         finally { _gate.Release(); }
     }
+
 
     public Task<FiscalQueueItem> MarkSubmittingAsync(
         string idempotencyKey,
@@ -283,6 +283,41 @@ public sealed class FiscalQueueStore
                 LastError = Truncate(reason, 500)
             };
         }, cancellationToken);
+
+    public async Task<DateTimeOffset> MarkConnectivityUnavailableAsync(
+        DateTimeOffset? now = null,
+        CancellationToken cancellationToken = default)
+    {
+        var timestamp = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var existing = await LoadConnectivityOutageAsync(cancellationToken);
+            if (existing.HasValue) return existing.Value;
+            await SaveConnectivityOutageAsync(timestamp, cancellationToken);
+            return timestamp;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<DateTimeOffset?> MarkConnectivityAvailableAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var existing = await LoadConnectivityOutageAsync(cancellationToken);
+            if (File.Exists(_connectivityPath)) File.Delete(_connectivityPath);
+            return existing;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<DateTimeOffset?> GetConnectivityOutageStartedAtUtcAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try { return await LoadConnectivityOutageAsync(cancellationToken); }
+        finally { _gate.Release(); }
+    }
 
     public async Task<IReadOnlyList<FiscalQueueItem>> GetAllAsync(CancellationToken cancellationToken = default)
     {
@@ -377,6 +412,57 @@ public sealed class FiscalQueueStore
             return updated;
         }
         finally { _gate.Release(); }
+    }
+
+    private async Task<DateTimeOffset?> LoadConnectivityOutageAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(_connectivityPath)) return null;
+        var encrypted = await File.ReadAllBytesAsync(_connectivityPath, cancellationToken);
+        byte[]? plaintext = null;
+        try
+        {
+            plaintext = _protector.Unprotect(encrypted);
+            return JsonSerializer.Deserialize<DateTimeOffset>(plaintext, JsonOptions);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(encrypted);
+            if (plaintext is not null) CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    private async Task SaveConnectivityOutageAsync(DateTimeOffset? outageStart, CancellationToken cancellationToken)
+    {
+        if (!outageStart.HasValue)
+        {
+            if (File.Exists(_connectivityPath)) File.Delete(_connectivityPath);
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(_connectivityPath)
+            ?? throw new InvalidOperationException("Connectivity state path must include a directory.");
+        Directory.CreateDirectory(directory);
+        var plaintext = JsonSerializer.SerializeToUtf8Bytes(outageStart.Value, JsonOptions);
+        byte[]? encrypted = null;
+        var temporaryPath = _connectivityPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            encrypted = _protector.Protect(plaintext);
+            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await stream.WriteAsync(encrypted, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporaryPath, _connectivityPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            CryptographicOperations.ZeroMemory(plaintext);
+            if (encrypted is not null) CryptographicOperations.ZeroMemory(encrypted);
+        }
     }
 
     private async Task<List<FiscalQueueItem>> LoadAsync(CancellationToken cancellationToken)
