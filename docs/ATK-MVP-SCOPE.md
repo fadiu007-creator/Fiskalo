@@ -42,4 +42,21 @@ Deliver the smallest maintainable product that can complete ATK's required onboa
 8. ATK portal verification and formal certification application evidence.
 
 ## Current status
-This repository starts as a clean MVP shell. UI authentication is connected to Supabase when environment variables are supplied. The full checkout, schema, ATK endpoint workflow, device journal and physical test acceptance are not yet implemented. No production compliance claim is made.
+
+Implemented in the clean repository:
+- Web owner login and business onboarding against isolated Supabase tables.
+- Minimal product and POS configuration.
+- Atomic paid checkout with stock deduction and sale-line snapshots.
+- Windows local POS Agent with DPAPI-protected signing key, matching-certificate validation, encrypted fiscal queue, idempotency and ATK TEST submission.
+- Web ATK TEST onboarding: one-time local-agent pairing, ATK POS verification, CSR/certificate request and certificate status persistence.
+- Web paid-sale path: builds the ATK Sale coupon, submits through the local agent and stores the accepted response only when a valid transaction ID is returned.
+
+Not yet complete:
+- ATK Cancel and Return workflows and their end-to-end acceptance tests.
+- Verified official unit/category catalogue and dropdowns. The sample integration repository demonstrates payload values but is not itself a complete current ATK catalogue.
+- Complete browser/operator reconciliation and authority-request export.
+- Migration application and live RLS verification in the intended Supabase project.
+- Physical POS tests for Windows installation, printer output, offline recovery and duplicate/timeout scenarios.
+- ATK provider/software certification and production credentials.
+
+The app must not be described as fully ATK-compliant or certified until the required ATK tests pass and formal authorization is granted. Production submission remains disabled.
