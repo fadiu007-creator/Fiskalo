@@ -59,6 +59,8 @@ create table if not exists public.fiskalo_basic_fiscal_documents (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.fiskalo_basic_businesses(id),
   sale_id uuid not null references public.fiskalo_basic_sales(id),
+  coupon_id bigint not null unique,
+  idempotency_key uuid not null unique default gen_random_uuid(),
   document_type smallint not null check (document_type in (1,2,3)),
   reference_coupon_id bigint,
   signed_payload text not null,
@@ -66,8 +68,7 @@ create table if not exists public.fiskalo_basic_fiscal_documents (
   atk_transaction_id numeric(20,0),
   submission_state text not null check (submission_state in ('queued','submitted','accepted','rejected','needs_reconciliation')),
   atk_response jsonb,
-  created_at timestamptz not null default now(),
-  unique (business_id,sale_id,document_type)
+  created_at timestamptz not null default now()
 );
 
 create or replace function public.fiskalo_basic_is_member(target_business uuid)
