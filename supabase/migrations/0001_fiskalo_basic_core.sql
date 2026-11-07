@@ -22,6 +22,7 @@ create table public.fiskalo_basic_pos (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.fiskalo_basic_businesses(id) on delete cascade,
   label text not null,
+  location text not null,
   branch_id bigint not null check (branch_id > 0),
   pos_id bigint not null check (pos_id > 0),
   fiscalization_number text not null,
