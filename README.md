@@ -26,16 +26,20 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 
 - [x] Clean Next.js/Cloudflare application foundation
 - [x] Supabase email/password login UI
-- [x] Basic business onboarding RPC and isolated schema
-- [x] Product catalogue UI and basic ATK mapping fields
-- [x] POS checkout UI with atomic stock deduction and payment recording
-- [x] ATK Protobuf encoder
-- [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and receipt printer support
-- [ ] Apply and verify the new `fiskalo_basic_*` migrations in the intended Supabase project
-- [ ] Connect paid web checkout to the local agent
-- [ ] Complete end-to-end Sale, Cancel and Return coupon workflows
-- [ ] Verify physical-device offline recovery, printer and ATK TEST acceptance
-- [ ] Authority-request export workflow
+- [x] Isolated `fiskalo_basic_*` schema and owner onboarding / atomic paid-sale RPCs
+- [x] Basic product catalogue and ATK field storage (official dropdown catalogue still needs a verified ATK source)
+- [x] POS checkout with stock deduction and payment recording
+- [x] Automatic ATK TEST Sale submission after payment when a verified POS, matching TEST certificate and paired local POS Agent are available
+- [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
+- [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and thermal printer support
+- [x] Browser-session restoration for the paired local POS Agent
+- [ ] Apply and verify the isolated migrations in the intended Supabase project
+- [ ] Implement and test ATK Cancel and Return flows (not just Protobuf model support)
+- [ ] Official ATK unit/category dropdown catalogue with source/version evidence
+- [ ] Complete ambiguous-submission reconciliation UI and authority-request export
+- [ ] Verify physical POS installation, printer, offline recovery and ATK TEST acceptance
 - [ ] Cloudflare deployment and live smoke tests
 
-The application currently records paid sales internally but does **not** claim that they have been fiscalized. Do not use for production fiscalization until all release gates are met.
+The app currently supports a TEST sale submission path only. Cancel/Return UI, official catalogue dropdowns, authority exports, and production submission are not complete. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
+
+A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued.
