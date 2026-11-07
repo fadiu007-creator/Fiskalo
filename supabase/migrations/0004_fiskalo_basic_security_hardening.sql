@@ -126,7 +126,7 @@ grant usage on schema fiskalo_private to authenticated;
 
 alter function public.fiskalo_basic_create_business(text,text) set schema fiskalo_private;
 alter function fiskalo_private.fiskalo_basic_create_business(text,text) security definer;
-alter function fiskalo_private.fiskalo_basic_create_business(text,text) set search_path = pg_catalog,public,pg_temp;
+alter function fiskalo_private.fiskalo_basic_create_business(text,text) set search_path = '';
 revoke all on function fiskalo_private.fiskalo_basic_create_business(text,text) from public,anon;
 grant execute on function fiskalo_private.fiskalo_basic_create_business(text,text) to authenticated;
 
@@ -139,7 +139,7 @@ grant execute on function public.fiskalo_basic_create_business(text,text) to aut
 
 alter function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) set schema fiskalo_private;
 alter function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) security definer;
-alter function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) set search_path = pg_catalog,public,pg_temp;
+alter function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) set search_path = '';
 revoke all on function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) from public,anon;
 grant execute on function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) to authenticated;
 
@@ -153,7 +153,7 @@ grant execute on function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb)
 
 alter function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) set schema fiskalo_private;
 alter function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) security definer;
-alter function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) set search_path = pg_catalog,public,pg_temp;
+alter function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) set search_path = '';
 revoke all on function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) from public,anon;
 grant execute on function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) to authenticated;
 
