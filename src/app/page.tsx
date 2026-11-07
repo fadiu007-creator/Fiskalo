@@ -29,7 +29,8 @@ export default function Home(){
   const [vatCode,setVatCode]=useState("E");
   const [unitCode,setUnitCode]=useState("");
   const [categoryCode,setCategoryCode]=useState("");
-  const [posLabel,setPosLabel]=useState("Arka 1");\n  const [posLocation,setPosLocation]=useState("");
+  const [posLabel,setPosLabel]=useState("Arka 1");
+  const [posLocation,setPosLocation]=useState("");
   const [branchId,setBranchId]=useState("1");
   const [posId,setPosId]=useState("1");
   const [fiscalizationNumber,setFiscalizationNumber]=useState("");
