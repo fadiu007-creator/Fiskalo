@@ -43,3 +43,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 The app currently supports a TEST sale submission path only. Cancel/Return UI, official catalogue dropdowns, authority exports, Android support, live deployment and production submission are not complete. The database migrations are applied to `zikos` under the isolated `fiskalo_basic_*` namespace; this does not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
 
 A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued.
+
+## Database security migration
+
+Migration `supabase/migrations/0004_fiskalo_basic_security_hardening.sql` is committed but is not automatically applied by the application build. Apply it to the intended Supabase project, keep `fiskalo_private` outside the exposed Data API schemas, and run `supabase/tests/0004_fiskalo_basic_security_hardening.sql` before enabling cashier accounts.
