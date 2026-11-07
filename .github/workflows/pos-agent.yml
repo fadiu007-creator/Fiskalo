@@ -1,0 +1,24 @@
+name: Windows POS Agent
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pos-agent/**'
+      - '.github/workflows/pos-agent.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pos-agent/**'
+      - '.github/workflows/pos-agent.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet test pos-agent/Fiskalo.PosAgent.Tests/Fiskalo.PosAgent.Tests.csproj --configuration Release
+      - run: dotnet build pos-agent/Fiskalo.PosAgent.Host/Fiskalo.PosAgent.Host.csproj --configuration Release
