@@ -344,10 +344,12 @@ export default function Home(){
           {receipt.is_offline&&receipt.recovery_deadline_at&&<div>Afati i dërgimit: {new Date(receipt.recovery_deadline_at).toLocaleString("sq-XK")}</div>}{receipt.recovery_deadline_exceeded&&<div style={{fontWeight:800,color:"#b91c1c"}}>AFATI 48-ORËSH I KALUAR — kontroll i menjëhershëm me ATK</div>}
         </div>
         <div style={{textAlign:"center",paddingTop:8}}>
-          <div style={{fontSize:20,fontWeight:900,letterSpacing:2}}>RKS</div>
-          <div style={{fontSize:13,fontWeight:800,letterSpacing:3}}>MFPT</div>
-          <div style={{fontWeight:700,marginTop:4}}>e-kuponi</div>
-          <div style={{fontSize:10,marginTop:7}}>Dokument testues i Fiskalo në mjedisin ATK TEST. Nuk është kupon fiskal i vlefshëm për shitje reale.</div>
+          <img src="https://www.rks-gov.net/Content/images/stema.png" alt="Stema shtetërore e Republikës së Kosovës" width="48" height="54" style={{display:"block",width:48,height:54,objectFit:"contain",margin:"0 auto 5px"}}/>
+          <div style={{fontWeight:800,letterSpacing:0.4}}>REPUBLIKA E KOSOVËS</div>
+          <div style={{fontSize:10,marginTop:3}}>REPUBLIC OF KOSOVO · REPUBLIKA KOSOVO</div>
+          <div style={{fontWeight:700,marginTop:7}}>KUPON ELEKTRONIK · FISKALO</div>
+          <div style={{fontSize:10,marginTop:7,fontWeight:800}}>ATK TEST — DOKUMENT TESTUES</div>
+          <div style={{fontSize:10,marginTop:3}}>Nuk është kupon fiskal i vlefshëm për shitje reale dhe nuk dëshmon certifikim të Fiskalo nga ATK.</div>
         </div>
       </div>
     </div>}
