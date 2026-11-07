@@ -36,8 +36,6 @@ export default function Home(){
   const [posId,setPosId]=useState("1");
   const [fiscalizationNumber,setFiscalizationNumber]=useState("");
   const [applicationId,setApplicationId]=useState("");
-  const [agentToken,setAgentToken]=useState("");
-  const [agentStatus,setAgentStatus]=useState<AgentStatus|null>(null);
   const [selectedPos,setSelectedPos]=useState("");
   const [agentToken,setAgentToken]=useState("");
   const [pairCode,setPairCode]=useState("");
