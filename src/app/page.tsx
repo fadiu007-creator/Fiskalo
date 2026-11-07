@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-type SessionUser = { email?: string };
+type SessionUser = { email?: string | null };
 export default function Home() {
   const [user,setUser] = useState<SessionUser|null>(null);
   const [email,setEmail] = useState("");
