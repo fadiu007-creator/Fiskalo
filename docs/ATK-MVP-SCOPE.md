@@ -68,6 +68,8 @@ The ATK legal instruction states that the SEF must save transactions securely wh
 
 **Deployment verification (2026-11-07):** migrations 0005 and 0006 are applied to Supabase project `zikos`. The catalog/privilege regression script for migration 0005 passed. The daily counter function is configured for `Europe/Belgrade` (Kosovo local time). The test receipt UI and Agent changes are committed, but the current GitHub Actions run must pass before this batch is considered build-verified.
 
+- Migrations 0007-0008 add an owner-visible, self-managed operator display name and snapshot it into every new sale. The POS requires a named operator before checkout, while retaining the authenticated user ID as the stable operator identifier. Owner access to the business operator roster is mediated through a private SECURITY DEFINER helper to avoid recursive RLS policies.
+
 **Important remaining boundary:** the current hosted checkout still creates the paid sale in Supabase before asking the local Agent to sign/queue the ATK coupon. Therefore this handles an ATK-system outage while the Fiskalo/Supabase connection remains available; it does not yet provide a fully disconnected POS sale when the store loses all internet connectivity. A local-first sales cache and post-reconnection sale sync are still required for that broader offline case. The 48-hour deadline is measured from the first confirmed failed delivery attempt, not from an independently monitored ATK outage start.
 
 ## Security hardening delivered in migration 0004
