@@ -6,41 +6,36 @@ namespace Fiskalo.PosAgent.Tests;
 public sealed class FiscalReceiptIdentityTests
 {
     [Fact]
-    public void CreateNuiKf_UsesFiscalizationNumberBranchAndKosovoLocalTimestamp()
+    public void CreateNuiKf_GeneratesUniqueSixteenCharacterAlphanumericVerificationNumbers()
     {
-        var issueTimeUtc = new DateTimeOffset(2025, 1, 1, 7, 30, 45, TimeSpan.Zero);
+        var values = Enumerable.Range(0, 1000)
+            .Select(_ => FiscalReceiptIdentity.CreateNuiKf())
+            .ToArray();
 
-        var nuiKf = FiscalReceiptIdentity.CreateNuiKf(
-            "0123456789", 121, issueTimeUtc.ToUnixTimeSeconds());
-
-        Assert.Equal("0123456789012101012025083045", nuiKf);
-        Assert.Equal(FiscalReceiptIdentity.NuiKfLength, nuiKf.Length);
-        Assert.True(FiscalReceiptIdentity.IsValidNuiKf(nuiKf));
-    }
-
-    [Theory]
-    [InlineData("EDI-FISCAL-TEST")]
-    [InlineData("123456789")]
-    [InlineData("12345678901")]
-    [InlineData("")]
-    public void CreateNuiKf_RejectsInvalidAtkFiscalizationNumber(string fiscalizationNumber)
-    {
-        Assert.Throws<ArgumentException>(() =>
-            FiscalReceiptIdentity.CreateNuiKf(fiscalizationNumber, 121, 1767252645));
-    }
-
-    [Fact]
-    public void CreateNuiKf_RejectsBranchCodesOutsideFourDigitField()
-    {
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            FiscalReceiptIdentity.CreateNuiKf("0123456789", 10000, 1767252645));
+        Assert.All(values, value =>
+        {
+            Assert.Equal(16, value.Length);
+            Assert.True(FiscalReceiptIdentity.IsValidNuiKf(value));
+        });
+        Assert.Equal(values.Length, values.Distinct(StringComparer.Ordinal).Count());
     }
 
     [Theory]
     [InlineData("ABCDEFGHIJKLMNOP")]
-    [InlineData("0123456789012101012025083")]
-    [InlineData("012345678901210101202508304X")]
-    public void IsValidNuiKf_RejectsLegacyOrMalformedIdentifiers(string value)
+    [InlineData("0123456789012345")]
+    [InlineData("0123456789ABCDEF")]
+    public void IsValidNuiKf_AcceptsSixteenUppercaseAlphanumericCharacters(string value)
+    {
+        Assert.True(FiscalReceiptIdentity.IsValidNuiKf(value));
+    }
+
+    [Theory]
+    [InlineData("ABCDEFGHIJKLMNO")]
+    [InlineData("ABCDEFGHIJKLMNOPQ")]
+    [InlineData("abcdefghijklmnop")]
+    [InlineData("ABCD-EFGH-IJKL")]
+    [InlineData("")]
+    public void IsValidNuiKf_RejectsMalformedIdentifiers(string value)
     {
         Assert.False(FiscalReceiptIdentity.IsValidNuiKf(value));
     }
