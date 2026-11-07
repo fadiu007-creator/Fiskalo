@@ -2,13 +2,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, type AgentStatus, type AtkVerification, type LocalFiscalQueueItem } from "@/lib/pos/local-agent";
 
-type Business={id:string;name:string;nui:string};
+type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;items:Array<{description:string;quantity:number;unit_price:number;line_total:number}>;transaction_id:string|null};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean};
 type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -57,7 +57,7 @@ export default function Home(){
     if(!member){setBusiness(null);setMemberRole(null);setProducts([]);setPositions([]);setSelectedPos("");return;}
     setMemberRole(member.role as MemberRole);
     if(member.role==="cashier")setTab("pos");
-    const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui").eq("id",member.business_id).single();
+    const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui,vat_number").eq("id",member.business_id).single();
     if(bizError)throw bizError;
     setBusiness(biz);
     const [{data:prods,error:productError},{data:poses,error:posError}]=await Promise.all([
