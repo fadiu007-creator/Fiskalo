@@ -1,5 +1,5 @@
 using Atk;
-using Google.Protobuf;
+using System.Security.Cryptography;
 using Fiskalo.PosAgent.Core.Atk;
 using Xunit;
 
@@ -50,8 +50,9 @@ public sealed class FiscalReceiptIdentityTests
 
         Assert.Equal(nuiKf, posCoupon.VerificationNo);
         Assert.Equal(nuiKf, citizenCoupon.VerificationNo);
-        var posPayload = Convert.ToBase64String(posCoupon.ToByteArray());
-        var citizenPayload = Convert.ToBase64String(citizenCoupon.ToByteArray());
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var posPayload = AtkCouponSigner.SignPosCoupon(posCoupon, key).DetailsBase64;
+        var citizenPayload = AtkCouponSigner.SignCitizenCoupon(citizenCoupon, key).DetailsBase64;
         Assert.True(FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(posPayload, citizenPayload, nuiKf));
         Assert.False(FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(posPayload, citizenPayload, FiscalReceiptIdentity.CreateNuiKf()));
     }
