@@ -375,7 +375,7 @@ export default function Home(){
         <div style={{textAlign:"center",paddingTop:8}}>
           <img src="https://www.rks-gov.net/Content/images/stema.png" alt="Stema shtetërore e Republikës së Kosovës" width="48" height="54" style={{display:"block",width:48,height:54,objectFit:"contain",margin:"0 auto 5px"}}/>
           <div style={{fontSize:17,fontWeight:900,letterSpacing:2}}>RKS</div>
-          <div style={{fontSize:13,fontWeight:800,letterSpacing:2}}>MFPT</div>
+          <div style={{fontSize:13,fontWeight:800,letterSpacing:2}}>MF</div>
           <div style={{fontWeight:700,marginTop:5}}>e-kuponi</div>
           <div style={{fontSize:10,marginTop:7,fontWeight:800}}>ATK TEST — DOKUMENT TESTUES</div>
           <div style={{fontSize:10,marginTop:3}}>Nuk është kupon fiskal i vlefshëm për shitje reale dhe nuk dëshmon certifikim të Fiskalo nga ATK.</div>
