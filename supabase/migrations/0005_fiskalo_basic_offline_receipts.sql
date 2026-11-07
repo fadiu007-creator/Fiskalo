@@ -16,6 +16,7 @@ create table if not exists fiskalo_private.fiskalo_basic_daily_counters (
   last_number bigint not null check (last_number > 0),
   primary key (pos_id,business_date)
 );
+revoke all on table fiskalo_private.fiskalo_basic_daily_counters from public,anon,authenticated;
 
 create or replace function fiskalo_private.fiskalo_basic_assign_daily_number()
 returns trigger language plpgsql security definer set search_path = '' as $$
