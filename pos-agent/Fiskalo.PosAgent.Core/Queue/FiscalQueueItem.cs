@@ -27,4 +27,5 @@ public sealed record FiscalQueueItem
     public string? CitizenPayloadBase64 { get; init; }
     public string? CitizenSignatureBase64 { get; init; }
     public long? DailyNumber { get; init; }
+    public DateTimeOffset? OfflineIssuedAtUtc { get; init; }
 }
