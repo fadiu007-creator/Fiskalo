@@ -267,6 +267,40 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task ConnectivityRecoveryExpeditesBackoffAndDeliversBeforeFortyEightHours()
+    {
+        using var fixture = new QueueFixture();
+        var outage = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.MarkConnectivityUnavailableAsync(outage);
+        await fixture.Store.EnqueueAsync(
+            "sale-recovered-at-deadline", "Sale", "cG9z", "c2ln", outage.AddMinutes(1));
+
+        var lastFailedAttempt = outage.AddHours(47).AddMinutes(59).AddSeconds(45);
+        var delayed = await fixture.Store.RecordFailureAsync(
+            "sale-recovered-at-deadline", "temporary ATK outage", lastFailedAttempt);
+        Assert.True(delayed.NextAttemptAtUtc > outage.AddHours(48));
+
+        var recoveredAt = outage.AddHours(47).AddMinutes(59).AddSeconds(50);
+        await fixture.Store.MarkConnectivityAvailableAsync(recoveredAt);
+        var attempts = 0;
+        var delivery = new Fiskalo.PosAgent.Core.Atk.FiscalQueueDeliveryService(
+            fixture.Store, (signed, token) =>
+            {
+                attempts++;
+                return Task.FromResult(
+                    new Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse("accepted", 987656));
+            });
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(recoveredAt));
+        var accepted = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(FiscalQueueStatus.Accepted, accepted.Status);
+        Assert.Equal("987656", accepted.AtkTransactionId);
+        Assert.Equal(1, attempts);
+        Assert.Equal(outage.AddHours(48), accepted.RecoveryDeadlineUtc);
+        Assert.True(recoveredAt < accepted.RecoveryDeadlineUtc);
+    }
+
+    [Fact]
     public async Task DeliveryService_DoesNotRetryAmbiguousTimeout()
     {
         using var fixture = new QueueFixture();
