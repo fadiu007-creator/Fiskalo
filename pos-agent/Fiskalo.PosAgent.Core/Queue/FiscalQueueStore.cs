@@ -148,27 +148,56 @@ public sealed class FiscalQueueStore
     /// the request could not reach ATK (for example DNS failure or refused TCP connect).
     /// Timeouts and dropped responses must use NeedsReconciliation instead.
     /// </summary>
-    public Task<FiscalQueueItem> RequeueDefinitelyNotSentAsync(
+    public async Task<FiscalQueueItem> RequeueDefinitelyNotSentAsync(
         string idempotencyKey,
         string error,
         DateTimeOffset? now = null,
         CancellationToken cancellationToken = default)
     {
         var timestamp = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
-        return MutateAsync(idempotencyKey, item =>
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            if (item.Status != FiscalQueueStatus.Submitting)
+            var items = await LoadAsync(cancellationToken);
+            var index = items.FindIndex(x => x.IdempotencyKey == idempotencyKey);
+            if (index < 0) throw new KeyNotFoundException("Fiscal queue item was not found.");
+            if (items[index].Status != FiscalQueueStatus.Submitting)
                 throw new InvalidOperationException("Only a submitting document can be safely returned to the retry queue.");
+
+            // The first confirmed no-connect failure starts one outage clock for every
+            // outstanding coupon. This timestamp is retained even as earlier items
+            // are accepted, so later queued coupons cannot receive a later 48h deadline.
+            var outageStart = items
+                .Where(x => x.Status is FiscalQueueStatus.Queued or FiscalQueueStatus.Submitting)
+                .Select(x => x.OfflineIssuedAtUtc)
+                .Where(x => x.HasValue)
+                .Select(x => x!.Value)
+                .DefaultIfEmpty(timestamp)
+                .Min();
+            var deadline = outageStart.Add(RecoveryWindow);
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.Submitting)) continue;
+                items[i] = items[i] with
+                {
+                    OfflineIssuedAtUtc = items[i].OfflineIssuedAtUtc ?? outageStart,
+                    RecoveryDeadlineUtc = deadline
+                };
+            }
+
+            var item = items[index];
             var delaySeconds = Math.Min(15 * Math.Pow(2, Math.Min(Math.Max(item.AttemptCount - 1, 0), 10)), MaximumRetryDelay.TotalSeconds);
-            return item with
+            item = item with
             {
                 Status = FiscalQueueStatus.Queued,
                 NextAttemptAtUtc = timestamp.AddSeconds(delaySeconds),
-                OfflineIssuedAtUtc = item.OfflineIssuedAtUtc ?? timestamp,
-                RecoveryDeadlineUtc = (item.OfflineIssuedAtUtc ?? timestamp).Add(RecoveryWindow),
                 LastError = Truncate(error, 500)
             };
-        }, cancellationToken);
+            items[index] = item;
+            await SaveAsync(items, cancellationToken);
+            return item;
+        }
+        finally { _gate.Release(); }
     }
 
     public Task<FiscalQueueItem> MarkSubmittingAsync(
