@@ -6,7 +6,7 @@ import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTest
 
 type Business={id:string;name:string;nui:string};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
-type Pos={id:string;label:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verified_business_name:string|null;certificate_status:string};
+type Pos={id:string;label:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
 type Tab="pos"|"products"|"atk";
 
