@@ -50,7 +50,7 @@ Migration `0004_fiskalo_basic_security_hardening.sql` narrows the database trust
 - The old column-level direct permission to update a sale's fiscal status is explicitly revoked.
 - `supabase/tests/0004_fiskalo_basic_security_hardening.sql` checks the resulting grants and function placement.
 
-**Deployment gate:** this migration is committed but must still be applied to the intended Supabase project and verified there. Keep `fiskalo_private` out of the Supabase Data API exposed-schema list. The current UI still does not provide a complete owner-managed cashier invitation workflow; role provisioning needs its own secure implementation and tests.
+**Deployment status (2026-11-07):** migration 0004 is applied to the existing Supabase project `zikos`. The privilege regression SQL completed successfully against that database. The `fiskalo_private` schema is not in the configured exposed-schema override (the setting is unset, leaving the Supabase default exposed schemas); keep it out of any future exposed-schema list. This catalog test does not replace authenticated owner/cashier and cross-tenant RLS integration tests. The current UI still does not provide a complete owner-managed cashier invitation workflow; role provisioning needs its own secure implementation and tests.
 
 ## Current status
 
