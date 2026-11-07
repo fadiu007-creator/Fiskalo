@@ -354,7 +354,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         var existing = (await queueStore.GetAllAsync(cancellationToken)).SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey);
         if (existing is not null && (existing.PayloadBase64 != signed.DetailsBase64 || existing.DocumentType != coupon.Type.ToString()))
             return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_content" });
-        if (existing?.Status == FiscalQueueStatus.Accepted) return Results.Ok(new { status = "accepted", transactionId = existing.AtkTransactionId, duplicateRequest = true, environment = "ATK TEST" });
+        if (existing?.Status == FiscalQueueStatus.Accepted) return Results.Ok(new { status = "accepted", transactionId = existing.AtkTransactionId, detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64, duplicateRequest = true, environment = "ATK TEST" });
         if (existing is not null && existing.Status != FiscalQueueStatus.Queued) return Results.Conflict(new { status = existing.Status.ToString(), error = "document_requires_reconciliation_or_operator_review", existing.LastError });
         if (existing is null) await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64, signed.SignatureBase64, cancellationToken: cancellationToken);
         var persisted = existing ?? (await queueStore.GetAllAsync(cancellationToken)).Single(x => x.IdempotencyKey == request.IdempotencyKey);
@@ -364,7 +364,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             var result = await new AtkTestClient(http).SubmitSignedPosCouponAsync(signedToSubmit, cancellationToken);
             await queueStore.MarkAcceptedAsync(request.IdempotencyKey, result.TransactionId.ToString(), cancellationToken);
-            return Results.Ok(new { status = "accepted", transactionId = result.TransactionId, message = result.Message, environment = "ATK TEST", productionEnabled = false });
+            return Results.Ok(new { status = "accepted", transactionId = result.TransactionId.ToString(), detailsBase64 = signed.DetailsBase64, signatureBase64 = signed.SignatureBase64, message = result.Message, environment = "ATK TEST", productionEnabled = false });
         } catch (AtkApiException ex) when ((int)ex.StatusCode >= 400 && (int)ex.StatusCode < 500) {
             await queueStore.MarkRejectedAsync(request.IdempotencyKey, "ATK rejected the test coupon with HTTP " + (int)ex.StatusCode, cancellationToken);
             return Results.Problem("ATK rejected the test coupon (HTTP " + (int)ex.StatusCode + "). Review the payload and ATK response before creating a corrected test document.", statusCode: StatusCodes.Status422UnprocessableEntity);
