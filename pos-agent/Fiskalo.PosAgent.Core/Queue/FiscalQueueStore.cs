@@ -265,6 +265,7 @@ public sealed class FiscalQueueStore
             {
                 Status = FiscalQueueStatus.Accepted,
                 AtkTransactionId = atkTransactionId,
+                OfflineIssuedAtUtc = item.AttemptCount <= 1 ? null : item.OfflineIssuedAtUtc,
                 LastError = null
             };
         }, cancellationToken);
