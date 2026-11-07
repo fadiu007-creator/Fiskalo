@@ -2,6 +2,16 @@
 alter table public.fiskalo_basic_members
   add column if not exists operator_name text;
 
+drop policy if exists fiskalo_basic_member_read_owner on public.fiskalo_basic_members;
+create policy fiskalo_basic_member_read_owner on public.fiskalo_basic_members
+  for select to authenticated using (
+    exists (
+      select 1 from public.fiskalo_basic_members owner_member
+      where owner_member.business_id=public.fiskalo_basic_members.business_id
+        and owner_member.user_id=auth.uid() and owner_member.role='owner'
+    )
+  );
+
 create or replace function fiskalo_private.fiskalo_basic_set_operator_name(
   p_business_id uuid,p_operator_name text
 ) returns void
