@@ -46,7 +46,7 @@ public sealed class FiscalQueueStore
         _ = Convert.FromBase64String(payloadBase64);
         _ = Convert.FromBase64String(signatureBase64);
         if (nuiKf is not null && !Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.IsValidNuiKf(nuiKf))
-            throw new ArgumentException("NUIKF must contain exactly 16 uppercase alphanumeric characters.", nameof(nuiKf));
+            throw new ArgumentException("NUIKF must contain exactly 28 digits in the ATK SEF format.", nameof(nuiKf));
         if ((citizenPayloadBase64 is null) != (citizenSignatureBase64 is null))
             throw new ArgumentException("Citizen coupon payload and signature must be supplied together.");
         if (citizenPayloadBase64 is not null)
@@ -301,12 +301,25 @@ public sealed class FiscalQueueStore
         finally { _gate.Release(); }
     }
 
-    public async Task<DateTimeOffset?> MarkConnectivityAvailableAsync(CancellationToken cancellationToken = default)
+    public async Task<DateTimeOffset?> MarkConnectivityAvailableAsync(
+        DateTimeOffset? now = null,
+        CancellationToken cancellationToken = default)
     {
+        var timestamp = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
         await _gate.WaitAsync(cancellationToken);
         try
         {
             var existing = await LoadConnectivityOutageAsync(cancellationToken);
+            var items = await LoadAsync(cancellationToken);
+            var changed = false;
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (items[i].Status != FiscalQueueStatus.Queued || items[i].NextAttemptAtUtc <= timestamp)
+                    continue;
+                items[i] = items[i] with { NextAttemptAtUtc = timestamp };
+                changed = true;
+            }
+            if (changed) await SaveAsync(items, cancellationToken);
             if (File.Exists(_connectivityPath)) File.Delete(_connectivityPath);
             return existing;
         }
