@@ -65,6 +65,7 @@ public sealed class FiscalQueueStoreTests
         Assert.Equal(outage, second.OfflineIssuedAtUtc);
         Assert.Equal(outage.AddHours(48), second.RecoveryDeadlineUtc);
 
+        await fixture.Store.MarkSubmittingAsync("sale-outage-1");
         await fixture.Store.MarkAcceptedAsync("sale-outage-1", "123456");
         await fixture.Store.MarkSubmittingAsync("sale-outage-2");
         var retried = await fixture.Store.RequeueDefinitelyNotSentAsync("sale-outage-2", "DNS still failing", outage.AddMinutes(10));
