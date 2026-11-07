@@ -29,6 +29,7 @@ begin
 end;
 $$;
 revoke all on function fiskalo_private.fiskalo_basic_assign_daily_number() from public,anon,authenticated;
+alter function fiskalo_private.fiskalo_basic_assign_daily_number() set timezone to 'Europe/Belgrade';
 
 drop trigger if exists fiskalo_basic_sales_assign_daily_number on public.fiskalo_basic_sales;
 create trigger fiskalo_basic_sales_assign_daily_number
