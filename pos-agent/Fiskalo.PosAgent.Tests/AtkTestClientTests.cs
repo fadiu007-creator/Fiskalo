@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using Fiskalo.PosAgent.Core.Atk;
 using Xunit;
@@ -7,6 +8,20 @@ namespace Fiskalo.PosAgent.Tests;
 
 public sealed class AtkTestClientTests
 {
+    [Fact]
+    public void TransportClassifier_RetriesOnlyFailuresThatProveRequestWasNotSent()
+    {
+        Assert.True(AtkTransportFailureClassifier.IsDefinitelyNotSent(
+            new HttpRequestException("DNS failed", new SocketException((int)SocketError.HostNotFound))));
+        Assert.True(AtkTransportFailureClassifier.IsDefinitelyNotSent(
+            new HttpRequestException("Connection refused", new SocketException((int)SocketError.ConnectionRefused))));
+        Assert.True(AtkTransportFailureClassifier.IsDefinitelyNotSent(
+            new HttpRequestException("No route", new SocketException((int)SocketError.NetworkUnreachable))));
+        Assert.False(AtkTransportFailureClassifier.IsDefinitelyNotSent(
+            new HttpRequestException("Connection reset", new SocketException((int)SocketError.ConnectionReset))));
+        Assert.False(AtkTransportFailureClassifier.IsDefinitelyNotSent(new HttpRequestException("Unknown transport failure")));
+    }
+
     [Fact]
     public async Task VerifyPos_UsesOnlyOfficialTestHostAndExpectedRoute()
     {
