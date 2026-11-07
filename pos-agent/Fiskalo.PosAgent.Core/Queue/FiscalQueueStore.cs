@@ -30,7 +30,11 @@ public sealed class FiscalQueueStore
         string payloadBase64,
         string signatureBase64,
         DateTimeOffset? now = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? nuiKf = null,
+        string? citizenPayloadBase64 = null,
+        string? citizenSignatureBase64 = null,
+        long? dailyNumber = null)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey)) throw new ArgumentException("Idempotency key is required.", nameof(idempotencyKey));
         if (string.IsNullOrWhiteSpace(documentType)) throw new ArgumentException("Document type is required.", nameof(documentType));
@@ -39,6 +43,16 @@ public sealed class FiscalQueueStore
 
         _ = Convert.FromBase64String(payloadBase64);
         _ = Convert.FromBase64String(signatureBase64);
+        if (nuiKf is not null && !Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.IsValidNuiKf(nuiKf))
+            throw new ArgumentException("NUIKF must contain exactly 16 uppercase alphanumeric characters.", nameof(nuiKf));
+        if ((citizenPayloadBase64 is null) != (citizenSignatureBase64 is null))
+            throw new ArgumentException("Citizen coupon payload and signature must be supplied together.");
+        if (citizenPayloadBase64 is not null)
+        {
+            _ = Convert.FromBase64String(citizenPayloadBase64);
+            _ = Convert.FromBase64String(citizenSignatureBase64!);
+        }
+        if (dailyNumber is <= 0) throw new ArgumentOutOfRangeException(nameof(dailyNumber));
         var timestamp = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
 
         await _gate.WaitAsync(cancellationToken);
@@ -50,11 +64,19 @@ public sealed class FiscalQueueStore
             {
                 if (existing.PayloadBase64 != payloadBase64 ||
                     existing.SignatureBase64 != signatureBase64 ||
-                    existing.DocumentType != documentType)
+                    existing.DocumentType != documentType ||
+                    existing.NuiKf != nuiKf ||
+                    existing.CitizenPayloadBase64 != citizenPayloadBase64 ||
+                    existing.CitizenSignatureBase64 != citizenSignatureBase64 ||
+                    existing.DailyNumber != dailyNumber)
                     throw new InvalidOperationException("Idempotency key already exists with different fiscal content.");
                 return existing;
             }
 
+            if (nuiKf is not null && items.Any(x => string.Equals(x.NuiKf, nuiKf, StringComparison.Ordinal)))
+                throw new InvalidOperationException("NUIKF collision detected in the local fiscal queue. Generate a new identifier.");
+            var offlineStart = items.Where(x => x.Status == FiscalQueueStatus.Queued)
+                .Select(x => (DateTimeOffset?)x.CreatedAtUtc).Min() ?? timestamp;
             var item = new FiscalQueueItem
             {
                 IdempotencyKey = idempotencyKey,
@@ -62,8 +84,12 @@ public sealed class FiscalQueueStore
                 PayloadBase64 = payloadBase64,
                 SignatureBase64 = signatureBase64,
                 CreatedAtUtc = timestamp,
-                RecoveryDeadlineUtc = timestamp.Add(RecoveryWindow),
-                NextAttemptAtUtc = timestamp
+                RecoveryDeadlineUtc = offlineStart.Add(RecoveryWindow),
+                NextAttemptAtUtc = timestamp,
+                NuiKf = nuiKf,
+                CitizenPayloadBase64 = citizenPayloadBase64,
+                CitizenSignatureBase64 = citizenSignatureBase64,
+                DailyNumber = dailyNumber
             };
             items.Add(item);
             await SaveAsync(items, cancellationToken);
@@ -113,6 +139,32 @@ public sealed class FiscalQueueStore
                 // Never discard an unsent fiscal document when the recovery
                 // target is missed. Keep retrying and surface the overdue deadline.
                 Status = FiscalQueueStatus.Queued
+            };
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns a submission to the retry queue only when transport evidence proves
+    /// the request could not reach ATK (for example DNS failure or refused TCP connect).
+    /// Timeouts and dropped responses must use NeedsReconciliation instead.
+    /// </summary>
+    public Task<FiscalQueueItem> RequeueDefinitelyNotSentAsync(
+        string idempotencyKey,
+        string error,
+        DateTimeOffset? now = null,
+        CancellationToken cancellationToken = default)
+    {
+        var timestamp = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        return MutateAsync(idempotencyKey, item =>
+        {
+            if (item.Status != FiscalQueueStatus.Submitting)
+                throw new InvalidOperationException("Only a submitting document can be safely returned to the retry queue.");
+            var delaySeconds = Math.Min(15 * Math.Pow(2, Math.Min(Math.Max(item.AttemptCount - 1, 0), 10)), MaximumRetryDelay.TotalSeconds);
+            return item with
+            {
+                Status = FiscalQueueStatus.Queued,
+                NextAttemptAtUtc = timestamp.AddSeconds(delaySeconds),
+                LastError = Truncate(error, 500)
             };
         }, cancellationToken);
     }
