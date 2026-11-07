@@ -187,30 +187,36 @@ app.MapGet(QueuePath, async (HttpContext context, CancellationToken cancellation
     try {
         var items = await queueStore.GetAllAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
-        var visible = items.Select(item => new
+        var visible = items.Select(item =>
         {
-            item.IdempotencyKey,
-            item.DocumentType,
-            item.CreatedAtUtc,
-            item.RecoveryDeadlineUtc,
-            item.NextAttemptAtUtc,
-            status = item.Status.ToString(),
-            item.AttemptCount,
-            item.LastError,
-            item.AtkTransactionId,
-            item.NuiKf,
-            item.DailyNumber,
-            item.OfflineIssuedAtUtc,
-            citizenPayloadBase64 = item.CitizenPayloadBase64,
-            citizenSignatureBase64 = item.CitizenSignatureBase64,
-            citizenQrPayload = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
-                ? item.CitizenPayloadBase64 + "|" + item.CitizenSignatureBase64 : null,
-            qrSvgBase64 = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
-                ? Convert.ToBase64String(Encoding.UTF8.GetBytes(FiscalReceiptQrCode.CreateSvgData(item.CitizenPayloadBase64 + "|" + item.CitizenSignatureBase64))) : null,
-            detailsBase64 = item.Status == FiscalQueueStatus.Accepted ? item.PayloadBase64 : null,
-            signatureBase64 = item.Status == FiscalQueueStatus.Accepted ? item.SignatureBase64 : null,
-            recoveryDeadlineExceeded = item.Status is FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation &&
-                item.RecoveryDeadlineUtc <= now
+            var nuiKfValid = FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(
+                item.PayloadBase64, item.CitizenPayloadBase64, item.NuiKf);
+            return new
+            {
+                item.IdempotencyKey,
+                item.DocumentType,
+                item.CreatedAtUtc,
+                item.RecoveryDeadlineUtc,
+                item.NextAttemptAtUtc,
+                status = item.Status.ToString(),
+                item.AttemptCount,
+                item.LastError,
+                item.AtkTransactionId,
+                nuiKf = nuiKfValid ? item.NuiKf : null,
+                legacyNuiKf = item.LegacyNuiKf ?? (!nuiKfValid ? item.NuiKf : null),
+                item.DailyNumber,
+                item.OfflineIssuedAtUtc,
+                citizenPayloadBase64 = item.CitizenPayloadBase64,
+                citizenSignatureBase64 = item.CitizenSignatureBase64,
+                citizenQrPayload = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
+                    ? item.CitizenPayloadBase64 + "|" + item.CitizenSignatureBase64 : null,
+                qrSvgBase64 = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
+                    ? Convert.ToBase64String(Encoding.UTF8.GetBytes(FiscalReceiptQrCode.CreateSvgData(item.CitizenPayloadBase64 + "|" + item.CitizenSignatureBase64))) : null,
+                detailsBase64 = item.Status == FiscalQueueStatus.Accepted ? item.PayloadBase64 : null,
+                signatureBase64 = item.Status == FiscalQueueStatus.Accepted ? item.SignatureBase64 : null,
+                recoveryDeadlineExceeded = item.Status is FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation &&
+                    item.RecoveryDeadlineUtc <= now
+            };
         }).ToArray();
         return Results.Ok(new
         {
