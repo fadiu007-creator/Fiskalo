@@ -1,4 +1,7 @@
 using System.Security.Cryptography;
+using System.Net;
+using System.Net.Http;
+using System.Net.Sockets;
 using System.Text;
 using Fiskalo.PosAgent.Core.Queue;
 using Xunit;
@@ -163,6 +166,58 @@ public sealed class FiscalQueueStoreTests
         Assert.Equal(now.AddSeconds(15), queued.NextAttemptAtUtc);
         Assert.Empty(await fixture.Store.GetDueAsync(now.AddSeconds(14)));
         Assert.Single(await fixture.Store.GetDueAsync(now.AddSeconds(15)));
+    }
+
+    [Fact]
+    public async Task DeliveryService_AutomaticallyRetriesOfflineCouponAndRecordsAcceptedTransaction()
+    {
+        using var fixture = new QueueFixture();
+        var now = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.EnqueueAsync("sale-worker-1", "Sale", "cG9z", "c2ln", now);
+        var attempts = 0;
+        var delivery = new Fiskalo.PosAgent.Core.Atk.FiscalQueueDeliveryService(fixture.Store, (signed, token) =>
+        {
+            attempts++;
+            if (attempts == 1)
+                return Task.FromException<Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse>(
+                    new HttpRequestException("DNS failure", new SocketException((int)SocketError.HostNotFound)));
+            return Task.FromResult(new Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse("accepted", 987654));
+        });
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(now));
+        var queued = (await fixture.Store.GetAllAsync()).Single();
+        Assert.Equal(FiscalQueueStatus.Queued, queued.Status);
+        Assert.Equal(now, queued.OfflineIssuedAtUtc);
+        Assert.Equal(now.AddHours(48), queued.RecoveryDeadlineUtc);
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(now.AddSeconds(15)));
+        var accepted = (await fixture.Store.GetAllAsync()).Single();
+        Assert.Equal(FiscalQueueStatus.Accepted, accepted.Status);
+        Assert.Equal("987654", accepted.AtkTransactionId);
+        Assert.Equal(2, attempts);
+        Assert.Empty(await fixture.Store.GetDueAsync(now.AddHours(49)));
+    }
+
+    [Fact]
+    public async Task DeliveryService_DoesNotRetryAmbiguousTimeout()
+    {
+        using var fixture = new QueueFixture();
+        var now = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.EnqueueAsync("sale-worker-timeout", "Sale", "cG9z", "c2ln", now);
+        var attempts = 0;
+        var delivery = new Fiskalo.PosAgent.Core.Atk.FiscalQueueDeliveryService(fixture.Store, (signed, token) =>
+        {
+            attempts++;
+            return Task.FromException<Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse>(
+                new TaskCanceledException("Response timed out after submission"));
+        });
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(now));
+        var item = (await fixture.Store.GetAllAsync()).Single();
+        Assert.Equal(FiscalQueueStatus.NeedsReconciliation, item.Status);
+        Assert.Equal(1, attempts);
+        Assert.Equal(0, await delivery.DeliverDueAsync(now.AddHours(1)));
+        Assert.Equal(1, attempts);
     }
 
     [Fact]
