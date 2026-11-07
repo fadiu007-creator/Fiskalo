@@ -20,3 +20,22 @@ Supplier purchasing, advanced inventory, subscriptions, advanced cash management
 ## Compliance boundary
 
 A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued. See `docs/ATK-MVP-SCOPE.md`.
+
+
+## Current implementation state
+
+- [x] Clean Next.js/Cloudflare application foundation
+- [x] Supabase email/password login UI
+- [x] Basic business onboarding RPC and isolated schema
+- [x] Product catalogue UI and basic ATK mapping fields
+- [x] POS checkout UI with atomic stock deduction and payment recording
+- [x] ATK Protobuf encoder
+- [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and receipt printer support
+- [ ] Apply and verify the new `fiskalo_basic_*` migrations in the intended Supabase project
+- [ ] Connect paid web checkout to the local agent
+- [ ] Complete end-to-end Sale, Cancel and Return coupon workflows
+- [ ] Verify physical-device offline recovery, printer and ATK TEST acceptance
+- [ ] Authority-request export workflow
+- [ ] Cloudflare deployment and live smoke tests
+
+The application currently records paid sales internally but does **not** claim that they have been fiscalized. Do not use for production fiscalization until all release gates are met.
