@@ -147,7 +147,7 @@ public sealed class FiscalQueueStoreTests
 
         Assert.Equal(signed.DetailsBase64 + "|" + signed.SignatureBase64, payload);
         Assert.StartsWith("<svg", svg, StringComparison.Ordinal);
-        Assert.Contains("<path", svg, StringComparison.Ordinal);
+        Assert.Contains("<rect", svg, StringComparison.Ordinal);
     }
 
     [Fact]
