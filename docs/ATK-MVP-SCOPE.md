@@ -57,6 +57,19 @@ Baseline reviewed: Administrative Instruction MF No. 01/2026 published by ATK. T
 
 The ATK legal instruction states that the SEF must save transactions securely when communication is interrupted and transmit them automatically when service returns; Article 44 sets a 48-hour deadline. The software must generate QR codes even when fiscalization cannot complete immediately. These requirements are not satisfied merely by storing a paid sale or printing a TEST copy.
 
+## Fiscal receipt and offline queue work delivered in migrations 0005-0006
+
+- The POS Agent creates a cryptographically random 16-character uppercase alphanumeric NUIKF for each coupon and signs a separate ATK `CitizenCoupon` with the same locally protected ECDSA key used for the POS coupon.
+- The QR payload is `Base64(CitizenCoupon protobuf)|Base64(ECDSA signature)`, matching the official `fiskalizimi/pos-csharp` implementation. The Agent renders that exact payload as an SVG QR before attempting ATK submission and stores the CitizenCoupon bytes, signature, NUIKF and daily number in its encrypted local queue.
+- The Basic receipt view now includes taxpayer name/NUI, POS location, optional VAT number, operator name and identifier, SEF identifier, item quantity/unit price/value and ATK VAT letter, VAT group breakdown, totals, payment method, date/time, daily number, NUIKF, QR, document type, RKS/MF fiscal mark and `e-kuponi`. TEST receipts are explicitly labelled as test-only and cannot be mistaken for production coupons.
+- Migration 0005 adds a per-POS daily counter using the Kosovo local timezone, a unique NUIKF constraint, signed CitizenCoupon receipt fields and owner/member-checked RPCs to persist an offline receipt and later promote it to ATK-accepted status. Migration 0006 adds owner-only VAT-number maintenance.
+- The POS Agent retries only transport failures that prove the request was not delivered (DNS resolution failure, refused connection, network unreachable, etc.). It uses exponential backoff and one shared 48-hour deadline for all outstanding coupons in the same confirmed outage. A timeout, reset or ambiguous ATK response is moved to reconciliation rather than risk duplicate fiscalization.
+- When the Agent later receives a valid ATK TEST transaction ID, the browser polls the local queue and persists the accepted response into the cloud fiscal ledger.
+
+**Deployment verification (2026-11-07):** migrations 0005 and 0006 are applied to Supabase project `zikos`. The catalog/privilege regression script for migration 0005 passed. The daily counter function is configured for `Europe/Belgrade` (Kosovo local time). The test receipt UI and Agent changes are committed, but the current GitHub Actions run must pass before this batch is considered build-verified.
+
+**Important remaining boundary:** the current hosted checkout still creates the paid sale in Supabase before asking the local Agent to sign/queue the ATK coupon. Therefore this handles an ATK-system outage while the Fiskalo/Supabase connection remains available; it does not yet provide a fully disconnected POS sale when the store loses all internet connectivity. A local-first sales cache and post-reconnection sale sync are still required for that broader offline case. The 48-hour deadline is measured from the first confirmed failed delivery attempt, not from an independently monitored ATK outage start.
+
 ## Security hardening delivered in migration 0004
 
 Migration `0004_fiskalo_basic_security_hardening.sql` narrows the database trust boundary:
