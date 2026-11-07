@@ -355,24 +355,24 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             !string.Equals(installation.CertificateThumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase))
             return Results.Conflict(new { error = "verified_atk_test_installation_required" });
         if (request.Coupon.DailyNumber <= 0) return Results.BadRequest(new { error = "dailyNumber_must_be_positive_for_fiscal_receipt" });
-        var coupon = PosCouponBuilder.Build(request.Coupon);
-        if (coupon.BusinessId != installation.Nui || coupon.BranchId != installation.BranchId ||
-            coupon.PosId != installation.PosId || coupon.ApplicationId != installation.ApplicationId ||
-            !string.Equals(coupon.VerificationNo, installation.VerificationCode, StringComparison.Ordinal))
+        if (!string.IsNullOrEmpty(request.Coupon.VerificationNo))
+            return Results.BadRequest(new { error = "nui_kf_verification_no_is_generated_by_the_pos_agent_not_supplied_by_the_browser" });
+        if (request.Coupon.BusinessId != installation.Nui || request.Coupon.BranchId != installation.BranchId ||
+            request.Coupon.PosId != installation.PosId || request.Coupon.ApplicationId != installation.ApplicationId)
             return Results.BadRequest(new { error = "coupon_identity_does_not_match_verified_pos_installation" });
-        var expectedIdempotencyKey = coupon.BusinessId + ":" + coupon.BranchId + ":" + coupon.PosId + ":" + coupon.CouponId;
+        var expectedIdempotencyKey = request.Coupon.BusinessId + ":" + request.Coupon.BranchId + ":" + request.Coupon.PosId + ":" + request.Coupon.CouponId;
         if (!string.Equals(request.IdempotencyKey, expectedIdempotencyKey, StringComparison.Ordinal)) return Results.BadRequest(new { error = "idempotencyKey_must_match_business_branch_pos_coupon_ids", expected = expectedIdempotencyKey });
-        var signed = AtkCouponSigner.SignPosCoupon(coupon, key);
         var existing = (await queueStore.GetAllAsync(cancellationToken)).SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey);
-        if (existing is not null && (existing.PayloadBase64 != signed.DetailsBase64 || existing.DocumentType != coupon.Type.ToString()))
-            return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_content" });
         if (existing is not null && (existing.NuiKf is null || existing.CitizenPayloadBase64 is null || existing.CitizenSignatureBase64 is null))
             return Results.Conflict(new { status = existing.Status.ToString(), error = "legacy_queue_item_missing_signed_citizen_receipt_requires_operator_reconciliation" });
         if (existing is not null && !FiscalReceiptIdentity.IsValidNuiKf(existing.NuiKf))
-            return Results.Conflict(new { status = existing.Status.ToString(), error = "legacy_queue_item_uses_invalid_pre_spec_nuikf_requires_operator_reconciliation" });
+            return Results.Conflict(new { status = existing.Status.ToString(), error = "queue_item_has_invalid_nuikf_requires_operator_reconciliation" });
 
-        var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf(
-            installation.FiscalizationNumber, coupon.BranchId, coupon.Time);
+        var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf();
+        var coupon = PosCouponBuilder.Build(request.Coupon, nuiKf);
+        var signed = AtkCouponSigner.SignPosCoupon(coupon, key);
+        if (existing is not null && (existing.PayloadBase64 != signed.DetailsBase64 || existing.DocumentType != coupon.Type.ToString()))
+            return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_content" });
         var signedCitizen = existing is null
             ? AtkCouponSigner.SignCitizenCoupon(AtkCouponSigner.CreateCitizenCoupon(coupon), key)
             : null;
