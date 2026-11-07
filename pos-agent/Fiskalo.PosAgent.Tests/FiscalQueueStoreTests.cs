@@ -93,7 +93,7 @@ public sealed class FiscalQueueStoreTests
     public async Task SignedCitizenCouponAndNuiKf_ArePersistedWithTheEncryptedQueueItem()
     {
         using var fixture = new QueueFixture();
-        var nuiKf = Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf("0123456789", 121, DateTimeOffset.Parse("2026-11-07T12:00:00Z").ToUnixTimeSeconds());
+        var nuiKf = Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf();
         var citizen = Convert.ToBase64String(Encoding.UTF8.GetBytes("citizen-protobuf"));
         var signature = Convert.ToBase64String(Encoding.UTF8.GetBytes("signature"));
         var item = await fixture.Store.EnqueueAsync(
@@ -103,8 +103,8 @@ public sealed class FiscalQueueStoreTests
             nuiKf: nuiKf,
             dailyNumber: 17);
 
-        Assert.Equal(28, item.NuiKf!.Length);
-        Assert.Matches("^[0-9]{28}$", item.NuiKf);
+        Assert.Equal(16, item.NuiKf!.Length);
+        Assert.Matches("^[A-Z0-9]{16}$", item.NuiKf);
         Assert.Equal(citizen, item.CitizenPayloadBase64);
         Assert.Equal(signature, item.CitizenSignatureBase64);
         Assert.Equal(17, item.DailyNumber);
@@ -117,16 +117,13 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
-    public void NuiKf_UsesTheOfficialTwentyEightDigitComposition_AndIsUniqueAcrossDistinctIssueSeconds()
+    public void NuiKf_IsSixteenUppercaseAlphanumericCharacters_AndUniqueAcrossBatch()
     {
-        var start = DateTimeOffset.Parse("2026-11-07T12:00:00Z").ToUnixTimeSeconds();
         var values = Enumerable.Range(0, 1000)
-            .Select(i => Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf(
-                "0123456789", 121, start + i))
+            .Select(_ => Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf())
             .ToArray();
 
-        Assert.All(values, value => Assert.Matches("^[0-9]{28}$", value));
-        Assert.All(values, value => Assert.StartsWith("01234567890121", value));
+        Assert.All(values, value => Assert.Matches("^[A-Z0-9]{16}$", value));
         Assert.Equal(values.Length, values.Distinct(StringComparer.Ordinal).Count());
     }
 
