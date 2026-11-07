@@ -112,7 +112,7 @@ export default function Home(){
           pos_identifier:pos?pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"):null,
           business_address:pos?.location??null,
           unit_name:pos?.label??null,
-          operator_name:operatorNames.get(s.operator_id)??(user?.id===s.operator_id?operatorName:s.operator_id),
+          operator_name:s.operator_name??operatorNames.get(s.operator_id)??(user?.id===s.operator_id?operatorName:s.operator_id),
           operator_identifier:s.operator_id,
           document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
           is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc),
@@ -198,6 +198,7 @@ export default function Home(){
     if(!pos)return;
     setBusy(true);setMessage("");
     try{
+      const {error:operatorError}=await supabase!.rpc("fiskalo_basic_set_operator_name",{p_business_id:business.id,p_operator_name:operatorName.trim()});if(operatorError)throw operatorError;
       const {data:saleId,error}=await supabase!.rpc("fiskalo_basic_create_sale",{p_business_id:business.id,p_pos_id:selectedPos,p_payment_method:payment,p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity}))});
       if(error)throw error;
       setCart({});
@@ -242,7 +243,7 @@ export default function Home(){
         offline_issued_at:fiscal.offlineIssuedAtUtc??null,recovery_deadline_at:fiscal.recoveryDeadlineUtc??null,
         qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
         unit_name:pos.label,
-        business_address:pos.location,operator_name:operatorName.trim(),
+        business_address:pos.location,operator_name:sale.operator_name??operatorName.trim(),
         operator_identifier:user!.id,document_type:"SHITJE",is_offline:fiscal.offline
       };
       setReceipt(receiptRecord);
