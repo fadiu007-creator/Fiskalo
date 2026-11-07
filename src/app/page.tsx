@@ -29,6 +29,7 @@ export default function Home(){
   const [businessName,setBusinessName]=useState("");
   const [nui,setNui]=useState("");
   const [vatNumber,setVatNumber]=useState("");
+  const [operatorName,setOperatorName]=useState("");
   const [productName,setProductName]=useState("");
   const [productPrice,setProductPrice]=useState("1.00");
   const [productStock,setProductStock]=useState("0");
@@ -61,7 +62,7 @@ export default function Home(){
     if(member.role==="cashier")setTab("pos");
     const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui,vat_number").eq("id",member.business_id).single();
     if(bizError)throw bizError;
-    setBusiness(biz);setVatNumber(biz.vat_number??"");
+    setBusiness(biz);setVatNumber(biz.vat_number??"");setOperatorName(member.operator_name??String(user.user_metadata?.full_name??""));
     const [{data:prods,error:productError},{data:poses,error:posError}]=await Promise.all([
       supabase.from("fiskalo_basic_products").select("*").eq("business_id",biz.id).eq("active",true).order("name"),
       supabase.from("fiskalo_basic_pos").select("*").eq("business_id",biz.id).order("created_at")
@@ -178,6 +179,7 @@ export default function Home(){
 
   async function signIn(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabase!.auth.signInWithPassword({email:(document.getElementById("email") as HTMLInputElement).value,password:(document.getElementById("password") as HTMLInputElement).value});if(error)throw error;}catch(e){setMessage(e instanceof Error?e.message:"Hyrja dështoi.");}finally{setBusy(false);}}
   async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
+  async function saveOperatorName(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_set_operator_name",{p_business_id:business.id,p_operator_name:operatorName.trim()});if(error)throw error;setMessage("Emri i operatorit u ruajt për kuponët e ardhshëm.");}catch(e){setMessage(e instanceof Error?e.message:"Emri i operatorit nuk u ruajt.");}finally{setBusy(false);}}
   async function saveTaxProfile(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_update_business_tax_profile",{p_business_id:business.id,p_vat_number:vatNumber.trim()||null});if(error)throw error;setBusiness({...business,vat_number:vatNumber.trim()||null});setMessage("Numri i TVSH-së u ruajt për kuponët e ardhshëm.");}catch(e){setMessage(e instanceof Error?e.message:"Të dhënat tatimore nuk u ruajtën.");}finally{setBusy(false);}}
   async function addProduct(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_products").insert({business_id:business.id,name:productName,price:Number(productPrice),stock:Number(productStock),vat_rate:Number(vatRate),atk_vat_code:vatCode,atk_unit_code:unitCode,atk_item_category_code:categoryCode});if(error)throw error;setProductName("");await loadWorkspace(user!.id);setMessage("Artikulli u ruajt.");}catch(e){setMessage(e instanceof Error?e.message:"Artikulli nuk u ruajt.");}finally{setBusy(false);}}
   async function pairAgent(){setBusy(true);setMessage("");try{const result=await pairLocalAgent(pairCode.trim());sessionStorage.setItem("fiskalo.posAgentToken",result.sessionToken);setAgentToken(result.sessionToken);setPairCode("");setAgentStatus(await getLocalAgentStatus(result.sessionToken));setMessage("POS Agent u lidh me këtë shfletues.");}catch(e){setMessage(e instanceof Error?e.message:"Lidhja me POS Agent dështoi.");}finally{setBusy(false);}}
@@ -189,6 +191,7 @@ export default function Home(){
   const total=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*(1+line.product.vat_rate/100),0);
   async function completeSale(){
     if(!business||!selectedPos||!cartLines.length)return;
+    if(operatorName.trim().length<2){setMessage("Vendos emrin e operatorit para lëshimit të kuponit fiskal.");return;}
     const pos=positions.find(p=>p.id===selectedPos);
     if(!pos)return;
     setBusy(true);setMessage("");
@@ -237,7 +240,7 @@ export default function Home(){
         offline_issued_at:fiscal.offlineIssuedAtUtc??null,recovery_deadline_at:fiscal.recoveryDeadlineUtc??null,
         qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
         unit_name:pos.label,
-        business_address:pos.location,operator_name:String(user!.user_metadata?.full_name??user!.email??user!.id),
+        business_address:pos.location,operator_name:operatorName.trim(),
         operator_identifier:user!.id,document_type:"SHITJE",is_offline:fiscal.offline
       };
       setReceipt(receiptRecord);
@@ -279,6 +282,7 @@ export default function Home(){
   return <main className="shell">
     <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui} · {memberRole==="owner"?"Pronari":"Arkëtari"}</span></div><div className="row"><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
     <div className="eyebrow">Paneli i biznesit</div><h1>Arka dhe fiskalizimi.</h1><p className="sub">Version i thjeshtuar: produkte, POS dhe shitje. Shitjet e paguara dërgohen në ATK TEST kur POS-i është verifikuar, certifikuar dhe POS Agent është i lidhur. Production mbetet i çaktivizuar.</p>
+    <section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Operatori i arkës</h3><p className="sub">Ky emër shtypet në çdo kupon. ID-ja e llogarisë ruhet veçmas si identifikues i operatorit.</p><form onSubmit={saveOperatorName}><div className="field"><label>Emri dhe mbiemri i operatorit</label><input required minLength={2} maxLength={100} value={operatorName} onChange={e=>setOperatorName(e.target.value)} placeholder="Emri i operatorit"/></div><button className="btn secondary" disabled={busy}>Ruaj emrin e operatorit</button></form></section>
     {memberRole==="owner"&&<section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Të dhënat në kupon</h3><p className="sub">Numri i TVSH-së shtypet vetëm nëse biznesi është i regjistruar për TVSH. Adresa e kuponit merret nga lokacioni i POS-it.</p><form onSubmit={saveTaxProfile}><div className="field"><label>Numri i TVSH-së (9 shifra, opsional)</label><input inputMode="numeric" pattern="[0-9]{9}" maxLength={9} value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Lëre bosh nëse nuk je i regjistruar"/></div><button className="btn secondary" disabled={busy}>Ruaj të dhënat tatimore</button></form></section>}
     {queueOverdueCount>0&&<p className="notice" role="alert">KUJDES: {queueOverdueCount} kupon(e) offline kanë kaluar afatin 48-orësh. Radhët nuk fshihen dhe dërgimi vazhdon automatikisht, por kërkohet kontroll i menjëhershëm me ATK.</p>}
     <div className="row" style={{margin:"22px 0"}}><button className={tab==="pos"?"btn":"btn secondary"} onClick={()=>setTab("pos")}>Arka / POS</button>{memberRole==="owner"&&<><button className={tab==="products"?"btn":"btn secondary"} onClick={()=>setTab("products")}>Artikujt</button><button className={tab==="atk"?"btn":"btn secondary"} onClick={()=>setTab("atk")}>ATK / POS</button><button className={tab==="sales"?"btn":"btn secondary"} onClick={()=>{setTab("sales");void loadSales();}}>Shitjet</button></>}</div>
