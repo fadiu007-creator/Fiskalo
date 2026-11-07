@@ -116,16 +116,58 @@ grant select on public.fiskalo_basic_sale_items to authenticated;
 revoke insert,update,delete on public.fiskalo_basic_fiscal_documents from authenticated;
 grant select on public.fiskalo_basic_fiscal_documents to authenticated;
 
--- These functions perform the privileged writes only after validating auth.uid(),
--- business membership, POS ownership, sale identity and ATK response identity.
--- Pin built-ins ahead of writable schemas; the functions fully qualify table and
--- auth references. Keep temporary objects last in the path.
-alter function public.fiskalo_basic_create_business(text,text) security definer;
-alter function public.fiskalo_basic_create_business(text,text) set search_path = pg_catalog,public,pg_temp;
-alter function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) security definer;
-alter function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) set search_path = pg_catalog,public,pg_temp;
-alter function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) security definer;
-alter function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) set search_path = pg_catalog,public,pg_temp;
+-- Put the privileged implementations in a non-exposed schema. The public RPC
+-- entry points remain SECURITY INVOKER wrappers; the private implementations
+-- are callable only by authenticated users and validate auth.uid() internally.
+-- Do not add fiskalo_private to Supabase's exposed Data API schemas.
+create schema if not exists fiskalo_private;
+revoke all on schema fiskalo_private from public,anon;
+grant usage on schema fiskalo_private to authenticated;
+
+alter function public.fiskalo_basic_create_business(text,text) set schema fiskalo_private;
+alter function fiskalo_private.fiskalo_basic_create_business(text,text) security definer;
+alter function fiskalo_private.fiskalo_basic_create_business(text,text) set search_path = pg_catalog,public,pg_temp;
+revoke all on function fiskalo_private.fiskalo_basic_create_business(text,text) from public,anon;
+grant execute on function fiskalo_private.fiskalo_basic_create_business(text,text) to authenticated;
+
+create function public.fiskalo_basic_create_business(p_name text,p_nui text)
+returns uuid language sql security invoker set search_path=pg_catalog,public,pg_temp as $$
+  select fiskalo_private.fiskalo_basic_create_business(p_name,p_nui)
+$$;
+revoke all on function public.fiskalo_basic_create_business(text,text) from public,anon;
+grant execute on function public.fiskalo_basic_create_business(text,text) to authenticated;
+
+alter function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) set schema fiskalo_private;
+alter function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) security definer;
+alter function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) set search_path = pg_catalog,public,pg_temp;
+revoke all on function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) from public,anon;
+grant execute on function fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) to authenticated;
+
+create function public.fiskalo_basic_create_sale(
+  p_business_id uuid,p_pos_id uuid,p_payment_method text,p_lines jsonb
+) returns uuid language sql security invoker set search_path=pg_catalog,public,pg_temp as $$
+  select fiskalo_private.fiskalo_basic_create_sale(p_business_id,p_pos_id,p_payment_method,p_lines)
+$$;
+revoke all on function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) from public,anon;
+grant execute on function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) to authenticated;
+
+alter function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) set schema fiskalo_private;
+alter function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) security definer;
+alter function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) set search_path = pg_catalog,public,pg_temp;
+revoke all on function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) from public,anon;
+grant execute on function fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) to authenticated;
+
+create function public.fiskalo_basic_record_atk_sale(
+  p_business_id uuid,p_sale_id uuid,p_coupon_id bigint,p_idempotency_key text,
+  p_signed_payload text,p_signature text,p_atk_transaction_id numeric,p_atk_response jsonb
+) returns uuid language sql security invoker set search_path=pg_catalog,public,pg_temp as $$
+  select fiskalo_private.fiskalo_basic_record_atk_sale(
+    p_business_id,p_sale_id,p_coupon_id,p_idempotency_key,p_signed_payload,p_signature,
+    p_atk_transaction_id,p_atk_response
+  )
+$$;
+revoke all on function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) from public,anon;
+grant execute on function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) to authenticated;
 
 -- Coupon numbers are allocated only inside the checkout RPC.
 revoke usage,select on sequence public.fiskalo_basic_coupon_seq from authenticated;
