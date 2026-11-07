@@ -13,7 +13,7 @@ type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
 function FiscalLogo(){
-  return <svg role="img" aria-label="Logoja fiskale RKS MFPT" viewBox="0 0 120 60" width="20mm" height="10mm" style={{display:"block",margin:"0 auto",overflow:"visible"}} xmlns="http://www.w3.org/2000/svg">
+  return <svg role="img" aria-label="Logoja fiskale RKS MF" viewBox="0 0 120 60" width="20mm" height="10mm" style={{display:"block",margin:"0 auto",overflow:"visible"}} xmlns="http://www.w3.org/2000/svg">
     <path d="M5 7 L31 3 L57 7 L55 37 Q52 49 31 57 Q10 49 7 37 Z" fill="#fff" stroke="#111" strokeWidth="2.5"/>
     <path d="M9 10 L31 6 L53 10 L51 36 Q48 46 31 53 Q14 46 11 36 Z" fill="#222"/>
     <g fill="#fff">
@@ -26,7 +26,7 @@ function FiscalLogo(){
     </g>
     <path d="M24 23 L29 20 L34 22 L38 27 L35 32 L32 34 L31 40 L27 42 L25 37 L21 34 L19 29 Z" fill="#fff"/>
     <text x="64" y="29" fontFamily="Arial,sans-serif" fontSize="22" fontWeight="900" fill="#111" letterSpacing="1">RKS</text>
-    <text x="64" y="47" fontFamily="Arial,sans-serif" fontSize="14" fontWeight="800" fill="#111" letterSpacing="1">MFPT</text>
+    <text x="64" y="47" fontFamily="Arial,sans-serif" fontSize="14" fontWeight="800" fill="#111" letterSpacing="1">MF</text>
   </svg>;
 }
 
