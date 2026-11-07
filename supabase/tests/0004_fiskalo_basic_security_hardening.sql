@@ -47,6 +47,30 @@ begin
     end if;
   end loop;
 
+  if not exists (
+    select 1 from pg_policies
+    where schemaname='public' and tablename='fiskalo_basic_products'
+      and policyname='fiskalo_basic_products_insert_owner'
+      and coalesce(with_check,'') like '%role = ''owner''%'
+  ) then raise exception 'product inserts must be owner-only'; end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname='public' and tablename='fiskalo_basic_pos'
+      and policyname='fiskalo_basic_pos_update_owner'
+      and coalesce(qual,'') like '%role = ''owner''%'
+      and coalesce(with_check,'') like '%role = ''owner''%'
+  ) then raise exception 'POS updates must be owner-only on old and new row'; end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname='public' and tablename='fiskalo_basic_products'
+      and policyname='fiskalo_basic_products_read_member' and cmd='SELECT'
+  ) then raise exception 'business members require product catalogue read access'; end if;
+
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname like 'fiskalo_basic_%' and p.prosecdef
+  ) then raise exception 'public Basic RPC wrappers must remain SECURITY INVOKER'; end if;
+
   if not has_function_privilege('authenticated','public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb)','EXECUTE') or
      not has_function_privilege('authenticated','public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb)','EXECUTE') then
     raise exception 'Authenticated public RPC wrappers are missing execute permission';
