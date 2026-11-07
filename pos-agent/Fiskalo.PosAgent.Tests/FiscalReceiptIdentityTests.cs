@@ -49,6 +49,10 @@ public sealed class FiscalReceiptIdentityTests
 
         Assert.Equal(nuiKf, posCoupon.VerificationNo);
         Assert.Equal(nuiKf, citizenCoupon.VerificationNo);
+        var posPayload = Convert.ToBase64String(posCoupon.ToByteArray());
+        var citizenPayload = Convert.ToBase64String(citizenCoupon.ToByteArray());
+        Assert.True(FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(posPayload, citizenPayload, nuiKf));
+        Assert.False(FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(posPayload, citizenPayload, FiscalReceiptIdentity.CreateNuiKf()));
     }
 
     [Theory]
