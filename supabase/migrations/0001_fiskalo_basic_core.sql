@@ -137,3 +137,14 @@ create policy fiskalo_basic_fiscal_access on public.fiskalo_basic_fiscal_documen
   for select to authenticated using (
     exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_fiscal_documents.business_id and m.user_id=auth.uid())
   );
+
+-- Explicit Data API grants; RLS above remains the row-level authorization boundary.
+grant select, insert on public.fiskalo_basic_businesses to authenticated;
+grant select, insert on public.fiskalo_basic_members to authenticated;
+grant select, insert, update, delete on public.fiskalo_basic_pos to authenticated;
+grant select, insert, update, delete on public.fiskalo_basic_products to authenticated;
+grant select, insert on public.fiskalo_basic_sales to authenticated;
+grant select on public.fiskalo_basic_fiscal_documents to authenticated;
+revoke all on public.fiskalo_basic_businesses, public.fiskalo_basic_members,
+  public.fiskalo_basic_pos, public.fiskalo_basic_products, public.fiskalo_basic_sales,
+  public.fiskalo_basic_fiscal_documents from anon;
