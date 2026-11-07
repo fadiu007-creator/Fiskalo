@@ -107,7 +107,7 @@ export default function Home(){
           items:itemsBySale.get(s.id)??[],
           transaction_id:String(doc?.atk_transaction_id??queued?.atkTransactionId??"")||null,
           nui_kf:doc?.nui_kf??(queued?.nuiKf&&/^[A-Z0-9]{16}$/.test(queued.nuiKf)?queued.nuiKf:null),
-          legacy_nui_kf:doc?.legacy_nui_kf??(queued?.nuiKf&&!/^[A-Z0-9]{16}$/.test(queued.nuiKf)?queued.nuiKf:null),
+          legacy_nui_kf:doc?.legacy_nui_kf??queued?.legacyNuiKf??(queued?.nuiKf&&!/^[A-Z0-9]{16}$/.test(queued.nuiKf)?queued.nuiKf:null),
           daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
           submission_state:queued?.status?.toLowerCase()==="accepted"?"accepted":doc?.submission_state??queued?.status??null,
           offline_issued_at:doc?.offline_issued_at??queued?.offlineIssuedAtUtc??null,
