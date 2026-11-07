@@ -106,7 +106,7 @@ export default function Home(){
           offline_issued_at:doc?.offline_issued_at??queued?.offlineIssuedAtUtc??null,
           recovery_deadline_at:doc?.recovery_deadline_at??queued?.recoveryDeadlineUtc??null,
           qr_svg_base64:queued?.qrSvgBase64??null,
-          pos_identifier:pos?pos.branch_id+"-"+business.nui+"-"+pos.pos_id:null,
+          pos_identifier:pos?pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"):null,
           business_address:pos?.location??null,
           operator_name:user?.id===s.operator_id?(String(user.user_metadata?.full_name??user.email??s.operator_id)):s.operator_id,
           operator_identifier:s.operator_id,
@@ -292,7 +292,7 @@ export default function Home(){
           <strong style={{fontSize:18,letterSpacing:1}}>FISKALO</strong>
           <div style={{fontWeight:700,marginTop:4}}>{business.name}</div>
           <div>{receipt.business_address||"Adresa e njësisë nuk është konfiguruar"}</div>
-          <div>NF / NUI: {business.nui}</div>
+          <div>NF-NUI: {business.nui}</div>
           {business.vat_number&&<div>Numri TVSH: {business.vat_number}</div>}
           <div>Operator: {receipt.operator_name||receipt.operator_identifier||receipt.operator_id}</div>
           <div>ID operatori: {receipt.operator_identifier||receipt.operator_id}</div>
@@ -304,6 +304,7 @@ export default function Home(){
           <div>{receipt.document_type||"SHITJE"}</div>
           <div>{new Date(receipt.created_at).toLocaleString("sq-XK")}</div>
           <div>Nr. kuponit: {receipt.coupon_id}</div>
+          <div>ARTIKUJ: {receipt.items.length}</div>
           <div>Kupon fiskal ditor nr. {String(receipt.daily_number??"—").padStart(4,"0")}</div>
           <div>Nr. identifikues i SEF: {receipt.pos_identifier||"—"}</div>
         </div>
@@ -334,7 +335,7 @@ export default function Home(){
         </div>
         <div style={{textAlign:"center",paddingTop:8}}>
           <div style={{fontSize:20,fontWeight:900,letterSpacing:2}}>RKS</div>
-          <div style={{fontSize:13,fontWeight:800,letterSpacing:3}}>MF</div>
+          <div style={{fontSize:13,fontWeight:800,letterSpacing:3}}>MFPT</div>
           <div style={{fontWeight:700,marginTop:4}}>e-kuponi</div>
           <div style={{fontSize:10,marginTop:7}}>Dokument testues i Fiskalo në mjedisin ATK TEST. Nuk është kupon fiskal i vlefshëm për shitje reale.</div>
         </div>
