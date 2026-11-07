@@ -37,6 +37,20 @@ public static class FiscalReceiptIdentity
         value is { Length: NuiKfLength } &&
         value.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'Z');
 
+    public static bool IsPosCouponPayload(string? posPayloadBase64)
+    {
+        if (string.IsNullOrWhiteSpace(posPayloadBase64)) return false;
+        try
+        {
+            var pos = PosCoupon.Parser.ParseFrom(Convert.FromBase64String(posPayloadBase64));
+            return pos.BusinessId > 0 && pos.CouponId > 0 && pos.VerificationNo.Length > 0;
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidProtocolBufferException)
+        {
+            return false;
+        }
+    }
+
     public static bool IsNuiKfEmbeddedInSignedCoupons(
         string? posPayloadBase64,
         string? citizenPayloadBase64,
