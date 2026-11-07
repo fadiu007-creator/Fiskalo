@@ -43,7 +43,7 @@ public static class FiscalReceiptIdentity
         try
         {
             var pos = PosCoupon.Parser.ParseFrom(Convert.FromBase64String(posPayloadBase64));
-            return pos.BusinessId > 0 && pos.CouponId > 0 && pos.VerificationNo.Length > 0;
+            return pos.BusinessId > 0 && pos.CouponId > 0;
         }
         catch (Exception ex) when (ex is FormatException or InvalidProtocolBufferException)
         {
