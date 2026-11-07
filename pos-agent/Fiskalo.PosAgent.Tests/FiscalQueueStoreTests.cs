@@ -196,18 +196,22 @@ public sealed class FiscalQueueStoreTests
     public async Task ConnectivityMonitor_AnchorsFortyEightHourDeadlineAtFirstDetectedOutage()
     {
         using var fixture = new QueueFixture();
-        var outageStart = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        var lastHealthyProbe = DateTimeOffset.Parse("2026-11-07T11:59:45Z");
+        var outageDetectedAt = lastHealthyProbe.AddSeconds(15);
+        var available = true;
         var monitor = new Fiskalo.PosAgent.Core.Atk.FiscalConnectivityMonitor(
-            fixture.Store, _ => Task.FromResult(false));
+            fixture.Store, _ => Task.FromResult(available));
 
-        Assert.Equal(outageStart, await monitor.ProbeAsync(outageStart));
-        Assert.Equal(outageStart, await monitor.ProbeAsync(outageStart.AddMinutes(30)));
-        Assert.Equal(outageStart, await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+        Assert.Null(await monitor.ProbeAsync(lastHealthyProbe));
+        available = false;
+        Assert.Equal(lastHealthyProbe, await monitor.ProbeAsync(outageDetectedAt));
+        Assert.Equal(lastHealthyProbe, await monitor.ProbeAsync(outageDetectedAt.AddMinutes(30)));
+        Assert.Equal(lastHealthyProbe, await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
 
         var item = await fixture.Store.EnqueueAsync(
-            "sale-monitored-outage", "Sale", "cG9z", "c2ln", outageStart.AddHours(2));
-        Assert.Equal(outageStart, item.OfflineIssuedAtUtc);
-        Assert.Equal(outageStart.AddHours(48), item.RecoveryDeadlineUtc);
+            "sale-monitored-outage", "Sale", "cG9z", "c2ln", outageDetectedAt.AddHours(2));
+        Assert.Equal(lastHealthyProbe, item.OfflineIssuedAtUtc);
+        Assert.Equal(lastHealthyProbe.AddHours(48), item.RecoveryDeadlineUtc);
     }
 
     [Fact]
@@ -219,7 +223,7 @@ public sealed class FiscalQueueStoreTests
         var monitor = new Fiskalo.PosAgent.Core.Atk.FiscalConnectivityMonitor(
             fixture.Store, _ => Task.FromResult(available));
 
-        Assert.Equal(now, await monitor.ProbeAsync(now));
+        Assert.Equal(now.AddSeconds(-20), await monitor.ProbeAsync(now));
         available = true;
         Assert.Null(await monitor.ProbeAsync(now.AddMinutes(1)));
         Assert.Null(await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
