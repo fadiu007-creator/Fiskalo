@@ -41,6 +41,17 @@ Deliver the smallest maintainable product that can complete ATK's required onboa
 7. Authority-request export access-control test.
 8. ATK portal verification and formal certification application evidence.
 
+## Security hardening delivered in migration 0004
+
+Migration `0004_fiskalo_basic_security_hardening.sql` narrows the database trust boundary:
+- Owners alone can create or change POS configuration and product catalogue rows; cashiers retain read access for checkout.
+- Authenticated clients cannot directly insert/update/delete sales, sale lines or fiscal documents. Paid checkout and accepted ATK response persistence remain routed through validated RPCs.
+- Privileged database implementations are moved into the non-exposed `fiskalo_private` schema. Public RPC entry points are SECURITY INVOKER wrappers; private helpers require `auth.uid()` and are executable only by authenticated users.
+- The old column-level direct permission to update a sale's fiscal status is explicitly revoked.
+- `supabase/tests/0004_fiskalo_basic_security_hardening.sql` checks the resulting grants and function placement.
+
+**Deployment gate:** this migration is committed but must still be applied to the intended Supabase project and verified there. Keep `fiskalo_private` out of the Supabase Data API exposed-schema list. The current UI still does not provide a complete owner-managed cashier invitation workflow; role provisioning needs its own secure implementation and tests.
+
 ## Current status
 
 Implemented in the clean repository:
@@ -55,7 +66,7 @@ Not yet complete:
 - ATK Cancel and Return workflows and their end-to-end acceptance tests.
 - Verified official unit/category catalogue and dropdowns. The sample integration repository demonstrates payload values but is not itself a complete current ATK catalogue.
 - Complete browser/operator reconciliation and authority-request export.
-- Migration application and live RLS verification in the intended Supabase project.
+- Apply migration 0004 and run its privilege regression test; then execute authenticated owner/cashier cross-tenant RLS integration tests.
 - Physical POS tests for Windows installation, printer output, offline recovery and duplicate/timeout scenarios.
 - ATK provider/software certification and production credentials.
 
