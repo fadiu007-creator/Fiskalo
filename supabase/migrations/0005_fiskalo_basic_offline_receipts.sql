@@ -5,7 +5,7 @@
 
 alter table public.fiskalo_basic_businesses
   add column if not exists vat_number text
-  check (vat_number is null or vat_number ~ '^[0-9]{9}
+  check (vat_number is null or (char_length(vat_number)=9 and translate(vat_number,'0123456789','')=''));
 
 create table if not exists fiskalo_private.fiskalo_basic_daily_counters (
   pos_id uuid not null references public.fiskalo_basic_pos(id) on delete restrict,
@@ -76,7 +76,7 @@ declare
   v_existing public.fiskalo_basic_fiscal_documents%rowtype;
 begin
   if auth.uid() is null then raise exception 'Authentication required'; end if;
-  if coalesce(p_nui_kf,'') !~ '^[A-Z0-9]{16} or p_daily_number is null or p_daily_number<=0 then
+  if char_length(coalesce(p_nui_kf,''))<>16 or translate(coalesce(p_nui_kf,''),'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789','')<>'' or p_daily_number is null or p_daily_number<=0 then
     raise exception 'NUIKF or daily coupon number is invalid';
   end if;
   if length(coalesce(p_signed_payload,''))=0 or length(coalesce(p_signature,''))=0 or
