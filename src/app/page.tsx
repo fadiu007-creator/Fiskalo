@@ -195,44 +195,71 @@ export default function Home(){
       if(saleError)throw saleError;if(linesError)throw linesError;
       if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id){
         await loadWorkspace(user!.id);
-        setMessage("Shitja u ruajt si e paguar, por ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk është fiskalizuar.");
+        setMessage("Shitja u ruajt si e paguar, por ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Nuk u krijua kupon fiskal.");
         return;
       }
-      try{
-        const cents=(value:number)=>Math.round(Number(value)*100);
-        const grouped=new Map<string,{taxRate:string;base:number;tax:number}>();
-        for(const line of lines??[]){
-          const key=line.atk_vat_code;
-          const group=grouped.get(key)??{taxRate:key,base:0,tax:0};
-          group.base+=cents(line.line_net);group.tax+=cents(line.line_vat);grouped.set(key,group);
-        }
-        const paymentType=payment==="cash"?1:payment==="card"?2:6;
-        const coupon={
-          businessId:Number(business.nui),couponId:Number(sale.coupon_id),branchId:pos.branch_id,
-          location:pos.location,operatorId:user!.id,posId:pos.pos_id,applicationId:Number(pos.application_id),
-          verificationNo:pos.verification_no,type:1,unixTime:Math.floor(new Date(sale.created_at).getTime()/1000),
-          items:(lines??[]).map(line=>({name:line.description,unitPriceEuro:Number(line.unit_price),unit:line.atk_unit_code,quantity:Number(line.quantity),lineTotalCents:cents(line.line_total),taxRate:line.atk_vat_code,itemType:line.atk_item_category_code})),
-          payments:[{type:paymentType,amountCents:cents(sale.total)}],
-          totalCents:cents(sale.total),taxGroups:Array.from(grouped.values()).map(g=>({taxRate:g.taxRate,totalForTaxCents:g.base,totalTaxCents:g.tax})),
-          totalTaxCents:cents(sale.vat_total),totalNoTaxCents:cents(sale.subtotal),totalDiscountCents:0
-        };
-        const idempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+sale.coupon_id;
-        const accepted=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon);
-        if(accepted.status!=="accepted"||!(/^[1-9][0-9]{0,19}$/.test(accepted.transactionId)))throw new Error("ATK did not return a valid transaction_id.");
-        const {error:recordError}=await supabase!.rpc("fiskalo_basic_record_atk_sale",{
-          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,p_idempotency_key:idempotencyKey,
-          p_signed_payload:accepted.detailsBase64,p_signature:accepted.signatureBase64,
-          p_atk_transaction_id:accepted.transactionId,p_atk_response:accepted
-        });
-        if(recordError)throw new Error("ATK returned transaction_id "+accepted.transactionId+", but Fiskalo could not persist the accepted record: "+recordError.message+". Do not resubmit; reconcile this coupon.");
-        await loadWorkspace(user!.id);
-        setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+accepted.transactionId);
-      }catch(submitError){
-        await loadWorkspace(user!.id);
-        setMessage(submitError instanceof Error?"Shitja u ruajt, por fiskalizimi nuk u konfirmua. Kontrollo radhën e POS Agent dhe statusin në ATK para çdo riprovimi. "+submitError.message:"Shitja u ruajt, por rezultati i ATK është i paqartë. Mos e ridërgo pa reconciliim.");
+      const cents=(value:number)=>Math.round(Number(value)*100);
+      const grouped=new Map<string,{taxRate:string;base:number;tax:number}>();
+      for(const line of lines??[]){
+        const key=line.atk_vat_code;
+        const group=grouped.get(key)??{taxRate:key,base:0,tax:0};
+        group.base+=cents(line.line_net);group.tax+=cents(line.line_vat);grouped.set(key,group);
       }
-    }catch(e){setMessage(e instanceof Error?e.message:"Shitja dështoi.");}
-    finally{setBusy(false);}
+      const paymentType=payment==="cash"?1:payment==="card"?2:6;
+      if(!sale.daily_number||Number(sale.daily_number)<=0)throw new Error("Numri ditor i kuponit nuk u caktua nga baza e të dhënave.");
+      const coupon={
+        businessId:Number(business.nui),couponId:Number(sale.coupon_id),dailyNumber:Number(sale.daily_number),
+        branchId:pos.branch_id,location:pos.location,operatorId:user!.id,posId:pos.pos_id,
+        applicationId:Number(pos.application_id),verificationNo:pos.verification_no,type:1,
+        unixTime:Math.floor(new Date(sale.created_at).getTime()/1000),
+        items:(lines??[]).map(line=>({name:line.description,unitPriceEuro:Number(line.unit_price),unit:line.atk_unit_code,quantity:Number(line.quantity),lineTotalCents:cents(line.line_total),taxRate:line.atk_vat_code,itemType:line.atk_item_category_code})),
+        payments:[{type:paymentType,amountCents:cents(sale.total)}],
+        totalCents:cents(sale.total),taxGroups:Array.from(grouped.values()).map(g=>({taxRate:g.taxRate,totalForTaxCents:g.base,totalTaxCents:g.tax})),
+        totalTaxCents:cents(sale.vat_total),totalNoTaxCents:cents(sale.subtotal),totalDiscountCents:0
+      };
+      const idempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+sale.coupon_id;
+      const fiscal=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon);
+      if(!fiscal.nuiKf||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)throw new Error("POS Agent did not produce the signed CitizenCoupon QR. Do not print this as a fiscal receipt.");
+      if(fiscal.status==="accepted"&&(!fiscal.transactionId||!(/^[1-9][0-9]{0,19}$/.test(fiscal.transactionId))))throw new Error("ATK did not return a valid transaction_id.");
+
+      const receiptRecord:SaleRecord={
+        ...sale,items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
+        transaction_id:fiscal.transactionId,nui_kf:fiscal.nuiKf,daily_number:fiscal.dailyNumber,
+        submission_state:fiscal.status==="accepted"?"accepted":"queued",
+        offline_issued_at:fiscal.offlineIssuedAtUtc??null,recovery_deadline_at:fiscal.recoveryDeadlineUtc??null,
+        qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.branch_id+"-"+business.nui+"-"+pos.pos_id,
+        business_address:pos.location,operator_name:String(user!.user_metadata?.full_name??user!.email??user!.id),
+        operator_identifier:user!.id,document_type:"SHITJE",is_offline:fiscal.offline
+      };
+      setReceipt(receiptRecord);
+
+      if(fiscal.status==="accepted"){
+        const {error:recordError}=await supabase!.rpc("fiskalo_basic_record_atk_receipt",{
+          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,p_idempotency_key:idempotencyKey,
+          p_signed_payload:fiscal.detailsBase64,p_signature:fiscal.signatureBase64,
+          p_atk_transaction_id:fiscal.transactionId,p_atk_response:fiscal,
+          p_nui_kf:fiscal.nuiKf,p_citizen_payload:fiscal.citizenQrPayload.split("|")[0],
+          p_citizen_signature:fiscal.citizenQrPayload.split("|")[1],p_daily_number:fiscal.dailyNumber,
+          p_offline_issued_at:fiscal.offlineIssuedAtUtc??null
+        });
+        if(recordError)throw new Error("ATK pranoi kuponin me Transaction ID "+fiscal.transactionId+", por ruajtja e statusit dështoi: "+recordError.message+". Mos e ridërgo; sinkronizoje pas verifikimit.");
+        setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId);
+      }else{
+        const {error:queueError}=await supabase!.rpc("fiskalo_basic_store_offline_receipt",{
+          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,p_idempotency_key:idempotencyKey,
+          p_signed_payload:fiscal.detailsBase64,p_signature:fiscal.signatureBase64,
+          p_nui_kf:fiscal.nuiKf,p_citizen_payload:fiscal.citizenQrPayload.split("|")[0],
+          p_citizen_signature:fiscal.citizenQrPayload.split("|")[1],p_daily_number:fiscal.dailyNumber,
+          p_offline_issued_at:fiscal.offlineIssuedAtUtc
+        });
+        if(queueError)throw new Error("Kuponi i nënshkruar është ruajtur në radhën lokale, por regjistrimi i tij në panel dështoi: "+queueError.message);
+        setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
+      }
+      await loadWorkspace(user!.id);
+    }catch(e){
+      await loadWorkspace(user!.id);
+      setMessage(e instanceof Error?e.message:"Shitja/fiskalizimi dështoi. Kontrollo radhën lokale para çdo riprovimi.");
+    }finally{setBusy(false);}
   }
 
   if(!configured)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">Basic ATK MVP</span></header><section className="panel"><h1>Konfigurimi kërkohet</h1><p className="sub">Vendos NEXT_PUBLIC_SUPABASE_URL dhe NEXT_PUBLIC_SUPABASE_ANON_KEY në mjedisin e aplikacionit.</p></section></main>;
