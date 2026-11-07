@@ -8,7 +8,7 @@ type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -83,7 +83,7 @@ export default function Home(){
       const ids=rows.map(s=>s.id);
       const [{data:itemRows,error:itemError},{data:documents,error:documentError},{data:members}]=await Promise.all([
         supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total,line_net,line_vat,vat_rate,atk_unit_code,atk_vat_code").in("sale_id",ids),
-        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type,qr_svg_base64").in("sale_id",ids),
+        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,legacy_nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type,qr_svg_base64").in("sale_id",ids),
         supabase.from("fiskalo_basic_members").select("user_id,operator_name").eq("business_id",business.id)
       ]);
       if(itemError)throw itemError;if(documentError)throw documentError;
@@ -104,6 +104,7 @@ export default function Home(){
           items:itemsBySale.get(s.id)??[],
           transaction_id:String(doc?.atk_transaction_id??queued?.atkTransactionId??"")||null,
           nui_kf:doc?.nui_kf??queued?.nuiKf??null,
+          legacy_nui_kf:doc?.legacy_nui_kf??null,
           daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
           submission_state:queued?.status?.toLowerCase()==="accepted"?"accepted":doc?.submission_state??queued?.status??null,
           offline_issued_at:doc?.offline_issued_at??queued?.offlineIssuedAtUtc??null,
@@ -238,7 +239,7 @@ export default function Home(){
       };
       const idempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+sale.coupon_id;
       const fiscal=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon);
-      if(!fiscal.nuiKf||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)throw new Error("POS Agent did not produce the signed CitizenCoupon QR. Do not print this as a fiscal receipt.");
+      if(!/^[0-9]{28}$/.test(fiscal.nuiKf||"")||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)throw new Error("POS Agent did not produce an ATK-format 28-digit NUIKF and signed CitizenCoupon QR. Do not print this as a fiscal receipt.");
       if(fiscal.status==="accepted"&&(!fiscal.transactionId||!(/^[1-9][0-9]{0,19}$/.test(fiscal.transactionId))))throw new Error("ATK did not return a valid transaction_id.");
 
       const receiptRecord:SaleRecord={
@@ -246,7 +247,7 @@ export default function Home(){
         transaction_id:fiscal.transactionId,nui_kf:fiscal.nuiKf,daily_number:fiscal.dailyNumber,
         submission_state:fiscal.status==="accepted"?"accepted":"queued",
         offline_issued_at:fiscal.offlineIssuedAtUtc??null,recovery_deadline_at:fiscal.recoveryDeadlineUtc??null,
-        qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+        qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.fiscalization_number,
         unit_name:pos.label,
         business_address:pos.location,operator_name:sale.operator_name??operatorName.trim(),
         operator_identifier:user!.id,document_type:"SHITJE",is_offline:fiscal.offline
@@ -354,7 +355,11 @@ export default function Home(){
         </div>
         <div style={{textAlign:"center",padding:"8px 0",borderBottom:"1px dashed #888"}}>
           <div style={{fontWeight:700}}>NUIKF</div>
-          <div style={{fontSize:14,fontWeight:800,letterSpacing:1}}>{receipt.nui_kf||"NUK ËSHTË GJENERUAR"}</div>
+          {receipt.nui_kf
+            ? <div style={{fontSize:14,fontWeight:800,letterSpacing:1}}>{receipt.nui_kf}</div>
+            : receipt.legacy_nui_kf
+              ? <div style={{fontWeight:800,color:"#b91c1c"}}>NUIKF I VJETËR TESTUES — FORMAT I PAVLEFSHËM: {receipt.legacy_nui_kf}</div>
+              : <div style={{fontWeight:800,color:"#b91c1c"}}>NUIKF NUK ËSHTË GJENERUAR</div>}
           {receipt.qr_svg_base64?<img alt="Kodi QR i kuponit të nënshkruar" src={"data:image/svg+xml;base64,"+receipt.qr_svg_base64} style={{width:170,height:170,objectFit:"contain",margin:"8px auto",display:"block"}}/>:<div style={{padding:12,border:"1px solid #b91c1c",color:"#b91c1c",fontWeight:700}}>QR mungon — mos e përdor këtë dokument si kupon fiskal.</div>}
           <div>Statusi ATK: {receipt.submission_state?.toLowerCase()==="accepted"||receipt.status==="fiscalized"?"ACCEPTED":receipt.submission_state?.toLowerCase()==="needsreconciliation"?"RECONCILIIM I NEVOJSHËM":receipt.submission_state?.toLowerCase()==="rejected"?"REFUZUAR NGA ATK":receipt.is_offline?"OFFLINE · NË RADHË":"PENDING"}</div>
           {receipt.transaction_id&&<div>Transaction ID: {receipt.transaction_id}</div>}{receipt.queue_last_error&&<div style={{fontSize:10,marginTop:4}}>Shënim: {receipt.queue_last_error}</div>}
@@ -362,9 +367,9 @@ export default function Home(){
         </div>
         <div style={{textAlign:"center",paddingTop:8}}>
           <img src="https://www.rks-gov.net/Content/images/stema.png" alt="Stema shtetërore e Republikës së Kosovës" width="48" height="54" style={{display:"block",width:48,height:54,objectFit:"contain",margin:"0 auto 5px"}}/>
-          <div style={{fontWeight:800,letterSpacing:0.4}}>REPUBLIKA E KOSOVËS</div>
-          <div style={{fontSize:10,marginTop:3}}>REPUBLIC OF KOSOVO · REPUBLIKA KOSOVO</div>
-          <div style={{fontWeight:700,marginTop:7}}>KUPON ELEKTRONIK · FISKALO</div>
+          <div style={{fontSize:17,fontWeight:900,letterSpacing:2}}>RKS</div>
+          <div style={{fontSize:13,fontWeight:800,letterSpacing:2}}>MFPT</div>
+          <div style={{fontWeight:700,marginTop:5}}>e-kuponi</div>
           <div style={{fontSize:10,marginTop:7,fontWeight:800}}>ATK TEST — DOKUMENT TESTUES</div>
           <div style={{fontSize:10,marginTop:3}}>Nuk është kupon fiskal i vlefshëm për shitje reale dhe nuk dëshmon certifikim të Fiskalo nga ATK.</div>
         </div>
