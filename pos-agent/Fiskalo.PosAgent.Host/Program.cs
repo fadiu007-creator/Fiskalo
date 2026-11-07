@@ -25,7 +25,7 @@ const string PrinterPrintPath = "/api/v1/printers/print";
 const string PrinterTestPath = "/api/v1/printers/test";
 
 var allowedOrigins = (Environment.GetEnvironmentVariable("FISKALO_ALLOWED_ORIGINS")
-    ?? "https://fiskalo.shqiptare.workers.dev")
+    ?? "https://fiskalo.shqiptare.workers.dev;https://fiskalo.pages.dev;http://localhost:3000")
     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .ToHashSet(StringComparer.Ordinal);
 
