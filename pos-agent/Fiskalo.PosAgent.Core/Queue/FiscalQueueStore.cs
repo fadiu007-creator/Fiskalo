@@ -76,7 +76,7 @@ public sealed class FiscalQueueStore
             if (nuiKf is not null && items.Any(x => string.Equals(x.NuiKf, nuiKf, StringComparison.Ordinal)))
                 throw new InvalidOperationException("NUIKF collision detected in the local fiscal queue. Generate a new identifier.");
             var offlineStart = items.Where(x => x.Status == FiscalQueueStatus.Queued)
-                .Select(x => (DateTimeOffset?)x.CreatedAtUtc).Min() ?? timestamp;
+                .Select(x => (DateTimeOffset?)(x.OfflineIssuedAtUtc ?? x.CreatedAtUtc)).Min() ?? timestamp;
             var item = new FiscalQueueItem
             {
                 IdempotencyKey = idempotencyKey,
@@ -165,6 +165,7 @@ public sealed class FiscalQueueStore
                 Status = FiscalQueueStatus.Queued,
                 NextAttemptAtUtc = timestamp.AddSeconds(delaySeconds),
                 OfflineIssuedAtUtc = item.OfflineIssuedAtUtc ?? timestamp,
+                RecoveryDeadlineUtc = (item.OfflineIssuedAtUtc ?? timestamp).Add(RecoveryWindow),
                 LastError = Truncate(error, 500)
             };
         }, cancellationToken);
