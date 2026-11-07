@@ -4,6 +4,9 @@ create sequence if not exists public.fiskalo_basic_coupon_seq;
 alter table public.fiskalo_basic_products
   add column if not exists vat_rate numeric(5,2) not null default 18
   check (vat_rate in (0,8,18));
+alter table public.fiskalo_basic_pos
+  add column if not exists verified_business_name text;
+
 alter table public.fiskalo_basic_products
   add constraint fiskalo_basic_product_atk_mapping_check
   check (
