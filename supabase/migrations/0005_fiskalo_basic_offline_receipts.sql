@@ -22,7 +22,7 @@ set search_path = ''
 as $$
 begin
   insert into fiskalo_private.fiskalo_basic_daily_counters(pos_id,business_date,last_number)
-  values (new.pos_id,timezone('Europe/Belgrade', now())::date,1)
+  values (new.pos_id,timezone('CET', now())::date,1)
   on conflict (pos_id,business_date)
   do update set last_number=fiskalo_private.fiskalo_basic_daily_counters.last_number+1
   returning last_number into new.daily_number;
@@ -258,7 +258,7 @@ set search_path = ''
 as $$
 begin
   insert into fiskalo_private.fiskalo_basic_daily_counters(pos_id,business_date,last_number)
-  values (new.pos_id,(now() at time zone 'Europe/Belgrade')::date,1)
+  values (new.pos_id,(now() at time zone 'CET')::date,1)
   on conflict (pos_id,business_date)
   do update set last_number=fiskalo_private.fiskalo_basic_daily_counters.last_number+1
   returning last_number into new.daily_number;
@@ -656,7 +656,7 @@ set search_path = ''
 as $$
 begin
   insert into fiskalo_private.fiskalo_basic_daily_counters(pos_id,business_date,last_number)
-  values (new.pos_id,(now() at time zone 'Europe/Belgrade')::date,1)
+  values (new.pos_id,(now() at time zone 'CET')::date,1)
   on conflict (pos_id,business_date)
   do update set last_number=fiskalo_private.fiskalo_basic_daily_counters.last_number+1
   returning last_number into new.daily_number;
