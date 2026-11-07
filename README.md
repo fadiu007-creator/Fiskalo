@@ -46,4 +46,4 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 
 ## Database security migration
 
-Migration `supabase/migrations/0004_fiskalo_basic_security_hardening.sql` is committed but is not automatically applied by the application build. Apply it to the intended Supabase project, keep `fiskalo_private` outside the exposed Data API schemas, and run `supabase/tests/0004_fiskalo_basic_security_hardening.sql` before enabling cashier accounts.
+Migration `supabase/migrations/0004_fiskalo_basic_security_hardening.sql` has been applied to Supabase project `zikos`; its catalog/privilege regression script passed there. The private helper schema must remain outside the exposed Data API schemas. Full authenticated owner/cashier and cross-tenant RLS integration tests are still required before enabling cashier provisioning.
