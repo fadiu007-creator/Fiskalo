@@ -8,7 +8,7 @@ type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean};
 type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -79,7 +79,7 @@ export default function Home(){
       if(!rows.length){setSales([]);return;}
       const ids=rows.map(s=>s.id);
       const [{data:itemRows,error:itemError},{data:documents,error:documentError}]=await Promise.all([
-        supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total,atk_unit_code,atk_vat_code").in("sale_id",ids),
+        supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total,line_net,line_vat,vat_rate,atk_unit_code,atk_vat_code").in("sale_id",ids),
         supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type").in("sale_id",ids)
       ]);
       if(itemError)throw itemError;if(documentError)throw documentError;
@@ -223,7 +223,7 @@ export default function Home(){
       if(fiscal.status==="accepted"&&(!fiscal.transactionId||!(/^[1-9][0-9]{0,19}$/.test(fiscal.transactionId))))throw new Error("ATK did not return a valid transaction_id.");
 
       const receiptRecord:SaleRecord={
-        ...sale,items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
+        ...sale,items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
         transaction_id:fiscal.transactionId,nui_kf:fiscal.nuiKf,daily_number:fiscal.dailyNumber,
         submission_state:fiscal.status==="accepted"?"accepted":"queued",
         offline_issued_at:fiscal.offlineIssuedAtUtc??null,recovery_deadline_at:fiscal.recoveryDeadlineUtc??null,
