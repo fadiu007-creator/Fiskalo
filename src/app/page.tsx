@@ -49,7 +49,7 @@ export default function Home(){
     if(!supabase)return;
     const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role").eq("user_id",uid).limit(1).maybeSingle();
     if(memberError)throw memberError;
-    if(!member){setBusiness(null);setProducts([]);setPositions([]);return;}
+    if(!member){setBusiness(null);setProducts([]);setPositions([]);setSelectedPos("");return;}
     const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui").eq("id",member.business_id).single();
     if(bizError)throw bizError;
     setBusiness(biz);
@@ -59,7 +59,7 @@ export default function Home(){
     ]);
     if(productError)throw productError;if(posError)throw posError;
     setProducts(prods??[]);setPositions(poses??[]);
-    if(!selectedPos&&poses?.length)setSelectedPos(poses[0].id);
+    setSelectedPos(current=>poses?.some(p=>p.id===current)?current:(poses?.[0]?.id??""));
   },[supabase,selectedPos]);
 
   useEffect(()=>{
