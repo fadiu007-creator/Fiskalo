@@ -12,3 +12,16 @@ export async function pairLocalAgent(pairingCode:string){return call<{sessionTok
 export async function getLocalAgentStatus(token:string){return call<AgentStatus>("/api/v1/status",token);}
 export async function verifyLocalTestPos(token:string,input:{nui:number;fiscalizationNumber:string;posId:number;branchId:number;applicationId:number}){return call<AtkVerification>("/api/v1/atk/test/verify",token,input);}
 export async function issueLocalTestCertificate(token:string,input:{businessName:string;businessNui:number;branchId:number;verificationCode:string;posId:number;applicationId:number}){return call<AtkCertificate>("/api/v1/atk/test/sign-csr",token,input);}
+
+export type AtkCouponSubmitResult={
+  status:"accepted";
+  transactionId:string;
+  detailsBase64:string;
+  signatureBase64:string;
+  duplicateRequest?:boolean;
+  environment:"ATK TEST";
+  productionEnabled?:false;
+};
+export async function submitLocalTestCoupon(token:string,idempotencyKey:string,coupon:unknown){
+  return call<AtkCouponSubmitResult>("/api/v1/atk/test/coupon",token,{idempotencyKey,coupon});
+}
