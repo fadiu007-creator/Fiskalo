@@ -79,17 +79,41 @@ export default function Home(){
       if(!rows.length){setSales([]);return;}
       const ids=rows.map(s=>s.id);
       const [{data:itemRows,error:itemError},{data:documents,error:documentError}]=await Promise.all([
-        supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total").in("sale_id",ids),
-        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id").in("sale_id",ids)
+        supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total,atk_unit_code,atk_vat_code").in("sale_id",ids),
+        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type").in("sale_id",ids)
       ]);
       if(itemError)throw itemError;if(documentError)throw documentError;
       const itemsBySale=new Map<string,SaleRecord["items"]>();
       for(const item of itemRows??[]){const list=itemsBySale.get(item.sale_id)??[];list.push(item);itemsBySale.set(item.sale_id,list);}
-      const transactionBySale=new Map((documents??[]).map(doc=>[doc.sale_id,String(doc.atk_transaction_id??"")||null]));
-      setSales(rows.map(s=>({...s,items:itemsBySale.get(s.id)??[],transaction_id:transactionBySale.get(s.id)??null})));
+      const docsBySale=new Map((documents??[]).map(doc=>[doc.sale_id,doc]));
+      const queue=agentToken?await getLocalAgentQueue(agentToken).catch(()=>null):null;
+      const queueByKey=new Map((queue?.items??[]).map(item=>[item.idempotencyKey,item]));
+      setSales(rows.map(s=>{
+        const pos=positions.find(p=>p.id===s.pos_id);
+        const idempotencyKey=pos?business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+s.coupon_id:"";
+        const queued=queueByKey.get(idempotencyKey);
+        const doc=docsBySale.get(s.id);
+        return {
+          ...s,
+          items:itemsBySale.get(s.id)??[],
+          transaction_id:String(doc?.atk_transaction_id??queued?.atkTransactionId??"")||null,
+          nui_kf:doc?.nui_kf??queued?.nuiKf??null,
+          daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
+          submission_state:doc?.submission_state??queued?.status??null,
+          offline_issued_at:doc?.offline_issued_at??queued?.offlineIssuedAtUtc??null,
+          recovery_deadline_at:doc?.recovery_deadline_at??queued?.recoveryDeadlineUtc??null,
+          qr_svg_base64:queued?.qrSvgBase64??null,
+          pos_identifier:pos?pos.branch_id+"-"+business.nui+"-"+pos.pos_id:null,
+          business_address:pos?.location??null,
+          operator_name:user?.id===s.operator_id?(String(user.user_metadata?.full_name??user.email??s.operator_id)):s.operator_id,
+          operator_identifier:s.operator_id,
+          document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
+          is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc)
+        };
+      }));
     }catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua historia e shitjeve.");}
     finally{setBusy(false);}
-  },[supabase,business]);
+  },[supabase,business,agentToken,positions,user]);
 
   useEffect(()=>{
     if(!supabase){setConfigured(false);setLoading(false);return;}
