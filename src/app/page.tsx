@@ -1,18 +1,95 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-type SessionUser = { email?: string | null };
-export default function Home() {
-  const [user,setUser] = useState<SessionUser|null>(null);
-  const [email,setEmail] = useState("");
-  const [password,setPassword] = useState("");
-  const [busy,setBusy] = useState(false);
-  const [message,setMessage] = useState("");
-  const [configured,setConfigured] = useState(true);
-  useEffect(()=>{try{const supabase=createClient();supabase.auth.getUser().then(({data})=>setUser(data.user));const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>setUser(session?.user??null));return()=>subscription.unsubscribe();}catch{setConfigured(false);}},[]);
-  async function signIn(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await createClient().auth.signInWithPassword({email,password});if(error)throw error;}catch(err){setMessage(err instanceof Error?err.message:"Could not sign in.");}finally{setBusy(false);}}
-  async function signOut(){await createClient().auth.signOut();setUser(null);}
-  if(!configured)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">Basic ATK MVP</span></header><section className="panel"><h1>Configuration required</h1><p className="sub">Add your Supabase URL and anon key to the environment before using the application.</p><code>NEXT_PUBLIC_SUPABASE_URL</code><br/><code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code></section></main>;
-  if(!user)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">Fiscal POS · Kosovo</span></header><section className="panel" style={{maxWidth:460,margin:"8vh auto"}}><div className="eyebrow">Hyr në llogari</div><h1>Mirë se u ktheve.</h1><p className="sub">Hyr si pronar ose arkëtar për të menaxhuar shitjet dhe fiskalizimin.</p><form onSubmit={signIn}><div className="field"><label>Email</label><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username"/></div><div className="field"><label>Fjalëkalimi</label><input type="password" required value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password"/></div>{message&&<p role="alert" className="notice">{message}</p>}<button className="btn" disabled={busy} style={{width:"100%"}}>{busy?"Duke hyrë…":"Hyr"}</button></form></section><p className="footer">Fiskalo Basic · Integrimi TEST nuk nënkupton certifikim ATK.</p></main>;
-  return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><div className="row"><span className="sub">{user.email}</span><button className="btn secondary" onClick={signOut}>Dil</button></div></header><div className="eyebrow">Paneli i biznesit</div><h1>Shitje të thjeshta. Fiskalizim i saktë.</h1><p className="sub">MVP i fokusuar në POS dhe kërkesat bazë të integrimit me ATK.</p><div className="grid"><button className="tile" onClick={()=>setMessage("Moduli i arkës po ndërtohet në këtë MVP.")}><span className="icon">POS</span><strong>Arka</strong><p>Krijo shitje, regjistro pagesën dhe nis dërgimin e kuponit në ATK.</p></button><button className="tile" onClick={()=>setMessage("Katalogu minimal i produkteve do të lidhet me tabelat e biznesit.")}><span className="icon">01</span><strong>Artikujt</strong><p>Emri, çmimi, stoku dhe kodet zyrtare ATK për secilin artikull.</p></button><button className="tile" onClick={()=>setMessage("Konfigurimi i POS-it kërkon identifikuesit dhe certifikatën e lëshuar nga ATK.")}><span className="icon">ATK</span><strong>ATK / POS</strong><p>Regjistrimi, verifikimi dhe statusi i certifikatës për pajisjen.</p></button></div>{message&&<p className="notice">{message}</p>}<section className="panel"><div className="row" style={{justifyContent:"space-between"}}><div><div className="eyebrow">Statusi i fiskalizimit</div><h2 style={{margin:"7px 0"}}>Konfigurimi nuk është përfunduar</h2></div><span className="status">TEST / jo i certifikuar</span></div><p className="sub" style={{marginBottom:0}}>Mos e konsidero shitjen të fiskalizuar pa përgjigjen e pranuar nga ATK dhe ruajtjen e transaction_id.</p></section><p className="footer">Fiskalo Basic ATK MVP · Prodhimi mbetet i çaktivizuar deri në autorizimin dhe certifikimin zyrtar.</p></main>;
+
+type Business={id:string;name:string;nui:string};
+type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
+type Pos={id:string;label:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;certificate_status:string};
+type CartLine={product:Product;quantity:number};
+type Tab="pos"|"products"|"atk";
+
+export default function Home(){
+  const [user,setUser]=useState<User|null>(null);
+  const [configured,setConfigured]=useState(true);
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [message,setMessage]=useState("");
+  const [business,setBusiness]=useState<Business|null>(null);
+  const [products,setProducts]=useState<Product[]>([]);
+  const [positions,setPositions]=useState<Pos[]>([]);
+  const [tab,setTab]=useState<Tab>("pos");
+  const [businessName,setBusinessName]=useState("");
+  const [nui,setNui]=useState("");
+  const [productName,setProductName]=useState("");
+  const [productPrice,setProductPrice]=useState("1.00");
+  const [productStock,setProductStock]=useState("0");
+  const [vatRate,setVatRate]=useState("18");
+  const [vatCode,setVatCode]=useState("E");
+  const [unitCode,setUnitCode]=useState("");
+  const [categoryCode,setCategoryCode]=useState("");
+  const [posLabel,setPosLabel]=useState("Arka 1");
+  const [branchId,setBranchId]=useState("1");
+  const [posId,setPosId]=useState("1");
+  const [fiscalizationNumber,setFiscalizationNumber]=useState("");
+  const [applicationId,setApplicationId]=useState("");
+  const [selectedPos,setSelectedPos]=useState("");
+  const [cart,setCart]=useState<Record<string,CartLine>>({});
+  const [payment,setPayment]=useState("cash");
+
+  const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
+  const loadWorkspace=useCallback(async(uid:string)=>{
+    if(!supabase)return;
+    const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role").eq("user_id",uid).limit(1).maybeSingle();
+    if(memberError)throw memberError;
+    if(!member){setBusiness(null);setProducts([]);setPositions([]);return;}
+    const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui").eq("id",member.business_id).single();
+    if(bizError)throw bizError;
+    setBusiness(biz);
+    const [{data:prods,error:productError},{data:poses,error:posError}]=await Promise.all([
+      supabase.from("fiskalo_basic_products").select("*").eq("business_id",biz.id).eq("active",true).order("name"),
+      supabase.from("fiskalo_basic_pos").select("*").eq("business_id",biz.id).order("created_at")
+    ]);
+    if(productError)throw productError;if(posError)throw posError;
+    setProducts(prods??[]);setPositions(poses??[]);
+    if(!selectedPos&&poses?.length)setSelectedPos(poses[0].id);
+  },[supabase,selectedPos]);
+
+  useEffect(()=>{
+    if(!supabase){setConfigured(false);setLoading(false);return;}
+    supabase.auth.getUser().then(async({data,error})=>{
+      if(error){setMessage(error.message);setLoading(false);return;}
+      setUser(data.user);
+      if(data.user){try{await loadWorkspace(data.user.id)}catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira.")}}
+      setLoading(false);
+    });
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{setUser(session?.user??null);if(!session?.user){setBusiness(null);setProducts([]);setPositions([]);}});
+    return()=>subscription.unsubscribe();
+  },[supabase,loadWorkspace]);
+
+  async function signIn(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabase!.auth.signInWithPassword({email:(document.getElementById("email") as HTMLInputElement).value,password:(document.getElementById("password") as HTMLInputElement).value});if(error)throw error;}catch(e){setMessage(e instanceof Error?e.message:"Hyrja dështoi.");}finally{setBusy(false);}}
+  async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
+  async function addProduct(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_products").insert({business_id:business.id,name:productName,price:Number(productPrice),stock:Number(productStock),vat_rate:Number(vatRate),atk_vat_code:vatCode,atk_unit_code:unitCode,atk_item_category_code:categoryCode});if(error)throw error;setProductName("");await loadWorkspace(user!.id);setMessage("Artikulli u ruajt.");}catch(e){setMessage(e instanceof Error?e.message:"Artikulli nuk u ruajt.");}finally{setBusy(false);}}
+  async function addPos(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_pos").insert({business_id:business.id,label:posLabel,branch_id:Number(branchId),pos_id:Number(posId),fiscalization_number:fiscalizationNumber,application_id:applicationId||null});if(error)throw error;await loadWorkspace(user!.id);setMessage("POS-i u regjistrua në Fiskalo. Kjo nuk e verifikon automatikisht te ATK.");}catch(e){setMessage(e instanceof Error?e.message:"POS-i nuk u ruajt.");}finally{setBusy(false);}}
+  function changeCart(product:Product,delta:number){setCart(current=>{const next={...current};const qty=(next[product.id]?.quantity??0)+delta;if(qty<=0)delete next[product.id];else next[product.id]={product,quantity:qty};return next;});}
+  const cartLines=Object.values(cart);
+  const total=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*(1+line.product.vat_rate/100),0);
+  async function completeSale(){if(!business||!selectedPos||!cartLines.length)return;setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_sale",{p_business_id:business.id,p_pos_id:selectedPos,p_payment_method:payment,p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity}))});if(error)throw error;setCart({});await loadWorkspace(user!.id);setMessage("Shitja u ruajt si e paguar. Dërgimi në ATK nuk është aktivizuar ende në këtë MVP; mos e trajto si kupon fiskal.");}catch(e){setMessage(e instanceof Error?e.message:"Shitja dështoi.");}finally{setBusy(false);}}
+
+  if(!configured)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">Basic ATK MVP</span></header><section className="panel"><h1>Konfigurimi kërkohet</h1><p className="sub">Vendos NEXT_PUBLIC_SUPABASE_URL dhe NEXT_PUBLIC_SUPABASE_ANON_KEY në mjedisin e aplikacionit.</p></section></main>;
+  if(loading)return <main className="shell"><div className="brand">fiskalo<span>.</span></div><p className="sub">Duke ngarkuar…</p></main>;
+  if(!user)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">Fiscal POS · Kosovo</span></header><section className="panel" style={{maxWidth:460,margin:"8vh auto"}}><div className="eyebrow">Hyr në llogari</div><h1>Mirë se u ktheve.</h1><p className="sub">Hyr si pronar ose arkëtar.</p><form onSubmit={signIn}><div className="field"><label>Email</label><input id="email" type="email" required autoComplete="username"/></div><div className="field"><label>Fjalëkalimi</label><input id="password" type="password" required autoComplete="current-password"/></div>{message&&<p className="notice">{message}</p>}<button className="btn" disabled={busy} style={{width:"100%"}}>{busy?"Duke hyrë…":"Hyr"}</button></form></section></main>;
+  if(!business)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></header><section className="panel" style={{maxWidth:560,margin:"5vh auto"}}><div className="eyebrow">Konfigurimi fillestar</div><h1>Regjistro biznesin</h1><p className="sub">Krijo hapësirën e biznesit. NUI duhet të jetë numri real i biznesit.</p><form onSubmit={createBusiness}><div className="field"><label>Emri i biznesit</label><input required value={businessName} onChange={e=>setBusinessName(e.target.value)}/></div><div className="field"><label>NUI (9 shifra)</label><input required inputMode="numeric" pattern="[0-9]{9}" value={nui} onChange={e=>setNui(e.target.value)}/></div>{message&&<p className="notice">{message}</p>}<button className="btn" disabled={busy}>{busy?"Duke ruajtur…":"Krijo biznesin"}</button></form></section></main>;
+
+  return <main className="shell">
+    <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui}</span></div><div className="row"><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
+    <div className="eyebrow">Paneli i biznesit</div><h1>Arka dhe fiskalizimi.</h1><p className="sub">Version i thjeshtuar: produkte, POS dhe shitje. Dërgimi fiskal aktivizohet pasi të përfundojë integrimi dhe testimi ATK.</p>
+    <div className="row" style={{margin:"22px 0"}}><button className={tab==="pos"?"btn":"btn secondary"} onClick={()=>setTab("pos")}>Arka / POS</button><button className={tab==="products"?"btn":"btn secondary"} onClick={()=>setTab("products")}>Artikujt</button><button className={tab==="atk"?"btn":"btn secondary"} onClick={()=>setTab("atk")}>ATK / POS</button></div>
+    {message&&<p className="notice" role="status">{message}</p>}
+    {tab==="products"&&<div className="grid" style={{gridTemplateColumns:"minmax(260px,1fr) minmax(280px,1.4fr)"}}><section className="panel"><h2>Artikull i ri</h2><form onSubmit={addProduct}><div className="field"><label>Emri</label><input required value={productName} onChange={e=>setProductName(e.target.value)}/></div><div className="field"><label>Çmimi pa TVSH (€)</label><input type="number" min="0" step="0.0001" required value={productPrice} onChange={e=>setProductPrice(e.target.value)}/></div><div className="field"><label>Stoku</label><input type="number" min="0" step="0.001" value={productStock} onChange={e=>setProductStock(e.target.value)}/></div><div className="field"><label>Norma TVSH</label><select value={vatRate} onChange={e=>{setVatRate(e.target.value);setVatCode(e.target.value==="18"?"E":e.target.value==="8"?"D":"A")}}><option value="18">18%</option><option value="8">8%</option><option value="0">0%</option></select></div><div className="field"><label>Kodi ATK – njësia</label><input required value={unitCode} onChange={e=>setUnitCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – kategoria</label><input required value={categoryCode} onChange={e=>setCategoryCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – TVSH</label><input required maxLength={1} value={vatCode} onChange={e=>setVatCode(e.target.value.toUpperCase())}/></div><button className="btn" disabled={busy}>Ruaj artikullin</button></form></section><section className="panel"><h2>Katalogu</h2>{products.length===0?<p className="sub">Nuk ka artikuj ende.</p>:products.map(p=><div key={p.id} className="row" style={{justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--line)"}}><div><strong>{p.name}</strong><div className="sub" style={{fontSize:12}}>Stoku {p.stock} · TVSH {p.vat_rate}%</div></div><strong>€{Number(p.price).toFixed(2)}</strong></div>)}</section></div>}
+    {tab==="atk"&&<div className="grid" style={{gridTemplateColumns:"minmax(260px,1fr) minmax(280px,1.4fr)"}}><section className="panel"><h2>Regjistro POS</h2><form onSubmit={addPos}><div className="field"><label>Emërtimi</label><input required value={posLabel} onChange={e=>setPosLabel(e.target.value)}/></div><div className="field"><label>Numri i njësisë / Branch ID</label><input type="number" min="1" required value={branchId} onChange={e=>setBranchId(e.target.value)}/></div><div className="field"><label>Numri POS</label><input type="number" min="1" required value={posId} onChange={e=>setPosId(e.target.value)}/></div><div className="field"><label>Numri i fiskalizimit TEST</label><input required value={fiscalizationNumber} onChange={e=>setFiscalizationNumber(e.target.value)}/></div><div className="field"><label>Application ID TEST</label><input value={applicationId} onChange={e=>setApplicationId(e.target.value)}/></div><button className="btn" disabled={busy}>Ruaj POS-in</button></form></section><section className="panel"><h2>Pajisjet</h2>{positions.length===0?<p className="sub">Nuk është regjistruar asnjë POS.</p>:positions.map(p=><div key={p.id} style={{padding:"12px 0",borderBottom:"1px solid var(--line)"}}><div className="row" style={{justifyContent:"space-between"}}><strong>{p.label}</strong><span className="status">{p.certificate_status}</span></div><p className="sub" style={{fontSize:12,margin:"5px 0"}}>Njësia {p.branch_id} · POS {p.pos_id} · TEST {p.fiscalization_number}</p></div>)}<p className="notice" style={{marginTop:15}}>Ky regjistrim ruan konfigurimin në Fiskalo. Verifikimi ATK, CSR dhe certifikata ende nuk kryhen nga ky ekran.</p></section></div>}
+    {tab==="pos"&&<div className="grid" style={{gridTemplateColumns:"minmax(280px,1.5fr) minmax(260px,1fr)"}}><section className="panel"><div className="row" style={{justifyContent:"space-between"}}><h2>Artikujt</h2><span className="eyebrow">{products.length} artikuj</span></div>{products.length===0?<p className="sub">Shto artikujt fillimisht te skeda Artikujt.</p>:<div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))"}}>{products.map(p=><button key={p.id} className="tile" style={{minHeight:110}} onClick={()=>changeCart(p,1)}><span className="icon">+</span><strong>{p.name}</strong><p>€{(Number(p.price)*(1+Number(p.vat_rate)/100)).toFixed(2)} · stok {p.stock}</p></button>)}</div>}</section><section className="panel"><h2>Shporta</h2>{cartLines.map(line=><div key={line.product.id} className="row" style={{justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--line)"}}><div><strong>{line.product.name}</strong><div className="sub" style={{fontSize:12}}>Sasia: {line.quantity}</div></div><div className="row"><button className="btn secondary" onClick={()=>changeCart(line.product,-1)}>-</button><button className="btn secondary" onClick={()=>changeCart(line.product,1)}>+</button></div></div>)}<div className="field"><label>POS</label><select value={selectedPos} onChange={e=>setSelectedPos(e.target.value)}><option value="">Zgjidh POS</option>{positions.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></div><div className="field"><label>Pagesa</label><select value={payment} onChange={e=>setPayment(e.target.value)}><option value="cash">Cash</option><option value="card">Kartelë</option><option value="bank_transfer">Transfer bankar</option></select></div><div className="row" style={{justifyContent:"space-between",margin:"18px 0"}}><strong>Totali</strong><strong className="stat">€{total.toFixed(2)}</strong></div><button className="btn" style={{width:"100%"}} disabled={busy||!cartLines.length||!selectedPos} onClick={completeSale}>{busy?"Duke ruajtur…":"Regjistro pagesën"}</button><p className="footer">Regjistrimi i pagesës nuk është kupon fiskal. Dërgimi në ATK nuk është aktivizuar ende.</p></section></div>}
+    <section className="panel" style={{marginTop:18}}><div className="row" style={{justifyContent:"space-between"}}><div><div className="eyebrow">Gjendja e ATK</div><h3 style={{margin:"7px 0"}}>Integrimi në zhvillim</h3></div><span className="status">TEST · jo i certifikuar</span></div><p className="sub" style={{margin:0}}>Fiskalo nuk shënon kupon si fiskalizuar pa përgjigje të pranuar nga ATK dhe transaction_id të ruajtur.</p></section>
+    <p className="footer">Fiskalo Basic ATK MVP · Provider authorization and formal ATK certification are external release gates.</p>
+  </main>;
 }
