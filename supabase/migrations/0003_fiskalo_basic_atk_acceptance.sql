@@ -13,8 +13,8 @@ grant insert on public.fiskalo_basic_fiscal_documents to authenticated;
 
 create policy fiskalo_basic_sales_update_status on public.fiskalo_basic_sales
   for update to authenticated
-  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_sales.business_id and m.user_id=auth.uid()))
-  with check (exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_sales.business_id and m.user_id=auth.uid()));
+  using (status='paid' and exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_sales.business_id and m.user_id=auth.uid()))
+  with check (status='fiscalized' and exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_sales.business_id and m.user_id=auth.uid()));
 grant update(status) on public.fiskalo_basic_sales to authenticated;
 
 create or replace function public.fiskalo_basic_record_atk_sale(
@@ -68,7 +68,7 @@ begin
   end if;
 
   update public.fiskalo_basic_sales set status='fiscalized'
-    where id=p_sale_id and business_id=p_business_id and coupon_id=p_coupon_id;
+    where id=p_sale_id and business_id=p_business_id and coupon_id=p_coupon_id and status='paid';
   return new_document_id;
 end $$;
 revoke all on function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) from public,anon;
