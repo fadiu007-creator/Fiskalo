@@ -46,7 +46,7 @@ public sealed class FiscalQueueStore
         _ = Convert.FromBase64String(payloadBase64);
         _ = Convert.FromBase64String(signatureBase64);
         if (nuiKf is not null && !Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.IsValidNuiKf(nuiKf))
-            throw new ArgumentException("NUIKF must contain exactly 28 digits in the ATK SEF format.", nameof(nuiKf));
+            throw new ArgumentException("NUIKF/VerificationNo must contain exactly 16 uppercase alphanumeric characters.", nameof(nuiKf));
         if ((citizenPayloadBase64 is null) != (citizenSignatureBase64 is null))
             throw new ArgumentException("Citizen coupon payload and signature must be supplied together.");
         if (citizenPayloadBase64 is not null)
