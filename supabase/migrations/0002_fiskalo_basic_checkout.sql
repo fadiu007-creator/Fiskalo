@@ -145,3 +145,6 @@ begin
 end $$;
 revoke all on function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) from public,anon;
 grant execute on function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) to authenticated;
+
+grant select, insert on public.fiskalo_basic_sale_items to authenticated;
+revoke all on public.fiskalo_basic_sale_items from anon;
