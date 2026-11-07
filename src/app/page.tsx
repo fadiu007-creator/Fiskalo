@@ -199,6 +199,9 @@ export default function Home(){
     setBusy(true);setMessage("");
     try{
       const {error:operatorError}=await supabase!.rpc("fiskalo_basic_set_operator_name",{p_business_id:business.id,p_operator_name:operatorName.trim()});if(operatorError)throw operatorError;
+      if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id)throw new Error("Ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk u regjistrua.");
+      const agent=await getLocalAgentStatus(agentToken);
+      if(!agent.paired||!agent.testCertificateInstalled||!agent.testInstallationVerified)throw new Error("POS Agent nuk është i çiftuar ose certifikata TEST nuk është verifikuar. Shitja nuk u regjistrua.");
       const {data:saleId,error}=await supabase!.rpc("fiskalo_basic_create_sale",{p_business_id:business.id,p_pos_id:selectedPos,p_payment_method:payment,p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity}))});
       if(error)throw error;
       setCart({});
@@ -207,11 +210,6 @@ export default function Home(){
         supabase!.from("fiskalo_basic_sale_items").select("*").eq("sale_id",saleId).order("id")
       ]);
       if(saleError)throw saleError;if(linesError)throw linesError;
-      if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id){
-        await loadWorkspace(user!.id);
-        setMessage("Shitja u ruajt si e paguar, por ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Nuk u krijua kupon fiskal.");
-        return;
-      }
       const cents=(value:number)=>Math.round(Number(value)*100);
       const grouped=new Map<string,{taxRate:string;base:number;tax:number}>();
       for(const line of lines??[]){
