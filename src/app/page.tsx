@@ -341,7 +341,7 @@ export default function Home(){
           {receipt.qr_svg_base64?<img alt="Kodi QR i kuponit të nënshkruar" src={"data:image/svg+xml;base64,"+receipt.qr_svg_base64} style={{width:170,height:170,objectFit:"contain",margin:"8px auto",display:"block"}}/>:<div style={{padding:12,border:"1px solid #b91c1c",color:"#b91c1c",fontWeight:700}}>QR mungon — mos e përdor këtë dokument si kupon fiskal.</div>}
           <div>Statusi ATK: {receipt.submission_state?.toLowerCase()==="accepted"||receipt.status==="fiscalized"?"ACCEPTED":receipt.submission_state?.toLowerCase()==="needsreconciliation"?"RECONCILIIM I NEVOJSHËM":receipt.submission_state?.toLowerCase()==="rejected"?"REFUZUAR NGA ATK":receipt.is_offline?"OFFLINE · NË RADHË":"PENDING"}</div>
           {receipt.transaction_id&&<div>Transaction ID: {receipt.transaction_id}</div>}{receipt.queue_last_error&&<div style={{fontSize:10,marginTop:4}}>Shënim: {receipt.queue_last_error}</div>}
-          {receipt.recovery_deadline_at&&<div>Afati i dërgimit: {new Date(receipt.recovery_deadline_at).toLocaleString("sq-XK")}</div>}{receipt.recovery_deadline_exceeded&&<div style={{fontWeight:800,color:"#b91c1c"}}>AFATI 48-ORËSH I KALUAR — kontroll i menjëhershëm me ATK</div>}
+          {receipt.is_offline&&receipt.recovery_deadline_at&&<div>Afati i dërgimit: {new Date(receipt.recovery_deadline_at).toLocaleString("sq-XK")}</div>}{receipt.recovery_deadline_exceeded&&<div style={{fontWeight:800,color:"#b91c1c"}}>AFATI 48-ORËSH I KALUAR — kontroll i menjëhershëm me ATK</div>}
         </div>
         <div style={{textAlign:"center",paddingTop:8}}>
           <div style={{fontSize:20,fontWeight:900,letterSpacing:2}}>RKS</div>
