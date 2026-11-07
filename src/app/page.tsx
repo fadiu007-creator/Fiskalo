@@ -115,6 +115,46 @@ export default function Home(){
     finally{setBusy(false);}
   },[supabase,business,agentToken,positions,user]);
 
+  const syncAcceptedQueue=useCallback(async()=>{
+    if(!supabase||!business||!agentToken)return;
+    const queue=await getLocalAgentQueue(agentToken);
+    for(const item of queue.items){
+      if(item.status.toLowerCase()!=="accepted"||!item.atkTransactionId||
+         !item.detailsBase64||!item.signatureBase64||!item.nuiKf||
+         !item.citizenPayloadBase64||!item.citizenSignatureBase64||!item.dailyNumber)continue;
+      const parts=item.idempotencyKey.split(":");
+      if(parts.length!==4||parts[0]!==business.nui)continue;
+      const couponId=Number(parts[3]);
+      if(!Number.isSafeInteger(couponId)||couponId<=0)continue;
+      const {data:sale,error:saleError}=await supabase.from("fiskalo_basic_sales")
+        .select("id,coupon_id,pos_id,daily_number").eq("business_id",business.id)
+        .eq("coupon_id",couponId).maybeSingle();
+      if(saleError)throw saleError;
+      if(!sale)continue;
+      const pos=positions.find(p=>p.id===sale.pos_id);
+      if(!pos||String(pos.branch_id)!==parts[1]||String(pos.pos_id)!==parts[2])continue;
+      const {error}=await supabase.rpc("fiskalo_basic_record_atk_receipt",{
+        p_business_id:business.id,p_sale_id:sale.id,p_coupon_id:sale.coupon_id,
+        p_idempotency_key:item.idempotencyKey,p_signed_payload:item.detailsBase64,
+        p_signature:item.signatureBase64,p_atk_transaction_id:item.atkTransactionId,
+        p_atk_response:{status:"accepted",transactionId:item.atkTransactionId,environment:"ATK TEST"},
+        p_nui_kf:item.nuiKf,p_citizen_payload:item.citizenPayloadBase64,
+        p_citizen_signature:item.citizenSignatureBase64,p_daily_number:item.dailyNumber??sale.daily_number,
+        p_offline_issued_at:item.offlineIssuedAtUtc
+      });
+      if(error)throw error;
+    }
+  },[supabase,business,agentToken,positions]);
+
+  useEffect(()=>{
+    if(!user||!business||!agentToken)return;
+    let running=false;
+    const sync=async()=>{if(running)return;running=true;try{await syncAcceptedQueue();}catch(e){setMessage(e instanceof Error?e.message:"Nuk u sinkronizuan kuponët e pranuar nga ATK.");}finally{running=false;}};
+    void sync();
+    const timer=window.setInterval(()=>void sync(),15000);
+    return()=>window.clearInterval(timer);
+  },[user,business,agentToken,syncAcceptedQueue]);
+
   useEffect(()=>{
     if(!supabase){setConfigured(false);setLoading(false);return;}
     supabase.auth.getUser().then(async({data,error})=>{
