@@ -117,6 +117,29 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task LegacyQueuedCouponWithMismatchedNuiKf_IsQuarantinedInsteadOfAutomaticallyResubmitted()
+    {
+        using var fixture = new QueueFixture();
+        var now = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        var legacyNuiKf = Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf();
+        await fixture.Store.EnqueueAsync(
+            "legacy-nuikf-queue-item", "Sale", "cG9z", "c2ln", now,
+            citizenPayloadBase64: Convert.ToBase64String(Encoding.UTF8.GetBytes("old-citizen-payload")),
+            citizenSignatureBase64: "c2ln",
+            nuiKf: legacyNuiKf,
+            dailyNumber: 19);
+
+        var due = await fixture.Store.GetDueAsync(now.AddMinutes(1));
+        var quarantined = Assert.Single(await fixture.Store.GetAllAsync());
+
+        Assert.Empty(due);
+        Assert.Equal(FiscalQueueStatus.NeedsReconciliation, quarantined.Status);
+        Assert.Null(quarantined.NuiKf);
+        Assert.Equal(legacyNuiKf, quarantined.LegacyNuiKf);
+        Assert.Contains("does not match", quarantined.LastError);
+    }
+
+    [Fact]
     public void NuiKf_IsSixteenUppercaseAlphanumericCharacters_AndUniqueAcrossBatch()
     {
         var values = Enumerable.Range(0, 1000)
