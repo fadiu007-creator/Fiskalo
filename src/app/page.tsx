@@ -81,14 +81,16 @@ export default function Home(){
       const rows=(saleRows??[]) as unknown as Array<Omit<SaleRecord,"items"|"transaction_id">>;
       if(!rows.length){setSales([]);return;}
       const ids=rows.map(s=>s.id);
-      const [{data:itemRows,error:itemError},{data:documents,error:documentError}]=await Promise.all([
+      const [{data:itemRows,error:itemError},{data:documents,error:documentError},{data:members}]=await Promise.all([
         supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total,line_net,line_vat,vat_rate,atk_unit_code,atk_vat_code").in("sale_id",ids),
-        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type").in("sale_id",ids)
+        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type").in("sale_id",ids),
+        supabase.from("fiskalo_basic_members").select("user_id,operator_name").eq("business_id",business.id)
       ]);
       if(itemError)throw itemError;if(documentError)throw documentError;
       const itemsBySale=new Map<string,SaleRecord["items"]>();
       for(const item of itemRows??[]){const list=itemsBySale.get(item.sale_id)??[];list.push(item);itemsBySale.set(item.sale_id,list);}
       const docsBySale=new Map((documents??[]).map(doc=>[doc.sale_id,doc]));
+      const operatorNames=new Map((members??[]).map(member=>[member.user_id,member.operator_name]));
       const queue=agentToken?await getLocalAgentQueue(agentToken).catch(()=>null):null;
       setQueueOverdueCount(queue?.overdueCount??0);
       const queueByKey=new Map((queue?.items??[]).map(item=>[item.idempotencyKey,item]));
@@ -110,7 +112,7 @@ export default function Home(){
           pos_identifier:pos?pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"):null,
           business_address:pos?.location??null,
           unit_name:pos?.label??null,
-          operator_name:user?.id===s.operator_id?(String(user.user_metadata?.full_name??user.email??s.operator_id)):s.operator_id,
+          operator_name:operatorNames.get(s.operator_id)??(user?.id===s.operator_id?operatorName:s.operator_id),
           operator_identifier:s.operator_id,
           document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
           is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc),
