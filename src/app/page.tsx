@@ -83,7 +83,7 @@ export default function Home(){
       const ids=rows.map(s=>s.id);
       const [{data:itemRows,error:itemError},{data:documents,error:documentError},{data:members}]=await Promise.all([
         supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total,line_net,line_vat,vat_rate,atk_unit_code,atk_vat_code").in("sale_id",ids),
-        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type").in("sale_id",ids),
+        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type,qr_svg_base64").in("sale_id",ids),
         supabase.from("fiskalo_basic_members").select("user_id,operator_name").eq("business_id",business.id)
       ]);
       if(itemError)throw itemError;if(documentError)throw documentError;
@@ -108,7 +108,7 @@ export default function Home(){
           submission_state:queued?.status?.toLowerCase()==="accepted"?"accepted":doc?.submission_state??queued?.status??null,
           offline_issued_at:doc?.offline_issued_at??queued?.offlineIssuedAtUtc??null,
           recovery_deadline_at:doc?.recovery_deadline_at??queued?.recoveryDeadlineUtc??null,
-          qr_svg_base64:queued?.qrSvgBase64??null,
+          qr_svg_base64:doc?.qr_svg_base64??queued?.qrSvgBase64??null,
           pos_identifier:pos?pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"):null,
           business_address:pos?.location??null,
           unit_name:pos?.label??null,
@@ -153,6 +153,13 @@ export default function Home(){
         p_offline_issued_at:item.offlineIssuedAtUtc
       });
       if(error)throw error;
+      if(item.qrSvgBase64){
+        const {error:qrError}=await supabase.rpc("fiskalo_basic_set_receipt_qr",{
+          p_business_id:business.id,p_sale_id:sale.id,p_coupon_id:sale.coupon_id,
+          p_idempotency_key:item.idempotencyKey,p_qr_svg_base64:item.qrSvgBase64
+        });
+        if(qrError)throw qrError;
+      }
     }
   },[supabase,business,agentToken,positions]);
 
@@ -256,6 +263,11 @@ export default function Home(){
           p_offline_issued_at:fiscal.offlineIssuedAtUtc??null
         });
         if(recordError)throw new Error("ATK pranoi kuponin me Transaction ID "+fiscal.transactionId+", por ruajtja e statusit dështoi: "+recordError.message+". Mos e ridërgo; sinkronizoje pas verifikimit.");
+        const {error:qrError}=await supabase!.rpc("fiskalo_basic_set_receipt_qr",{
+          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,
+          p_idempotency_key:idempotencyKey,p_qr_svg_base64:fiscal.qrSvgBase64
+        });
+        if(qrError)throw new Error("Kuponi u pranua nga ATK, por ruajtja e QR për ribotim dështoi: "+qrError.message);
         setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId);
       }else{
         const {error:queueError}=await supabase!.rpc("fiskalo_basic_store_offline_receipt",{
@@ -266,6 +278,11 @@ export default function Home(){
           p_offline_issued_at:fiscal.offlineIssuedAtUtc
         });
         if(queueError)throw new Error("Kuponi i nënshkruar është ruajtur në radhën lokale, por regjistrimi i tij në panel dështoi: "+queueError.message);
+        const {error:qrError}=await supabase!.rpc("fiskalo_basic_set_receipt_qr",{
+          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,
+          p_idempotency_key:idempotencyKey,p_qr_svg_base64:fiscal.qrSvgBase64
+        });
+        if(qrError)throw new Error("Kuponi offline është ruajtur, por ruajtja e QR për ribotim dështoi: "+qrError.message);
         setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
       }
       await loadWorkspace(user!.id);
