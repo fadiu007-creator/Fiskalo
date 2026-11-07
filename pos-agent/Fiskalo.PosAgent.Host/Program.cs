@@ -351,6 +351,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         if (installation is null || string.IsNullOrWhiteSpace(installation.CertificateThumbprint) ||
             !string.Equals(installation.CertificateThumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase))
             return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+        if (request.Coupon.DailyNumber <= 0) return Results.BadRequest(new { error = "dailyNumber_must_be_positive_for_fiscal_receipt" });
         var coupon = PosCouponBuilder.Build(request.Coupon);
         if (coupon.BusinessId != installation.Nui || coupon.BranchId != installation.BranchId ||
             coupon.PosId != installation.PosId || coupon.ApplicationId != installation.ApplicationId ||
@@ -389,7 +390,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64,
                 signed.SignatureBase64, cancellationToken: cancellationToken, nuiKf: nuiKf,
                 citizenPayloadBase64: citizenPayload, citizenSignatureBase64: citizenSignature,
-                dailyNumber: checked((long)coupon.CouponId));
+                dailyNumber: request.Coupon.DailyNumber);
 
         var persisted = existing ?? (await queueStore.GetAllAsync(cancellationToken)).Single(x => x.IdempotencyKey == request.IdempotencyKey);
         var signedToSubmit = new SignedAtkCoupon(persisted.PayloadBase64, persisted.SignatureBase64, "");
