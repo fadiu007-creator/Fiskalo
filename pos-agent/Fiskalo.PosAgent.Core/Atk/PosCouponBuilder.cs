@@ -19,7 +19,9 @@ public sealed record PosCouponInput(
 
 public static class PosCouponBuilder
 {
-    public static PosCoupon Build(PosCouponInput input)
+    public static PosCoupon Build(PosCouponInput input) => Build(input, input.VerificationNo);
+
+    public static PosCoupon Build(PosCouponInput input, string verificationNo)
     {
         ArgumentNullException.ThrowIfNull(input);
         if (input.BusinessId == 0 || input.CouponId == 0 || input.BranchId == 0 ||
@@ -27,8 +29,8 @@ public static class PosCouponBuilder
             throw new ArgumentException("Business, coupon, branch, POS and application IDs and Unix time must be valid.");
         if (string.IsNullOrWhiteSpace(input.Location) || string.IsNullOrWhiteSpace(input.OperatorId))
             throw new ArgumentException("Location and operator ID are required.");
-        if (string.IsNullOrWhiteSpace(input.VerificationNo) || input.VerificationNo.Length > 16)
-            throw new ArgumentException("Verification number must contain 1 to 16 characters.");
+        if (string.IsNullOrWhiteSpace(verificationNo) || verificationNo.Length > 16)
+            throw new ArgumentException("NUIKF/VerificationNo must contain 1 to 16 alphanumeric characters.");
         if (input.Type == CouponType.UnknownType)
             throw new ArgumentException("Coupon type is required.");
         if (input.Type == CouponType.Sale && input.ReferenceCouponId.HasValue)
@@ -75,7 +77,7 @@ public static class PosCouponBuilder
             OperatorId = input.OperatorId.Trim(),
             PosId = input.PosId,
             ApplicationId = input.ApplicationId,
-            VerificationNo = input.VerificationNo,
+            VerificationNo = verificationNo,
             Type = input.Type,
             Time = input.UnixTime,
             Total = input.TotalCents,
