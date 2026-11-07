@@ -8,7 +8,7 @@ type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean};
 type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -25,6 +25,7 @@ export default function Home(){
   const [tab,setTab]=useState<Tab>("pos");
   const [sales,setSales]=useState<SaleRecord[]>([]);
   const [receipt,setReceipt]=useState<SaleRecord|null>(null);
+  const [queueOverdueCount,setQueueOverdueCount]=useState(0);
   const [businessName,setBusinessName]=useState("");
   const [nui,setNui]=useState("");
   const [vatNumber,setVatNumber]=useState("");
@@ -88,6 +89,7 @@ export default function Home(){
       for(const item of itemRows??[]){const list=itemsBySale.get(item.sale_id)??[];list.push(item);itemsBySale.set(item.sale_id,list);}
       const docsBySale=new Map((documents??[]).map(doc=>[doc.sale_id,doc]));
       const queue=agentToken?await getLocalAgentQueue(agentToken).catch(()=>null):null;
+      setQueueOverdueCount(queue?.overdueCount??0);
       const queueByKey=new Map((queue?.items??[]).map(item=>[item.idempotencyKey,item]));
       setSales(rows.map(s=>{
         const pos=positions.find(p=>p.id===s.pos_id);
@@ -109,7 +111,8 @@ export default function Home(){
           operator_name:user?.id===s.operator_id?(String(user.user_metadata?.full_name??user.email??s.operator_id)):s.operator_id,
           operator_identifier:s.operator_id,
           document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
-          is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc)
+          is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc),
+          recovery_deadline_exceeded:!!queued?.recoveryDeadlineExceeded
         };
       }));
     }catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua historia e shitjeve.");}
@@ -119,6 +122,7 @@ export default function Home(){
   const syncAcceptedQueue=useCallback(async()=>{
     if(!supabase||!business||!agentToken)return;
     const queue=await getLocalAgentQueue(agentToken);
+    setQueueOverdueCount(queue.overdueCount);
     for(const item of queue.items){
       if(item.status.toLowerCase()!=="accepted"||!item.atkTransactionId||
          !item.detailsBase64||!item.signatureBase64||!item.nuiKf||
@@ -273,6 +277,7 @@ export default function Home(){
     <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui} · {memberRole==="owner"?"Pronari":"Arkëtari"}</span></div><div className="row"><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
     <div className="eyebrow">Paneli i biznesit</div><h1>Arka dhe fiskalizimi.</h1><p className="sub">Version i thjeshtuar: produkte, POS dhe shitje. Shitjet e paguara dërgohen në ATK TEST kur POS-i është verifikuar, certifikuar dhe POS Agent është i lidhur. Production mbetet i çaktivizuar.</p>
     {memberRole==="owner"&&<section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Të dhënat në kupon</h3><p className="sub">Numri i TVSH-së shtypet vetëm nëse biznesi është i regjistruar për TVSH. Adresa e kuponit merret nga lokacioni i POS-it.</p><form onSubmit={saveTaxProfile}><div className="field"><label>Numri i TVSH-së (9 shifra, opsional)</label><input inputMode="numeric" pattern="[0-9]{9}" maxLength={9} value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Lëre bosh nëse nuk je i regjistruar"/></div><button className="btn secondary" disabled={busy}>Ruaj të dhënat tatimore</button></form></section>}
+    {queueOverdueCount>0&&<p className="notice" role="alert">KUJDES: {queueOverdueCount} kupon(e) offline kanë kaluar afatin 48-orësh. Radhët nuk fshihen dhe dërgimi vazhdon automatikisht, por kërkohet kontroll i menjëhershëm me ATK.</p>}
     <div className="row" style={{margin:"22px 0"}}><button className={tab==="pos"?"btn":"btn secondary"} onClick={()=>setTab("pos")}>Arka / POS</button>{memberRole==="owner"&&<><button className={tab==="products"?"btn":"btn secondary"} onClick={()=>setTab("products")}>Artikujt</button><button className={tab==="atk"?"btn":"btn secondary"} onClick={()=>setTab("atk")}>ATK / POS</button><button className={tab==="sales"?"btn":"btn secondary"} onClick={()=>{setTab("sales");void loadSales();}}>Shitjet</button></>}</div>
     {message&&<p className="notice" role="status">{message}</p>}
     {tab==="products"&&memberRole==="owner"&&<div className="grid" style={{gridTemplateColumns:"minmax(260px,1fr) minmax(280px,1.4fr)"}}><section className="panel"><h2>Artikull i ri</h2><form onSubmit={addProduct}><div className="field"><label>Emri</label><input required value={productName} onChange={e=>setProductName(e.target.value)}/></div><div className="field"><label>Çmimi pa TVSH (€)</label><input type="number" min="0" step="0.0001" required value={productPrice} onChange={e=>setProductPrice(e.target.value)}/></div><div className="field"><label>Stoku</label><input type="number" min="0" step="0.001" value={productStock} onChange={e=>setProductStock(e.target.value)}/></div><div className="field"><label>Norma TVSH</label><select value={vatRate} onChange={e=>{setVatRate(e.target.value);setVatCode(e.target.value==="18"?"E":e.target.value==="8"?"D":"A")}}><option value="18">18%</option><option value="8">8%</option><option value="0">0%</option></select></div><div className="field"><label>Kodi ATK – njësia</label><input required value={unitCode} onChange={e=>setUnitCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – kategoria</label><input required value={categoryCode} onChange={e=>setCategoryCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – TVSH</label><input required maxLength={1} value={vatCode} onChange={e=>setVatCode(e.target.value.toUpperCase())}/></div><button className="btn" disabled={busy}>Ruaj artikullin</button></form></section><section className="panel"><h2>Katalogu</h2>{products.length===0?<p className="sub">Nuk ka artikuj ende.</p>:products.map(p=><div key={p.id} className="row" style={{justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--line)"}}><div><strong>{p.name}</strong><div className="sub" style={{fontSize:12}}>Stoku {p.stock} · TVSH {p.vat_rate}%</div></div><strong>€{Number(p.price).toFixed(2)}</strong></div>)}</section></div>}
@@ -325,7 +330,7 @@ export default function Home(){
           {receipt.qr_svg_base64?<img alt="Kodi QR i kuponit të nënshkruar" src={"data:image/svg+xml;base64,"+receipt.qr_svg_base64} style={{width:170,height:170,objectFit:"contain",margin:"8px auto",display:"block"}}/>:<div style={{padding:12,border:"1px solid #b91c1c",color:"#b91c1c",fontWeight:700}}>QR mungon — mos e përdor këtë dokument si kupon fiskal.</div>}
           <div>Statusi ATK: {receipt.submission_state==="accepted"||receipt.status==="fiscalized"?"ACCEPTED":receipt.is_offline?"OFFLINE · NË RADHË":"PENDING"}</div>
           {receipt.transaction_id&&<div>Transaction ID: {receipt.transaction_id}</div>}
-          {receipt.recovery_deadline_at&&<div>Afati i dërgimit: {new Date(receipt.recovery_deadline_at).toLocaleString("sq-XK")}</div>}
+          {receipt.recovery_deadline_at&&<div>Afati i dërgimit: {new Date(receipt.recovery_deadline_at).toLocaleString("sq-XK")}</div>}{receipt.recovery_deadline_exceeded&&<div style={{fontWeight:800,color:"#b91c1c"}}>AFATI 48-ORËSH I KALUAR — kontroll i menjëhershëm me ATK</div>}
         </div>
         <div style={{textAlign:"center",paddingTop:8}}>
           <div style={{fontSize:20,fontWeight:900,letterSpacing:2}}>RKS</div>
