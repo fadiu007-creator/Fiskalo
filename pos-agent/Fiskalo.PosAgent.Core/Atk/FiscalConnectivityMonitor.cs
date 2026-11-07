@@ -27,7 +27,7 @@ public sealed class FiscalConnectivityMonitor
             var available = await _probe(cancellationToken);
             if (available)
             {
-                await _queue.MarkConnectivityAvailableAsync(cancellationToken);
+                await _queue.MarkConnectivityAvailableAsync(cancellationToken: cancellationToken);
                 return null;
             }
         }
