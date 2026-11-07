@@ -4,13 +4,16 @@ using Fiskalo.PosAgent.Core.Queue;
 namespace Fiskalo.PosAgent.Core.Atk;
 
 /// <summary>
-/// Continuously tracks reachability of the ATK endpoint so the statutory offline
-/// recovery clock begins at the first observed interruption, not at a later sale.
+/// Tracks ATK reachability. The last successful probe is used as a conservative
+/// lower bound for the outage start so probe latency/interval cannot extend the
+/// statutory 48-hour transmission window.
 /// </summary>
 public sealed class FiscalConnectivityMonitor
 {
+    private static readonly TimeSpan InitialOutageSafetyMargin = TimeSpan.FromSeconds(20);
     private readonly FiscalQueueStore _queue;
     private readonly Func<CancellationToken,Task<bool>> _probe;
+    private DateTimeOffset? _lastSuccessfulProbeAtUtc;
 
     public FiscalConnectivityMonitor(FiscalQueueStore queue, Func<CancellationToken,Task<bool>> probe)
     {
@@ -22,12 +25,14 @@ public sealed class FiscalConnectivityMonitor
         DateTimeOffset? now = null,
         CancellationToken cancellationToken = default)
     {
+        var probeStartedAt = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
         try
         {
             var available = await _probe(cancellationToken);
             if (available)
             {
-                await _queue.MarkConnectivityAvailableAsync(cancellationToken: cancellationToken);
+                _lastSuccessfulProbeAtUtc = probeStartedAt;
+                await _queue.MarkConnectivityAvailableAsync(probeStartedAt, cancellationToken);
                 return null;
             }
         }
@@ -40,6 +45,11 @@ public sealed class FiscalConnectivityMonitor
             // A probe timeout is an outage signal. Application shutdown is not.
         }
 
-        return await _queue.MarkConnectivityUnavailableAsync(now, cancellationToken);
+        // On the first probe after a process restart, the previous healthy
+        // timestamp is not in memory. Backdate by the 15s polling interval plus
+        // the 5s probe timeout rather than starting the legal clock late.
+        var conservativeOutageStart = _lastSuccessfulProbeAtUtc ??
+            probeStartedAt.Subtract(InitialOutageSafetyMargin);
+        return await _queue.MarkConnectivityUnavailableAsync(conservativeOutageStart, cancellationToken);
     }
 }
