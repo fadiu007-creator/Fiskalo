@@ -9,7 +9,7 @@ type Product={id:string;name:string;price:number;stock:number;vat_rate:number;at
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
 type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;items:Array<{description:string;quantity:number;unit_price:number;line_total:number}>;transaction_id:string|null};
-type Tab="pos"|"products"|"atk";
+type Tab="pos"|"products"|"atk"|"sales";
 
 export default function Home(){
   const [user,setUser]=useState<User|null>(null);
