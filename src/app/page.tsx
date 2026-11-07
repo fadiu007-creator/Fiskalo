@@ -117,7 +117,7 @@ export default function Home(){
           unit_number:pos?.unit_number??null,
           business_address:pos?.location??null,
           unit_name:pos?.label??null,
-          operator_name:s.operator_name??operatorNames.get(s.operator_id)??(user?.id===s.operator_id?operatorName:s.operator_id),
+          operator_name:s.operator_name??operatorNames.get(s.operator_id)??(user?.id===s.operator_id?(operatorName||"Nuk është konfiguruar"):"Nuk është konfiguruar"),
           operator_identifier:s.operator_identifier??null,
           document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
           is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc),
@@ -327,8 +327,8 @@ export default function Home(){
           <div>Adresa: {receipt.business_address||"Adresa e njësisë nuk është konfiguruar"}</div>
           <div>NF-NUI: {business.nui}</div>
           {business.vat_number&&<div>Numri TVSH: {business.vat_number}</div>}
-          <div>Operator: {receipt.operator_name||receipt.operator_identifier||receipt.operator_id}</div>
-          <div>ID operatori: {receipt.operator_identifier||receipt.operator_id}</div>
+          <div>Operator: {receipt.operator_name||"Nuk është konfiguruar"}</div>
+          <div>ID operatori: {receipt.operator_identifier||"Nuk është konfiguruar"}</div>
         </div>
         <div style={{textAlign:"center",padding:"8px 0",borderBottom:"1px dashed #888"}}>
           <strong style={{fontSize:15}}>KUPON FISKAL</strong>
