@@ -5,8 +5,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.fiskalo_basic_businesses (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  nui text not null check (nui ~ '^[0-9]{9}$'),
-  created_at timestamptz not null default now()
+  nui text not null check (nui ~ '^[0-9]{9} timestamptz not null default now()
 );
 create table if not exists public.fiskalo_basic_members (
   business_id uuid not null references public.fiskalo_basic_businesses(id) on delete cascade,
@@ -71,13 +70,6 @@ create table if not exists public.fiskalo_basic_fiscal_documents (
   created_at timestamptz not null default now()
 );
 
-create or replace function public.fiskalo_basic_is_member(target_business uuid)
-returns boolean language sql stable security definer set search_path=public,pg_temp as $$
-  select exists(select 1 from public.fiskalo_basic_members m where m.business_id=target_business and m.user_id=auth.uid());
-$$;
-revoke all on function public.fiskalo_basic_is_member(uuid) from public, anon;
-grant execute on function public.fiskalo_basic_is_member(uuid) to authenticated;
-
 alter table public.fiskalo_basic_businesses enable row level security;
 alter table public.fiskalo_basic_members enable row level security;
 alter table public.fiskalo_basic_pos enable row level security;
@@ -85,9 +77,24 @@ alter table public.fiskalo_basic_products enable row level security;
 alter table public.fiskalo_basic_sales enable row level security;
 alter table public.fiskalo_basic_fiscal_documents enable row level security;
 
-create policy fiskalo_basic_business_read on public.fiskalo_basic_businesses for select to authenticated using (public.fiskalo_basic_is_member(id));
-create policy fiskalo_basic_member_read on public.fiskalo_basic_members for select to authenticated using (user_id=auth.uid() or public.fiskalo_basic_is_member(business_id));
-create policy fiskalo_basic_pos_access on public.fiskalo_basic_pos for all to authenticated using (public.fiskalo_basic_is_member(business_id)) with check (public.fiskalo_basic_is_member(business_id));
-create policy fiskalo_basic_products_access on public.fiskalo_basic_products for all to authenticated using (public.fiskalo_basic_is_member(business_id)) with check (public.fiskalo_basic_is_member(business_id));
-create policy fiskalo_basic_sales_access on public.fiskalo_basic_sales for all to authenticated using (public.fiskalo_basic_is_member(business_id)) with check (public.fiskalo_basic_is_member(business_id));
-create policy fiskalo_basic_fiscal_access on public.fiskalo_basic_fiscal_documents for select to authenticated using (public.fiskalo_basic_is_member(business_id));
+create policy fiskalo_basic_business_read on public.fiskalo_basic_businesses for select to authenticated
+  using (created_by=auth.uid() or exists(select 1 from public.fiskalo_basic_members m where m.business_id=id and m.user_id=auth.uid()));
+create policy fiskalo_basic_business_insert on public.fiskalo_basic_businesses for insert to authenticated
+  with check (created_by=auth.uid());
+create policy fiskalo_basic_member_read on public.fiskalo_basic_members for select to authenticated using (user_id=auth.uid());
+create policy fiskalo_basic_member_insert on public.fiskalo_basic_members for insert to authenticated
+  with check (user_id=auth.uid() and role='owner' and exists(select 1 from public.fiskalo_basic_businesses b where b.id=business_id and b.created_by=auth.uid()));
+create policy fiskalo_basic_pos_access on public.fiskalo_basic_pos for all to authenticated
+  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()))
+  with check (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()));
+create policy fiskalo_basic_products_access on public.fiskalo_basic_products for all to authenticated
+  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()))
+  with check (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()));
+create policy fiskalo_basic_sales_read on public.fiskalo_basic_sales for select to authenticated
+  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()));
+create policy fiskalo_basic_sales_insert on public.fiskalo_basic_sales for insert to authenticated
+  with check (operator_id=auth.uid() and exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()));
+create policy fiskalo_basic_fiscal_access on public.fiskalo_basic_fiscal_documents for select to authenticated
+  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()));
+
+grant usage, select on sequence public.fiskalo_basic_coupon_seq to authenticated;
