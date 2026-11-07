@@ -48,22 +48,30 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
-    public async Task FortyEightHourDeadlineStartsAtFirstConfirmedOfflineFailure_AndIsSharedAcrossOutage()
+    public async Task FortyEightHourDeadlineIsSharedAcrossAllOutstandingCoupons_AndSurvivesEarlierAcceptance()
     {
         using var fixture = new QueueFixture();
         var created = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
         var outage = created.AddMinutes(5);
         await fixture.Store.EnqueueAsync("sale-outage-1", "Sale", "cG9zMQ==", "c2lnMQ==", created);
+        await fixture.Store.EnqueueAsync("sale-outage-2", "Sale", "cG9zMg==", "c2lnMg==", created.AddMinutes(2));
         await fixture.Store.MarkSubmittingAsync("sale-outage-1");
         var first = await fixture.Store.RequeueDefinitelyNotSentAsync("sale-outage-1", "DNS failure", outage);
 
-        await fixture.Store.EnqueueAsync("sale-outage-2", "Sale", "cG9zMg==", "c2lnMg==", outage.AddHours(4));
         var second = (await fixture.Store.GetAllAsync()).Single(x => x.IdempotencyKey == "sale-outage-2");
+        Assert.Equal(outage, second.OfflineIssuedAtUtc);
+        Assert.Equal(outage.AddHours(48), second.RecoveryDeadlineUtc);
+
+        await fixture.Store.MarkAcceptedAsync("sale-outage-1", "123456");
+        await fixture.Store.MarkSubmittingAsync("sale-outage-2");
+        var retried = await fixture.Store.RequeueDefinitelyNotSentAsync("sale-outage-2", "DNS still failing", outage.AddMinutes(10));
 
         Assert.Equal(outage, first.OfflineIssuedAtUtc);
         Assert.Equal(outage.AddHours(48), first.RecoveryDeadlineUtc);
-        Assert.Equal(outage.AddHours(48), second.RecoveryDeadlineUtc);
+        Assert.Equal(outage, retried.OfflineIssuedAtUtc);
+        Assert.Equal(outage.AddHours(48), retried.RecoveryDeadlineUtc);
     }
+
 
     [Fact]
     public async Task FailedRetryAfterRecoveryDeadline_RemainsQueued()
