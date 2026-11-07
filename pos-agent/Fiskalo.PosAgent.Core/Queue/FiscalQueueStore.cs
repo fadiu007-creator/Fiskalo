@@ -164,6 +164,7 @@ public sealed class FiscalQueueStore
             {
                 Status = FiscalQueueStatus.Queued,
                 NextAttemptAtUtc = timestamp.AddSeconds(delaySeconds),
+                OfflineIssuedAtUtc = item.OfflineIssuedAtUtc ?? timestamp,
                 LastError = Truncate(error, 500)
             };
         }, cancellationToken);
