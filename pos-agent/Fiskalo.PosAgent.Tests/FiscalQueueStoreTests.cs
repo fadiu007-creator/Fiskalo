@@ -376,7 +376,7 @@ public sealed class FiscalQueueStoreTests
         {
             var store = new Fiskalo.PosAgent.Core.Security.WindowsDpapiInstallationStore(path);
             var profile = new Fiskalo.PosAgent.Core.Security.AtkTestInstallationProfile(
-                123456789, "Test Business", "EDI-FISCAL-TEST", 2, 7, 99,
+                123456789, "Test Business", "0123456789", 2, 7, 99,
                 "ATK-VERIFY-CODE", DateTimeOffset.UtcNow, "TEST-THUMBPRINT", DateTimeOffset.UtcNow);
             store.Save(profile);
             var loaded = store.Load();
