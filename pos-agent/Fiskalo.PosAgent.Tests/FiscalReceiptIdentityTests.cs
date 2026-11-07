@@ -1,4 +1,5 @@
 using Atk;
+using Google.Protobuf;
 using Fiskalo.PosAgent.Core.Atk;
 using Xunit;
 
