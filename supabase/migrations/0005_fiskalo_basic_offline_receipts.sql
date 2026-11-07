@@ -46,7 +46,7 @@ alter table public.fiskalo_basic_fiscal_documents
 
 alter table public.fiskalo_basic_fiscal_documents
   add constraint fiskalo_basic_fiscal_nui_kf_format
-  check (nui_kf is null or nui_kf ~ '^[A-Z0-9]{16}$'),
+  check (nui_kf is null or (char_length(nui_kf)=16 and translate(nui_kf,'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789','')='')),
   add constraint fiskalo_basic_fiscal_daily_number_positive
   check (daily_number is null or daily_number > 0);
 
