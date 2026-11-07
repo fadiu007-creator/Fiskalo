@@ -62,7 +62,7 @@ export default function Home(){
     if(member.role==="cashier")setTab("pos");
     const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui,vat_number").eq("id",member.business_id).single();
     if(bizError)throw bizError;
-    setBusiness(biz);setVatNumber(biz.vat_number??"");setOperatorName(member.operator_name??String(user.user_metadata?.full_name??""));
+    setBusiness(biz);setVatNumber(biz.vat_number??"");setOperatorName(member.operator_name??"");
     const [{data:prods,error:productError},{data:poses,error:posError}]=await Promise.all([
       supabase.from("fiskalo_basic_products").select("*").eq("business_id",biz.id).eq("active",true).order("name"),
       supabase.from("fiskalo_basic_pos").select("*").eq("business_id",biz.id).order("created_at")
