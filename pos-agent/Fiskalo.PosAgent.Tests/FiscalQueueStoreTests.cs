@@ -60,6 +60,86 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task SignedCitizenCouponAndNuiKf_ArePersistedWithTheEncryptedQueueItem()
+    {
+        using var fixture = new QueueFixture();
+        var nuiKf = Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf();
+        var citizen = Convert.ToBase64String(Encoding.UTF8.GetBytes("citizen-protobuf"));
+        var signature = Convert.ToBase64String(Encoding.UTF8.GetBytes("signature"));
+        var item = await fixture.Store.EnqueueAsync(
+            "sale-qr-1", "Sale", "cG9z", "c2ln",
+            citizenPayloadBase64: citizen,
+            citizenSignatureBase64: signature,
+            nuiKf: nuiKf,
+            dailyNumber: 17);
+
+        Assert.Equal(16, item.NuiKf!.Length);
+        Assert.Matches("^[A-Z0-9]{16}$", item.NuiKf);
+        Assert.Equal(citizen, item.CitizenPayloadBase64);
+        Assert.Equal(signature, item.CitizenSignatureBase64);
+        Assert.Equal(17, item.DailyNumber);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.EnqueueAsync(
+            "sale-qr-2", "Sale", "cG9zMg==", "c2lnMg==",
+            citizenPayloadBase64: citizen,
+            citizenSignatureBase64: signature,
+            nuiKf: nuiKf,
+            dailyNumber: 18));
+    }
+
+    [Fact]
+    public void NuiKf_IsSixteenUppercaseAlphanumericCharacters_AndUniqueAcrossBatch()
+    {
+        var values = Enumerable.Range(0, 1000)
+            .Select(_ => Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf())
+            .ToArray();
+
+        Assert.All(values, value => Assert.Matches("^[A-Z0-9]{16}$", value));
+        Assert.Equal(values.Length, values.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void CitizenQrPayload_MatchesOfficialBase64PipeSignatureFormat_AndRendersSvg()
+    {
+        using var key = Fiskalo.PosAgent.Core.Atk.AtkPki.GenerateP256Key();
+        var citizen = new Atk.CitizenCoupon
+        {
+            BusinessId = 123456789,
+            CouponId = 12,
+            BranchId = 1,
+            PosId = 2,
+            VerificationNo = "TEST-CODE",
+            Type = Atk.CouponType.Sale,
+            Time = DateTimeOffset.Parse("2026-11-07T12:00:00Z").ToUnixTimeSeconds(),
+            Total = 1180,
+            TotalNoTax = 1000,
+            TotalTax = 180
+        };
+        citizen.TaxGroups.Add(new Atk.TaxGroup { TaxRate = "E", TotalForTax = 1000, TotalTax = 180 });
+        var signed = Fiskalo.PosAgent.Core.Atk.AtkCouponSigner.SignCitizenCoupon(citizen, key);
+        var payload = Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.BuildCitizenQrPayload(signed);
+        var svg = Fiskalo.PosAgent.Core.Atk.FiscalReceiptQrCode.CreateSvgData(payload);
+
+        Assert.Equal(signed.DetailsBase64 + "|" + signed.SignatureBase64, payload);
+        Assert.StartsWith("<svg", svg, StringComparison.Ordinal);
+        Assert.Contains("<path", svg, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DefinitelyUnsentSubmission_IsRequeuedForAutomaticDelivery()
+    {
+        using var fixture = new QueueFixture();
+        var now = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.EnqueueAsync("sale-offline-1", "Sale", "cG9z", "c2ln", now);
+        await fixture.Store.MarkSubmittingAsync("sale-offline-1");
+        var queued = await fixture.Store.RequeueDefinitelyNotSentAsync("sale-offline-1", "DNS lookup failed", now);
+
+        Assert.Equal(FiscalQueueStatus.Queued, queued.Status);
+        Assert.Equal(now.AddSeconds(15), queued.NextAttemptAtUtc);
+        Assert.Empty(await fixture.Store.GetDueAsync(now.AddSeconds(14)));
+        Assert.Single(await fixture.Store.GetDueAsync(now.AddSeconds(15)));
+    }
+
+    [Fact]
     public async Task AcceptedDocumentCannotBeChangedToRejected()
     {
         using var fixture = new QueueFixture();
