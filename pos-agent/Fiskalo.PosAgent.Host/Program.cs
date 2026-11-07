@@ -200,6 +200,9 @@ app.MapGet(QueuePath, async (HttpContext context, CancellationToken cancellation
             item.AtkTransactionId,
             item.NuiKf,
             item.DailyNumber,
+            item.OfflineIssuedAtUtc,
+            citizenPayloadBase64 = item.CitizenPayloadBase64,
+            citizenSignatureBase64 = item.CitizenSignatureBase64,
             citizenQrPayload = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
                 ? item.CitizenPayloadBase64 + "|" + item.CitizenSignatureBase64 : null,
             qrSvgBase64 = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
@@ -412,7 +415,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             return Results.Ok(new { status = "queued_offline", transactionId = (string?)null,
                 detailsBase64 = queued.PayloadBase64, signatureBase64 = queued.SignatureBase64,
                 nuiKf = queued.NuiKf, dailyNumber = queued.DailyNumber, citizenQrPayload, qrSvgBase64,
-                recoveryDeadlineUtc = queued.RecoveryDeadlineUtc, retryScheduled = true,
+                recoveryDeadlineUtc = queued.RecoveryDeadlineUtc, offlineIssuedAtUtc = queued.OfflineIssuedAtUtc, retryScheduled = true,
                 environment = "ATK TEST", productionEnabled = false, offline = true });
         } catch (Exception ex) when (ex is AtkApiException or HttpRequestException or TaskCanceledException) {
             await queueStore.MarkNeedsReconciliationAsync(request.IdempotencyKey,
