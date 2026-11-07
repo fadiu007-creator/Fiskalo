@@ -198,6 +198,14 @@ app.MapGet(QueuePath, async (HttpContext context, CancellationToken cancellation
             item.AttemptCount,
             item.LastError,
             item.AtkTransactionId,
+            item.NuiKf,
+            item.DailyNumber,
+            citizenQrPayload = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
+                ? item.CitizenPayloadBase64 + "|" + item.CitizenSignatureBase64 : null,
+            qrSvgBase64 = item.CitizenPayloadBase64 is not null && item.CitizenSignatureBase64 is not null
+                ? Convert.ToBase64String(Encoding.UTF8.GetBytes(FiscalReceiptQrCode.CreateSvgData(item.CitizenPayloadBase64 + "|" + item.CitizenSignatureBase64))) : null,
+            detailsBase64 = item.Status == FiscalQueueStatus.Accepted ? item.PayloadBase64 : null,
+            signatureBase64 = item.Status == FiscalQueueStatus.Accepted ? item.SignatureBase64 : null,
             recoveryDeadlineExceeded = item.Status is FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation &&
                 item.RecoveryDeadlineUtc <= now
         }).ToArray();
@@ -354,9 +362,35 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         var existing = (await queueStore.GetAllAsync(cancellationToken)).SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey);
         if (existing is not null && (existing.PayloadBase64 != signed.DetailsBase64 || existing.DocumentType != coupon.Type.ToString()))
             return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_content" });
-        if (existing?.Status == FiscalQueueStatus.Accepted) return Results.Ok(new { status = "accepted", transactionId = existing.AtkTransactionId, detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64, duplicateRequest = true, environment = "ATK TEST" });
-        if (existing is not null && existing.Status != FiscalQueueStatus.Queued) return Results.Conflict(new { status = existing.Status.ToString(), error = "document_requires_reconciliation_or_operator_review", existing.LastError });
-        if (existing is null) await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64, signed.SignatureBase64, cancellationToken: cancellationToken);
+        if (existing is not null && (existing.NuiKf is null || existing.CitizenPayloadBase64 is null || existing.CitizenSignatureBase64 is null))
+            return Results.Conflict(new { status = existing.Status.ToString(), error = "legacy_queue_item_missing_signed_citizen_receipt_requires_operator_reconciliation" });
+
+        var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf();
+        var signedCitizen = existing is null
+            ? AtkCouponSigner.SignCitizenCoupon(AtkCouponSigner.CreateCitizenCoupon(coupon), key)
+            : null;
+        var citizenPayload = existing?.CitizenPayloadBase64 ?? signedCitizen!.DetailsBase64;
+        var citizenSignature = existing?.CitizenSignatureBase64 ?? signedCitizen!.SignatureBase64;
+        var citizenQrPayload = FiscalReceiptIdentity.BuildCitizenQrPayload(
+            new SignedAtkCoupon(citizenPayload, citizenSignature, ""));
+        var qrSvg = FiscalReceiptQrCode.CreateSvgData(citizenQrPayload);
+        var qrSvgBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(qrSvg));
+
+        if (existing?.Status == FiscalQueueStatus.Accepted)
+            return Results.Ok(new { status = "accepted", transactionId = existing.AtkTransactionId,
+                detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64,
+                nuiKf, dailyNumber = existing.DailyNumber, citizenQrPayload, qrSvgBase64,
+                duplicateRequest = true, environment = "ATK TEST", offline = false });
+
+        if (existing is not null && existing.Status != FiscalQueueStatus.Queued)
+            return Results.Conflict(new { status = existing.Status.ToString(), error = "document_requires_reconciliation_or_operator_review", existing.LastError });
+
+        if (existing is null)
+            await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64,
+                signed.SignatureBase64, cancellationToken: cancellationToken, nuiKf: nuiKf,
+                citizenPayloadBase64: citizenPayload, citizenSignatureBase64: citizenSignature,
+                dailyNumber: checked((long)coupon.CouponId));
+
         var persisted = existing ?? (await queueStore.GetAllAsync(cancellationToken)).Single(x => x.IdempotencyKey == request.IdempotencyKey);
         var signedToSubmit = new SignedAtkCoupon(persisted.PayloadBase64, persisted.SignatureBase64, "");
         await queueStore.MarkSubmittingAsync(request.IdempotencyKey, cancellationToken);
@@ -364,13 +398,25 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             var result = await new AtkTestClient(http).SubmitSignedPosCouponAsync(signedToSubmit, cancellationToken);
             await queueStore.MarkAcceptedAsync(request.IdempotencyKey, result.TransactionId.ToString(), cancellationToken);
-            return Results.Ok(new { status = "accepted", transactionId = result.TransactionId.ToString(), detailsBase64 = signed.DetailsBase64, signatureBase64 = signed.SignatureBase64, message = result.Message, environment = "ATK TEST", productionEnabled = false });
+            return Results.Ok(new { status = "accepted", transactionId = result.TransactionId.ToString(),
+                detailsBase64 = persisted.PayloadBase64, signatureBase64 = persisted.SignatureBase64,
+                nuiKf, dailyNumber = persisted.DailyNumber, citizenQrPayload, qrSvgBase64,
+                message = result.Message, environment = "ATK TEST", productionEnabled = false, offline = false });
         } catch (AtkApiException ex) when ((int)ex.StatusCode >= 400 && (int)ex.StatusCode < 500) {
             await queueStore.MarkRejectedAsync(request.IdempotencyKey, "ATK rejected the test coupon with HTTP " + (int)ex.StatusCode, cancellationToken);
             return Results.Problem("ATK rejected the test coupon (HTTP " + (int)ex.StatusCode + "). Review the payload and ATK response before creating a corrected test document.", statusCode: StatusCodes.Status422UnprocessableEntity);
+        } catch (HttpRequestException ex) when (IsDefinitelyNotSent(ex)) {
+            var queued = await queueStore.RequeueDefinitelyNotSentAsync(request.IdempotencyKey,
+                "ATK connection unavailable before request delivery; automatic retry is scheduled.", cancellationToken: cancellationToken);
+            return Results.Ok(new { status = "queued_offline", transactionId = (string?)null,
+                detailsBase64 = queued.PayloadBase64, signatureBase64 = queued.SignatureBase64,
+                nuiKf = queued.NuiKf, dailyNumber = queued.DailyNumber, citizenQrPayload, qrSvgBase64,
+                recoveryDeadlineUtc = queued.RecoveryDeadlineUtc, retryScheduled = true,
+                environment = "ATK TEST", productionEnabled = false, offline = true });
         } catch (Exception ex) when (ex is AtkApiException or HttpRequestException or TaskCanceledException) {
-            await queueStore.MarkNeedsReconciliationAsync(request.IdempotencyKey, "Submission outcome is uncertain. Check ATK test records before any retry.", cancellationToken);
-            return Results.Problem("ATK submission outcome is uncertain. The document is locked for reconciliation to prevent duplicate fiscalization.", statusCode: StatusCodes.Status502BadGateway);
+            await queueStore.MarkNeedsReconciliationAsync(request.IdempotencyKey,
+                "Submission outcome is uncertain. Check ATK test records before any retry.", cancellationToken);
+            return Results.Problem("ATK submission outcome is uncertain. The signed offline receipt is preserved, but this request is locked for reconciliation to prevent duplicate fiscalization.", statusCode: StatusCodes.Status502BadGateway);
         }
     } catch (ArgumentException ex) {
         return Results.BadRequest(new { error = ex.Message });
@@ -491,11 +537,16 @@ if (OperatingSystem.IsWindows())
                             await queueStore.MarkRejectedAsync(item.IdempotencyKey,
                                 "ATK rejected the queued test coupon with HTTP " + (int)ex.StatusCode, stoppingToken);
                         }
+                        catch (HttpRequestException ex) when (IsDefinitelyNotSent(ex))
+                        {
+                            await queueStore.RequeueDefinitelyNotSentAsync(item.IdempotencyKey,
+                                "ATK connection unavailable before request delivery; automatic retry remains scheduled.", cancellationToken: stoppingToken);
+                        }
                         catch (Exception ex) when (ex is AtkApiException or HttpRequestException or TaskCanceledException or IOException)
                         {
-                            // A timeout or dropped connection can happen after ATK
-                            // received the request. Never auto-resubmit an uncertain
-                            // transaction; require reconciliation against ATK first.
+                            // Timeouts and dropped responses can happen after ATK
+                            // received the request. Never automatically retry an
+                            // ambiguous submission; reconcile it against ATK first.
                             await queueStore.MarkNeedsReconciliationAsync(item.IdempotencyKey,
                                 "Automatic delivery outcome is uncertain. Check ATK before retrying.", stoppingToken);
                         }
@@ -518,6 +569,14 @@ if (OperatingSystem.IsWindows())
 }
 
 app.Run();
+
+static bool IsDefinitelyNotSent(HttpRequestException exception)
+{
+    if (exception.InnerException is not SocketException socket) return false;
+    return socket.SocketErrorCode is SocketError.HostNotFound or SocketError.NoData or
+        SocketError.TryAgain or SocketError.ConnectionRefused or SocketError.NetworkUnreachable or
+        SocketError.HostUnreachable or SocketError.NetworkDown or SocketError.AddressNotAvailable;
+}
 
 static bool HasValidSession(HttpContext context, string? expectedToken)
 {
