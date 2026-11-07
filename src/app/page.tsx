@@ -12,6 +12,24 @@ type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_to
 type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
+function FiscalLogo(){
+  return <svg role="img" aria-label="Logoja fiskale RKS MFPT" viewBox="0 0 120 60" width="20mm" height="10mm" style={{display:"block",margin:"0 auto",overflow:"visible"}} xmlns="http://www.w3.org/2000/svg">
+    <path d="M5 7 L31 3 L57 7 L55 37 Q52 49 31 57 Q10 49 7 37 Z" fill="#fff" stroke="#111" strokeWidth="2.5"/>
+    <path d="M9 10 L31 6 L53 10 L51 36 Q48 46 31 53 Q14 46 11 36 Z" fill="#222"/>
+    <g fill="#fff">
+      <path d="M14 14 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
+      <path d="M20 11 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
+      <path d="M27 10 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
+      <path d="M34 10 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
+      <path d="M41 11 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
+      <path d="M47 14 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
+    </g>
+    <path d="M24 23 L29 20 L34 22 L38 27 L35 32 L32 34 L31 40 L27 42 L25 37 L21 34 L19 29 Z" fill="#fff"/>
+    <text x="64" y="29" fontFamily="Arial,sans-serif" fontSize="22" fontWeight="900" fill="#111" letterSpacing="1">RKS</text>
+    <text x="64" y="47" fontFamily="Arial,sans-serif" fontSize="14" fontWeight="800" fill="#111" letterSpacing="1">MFPT</text>
+  </svg>;
+}
+
 export default function Home(){
   const [user,setUser]=useState<User|null>(null);
   const [configured,setConfigured]=useState(true);
@@ -373,9 +391,7 @@ export default function Home(){
           {receipt.is_offline&&receipt.recovery_deadline_at&&<div>Afati i dërgimit: {new Date(receipt.recovery_deadline_at).toLocaleString("sq-XK")}</div>}{receipt.recovery_deadline_exceeded&&<div style={{fontWeight:800,color:"#b91c1c"}}>AFATI 48-ORËSH I KALUAR — kontroll i menjëhershëm me ATK</div>}
         </div>
         <div style={{textAlign:"center",paddingTop:8}}>
-          <img src="https://www.rks-gov.net/Content/images/stema.png" alt="Stema shtetërore e Republikës së Kosovës" width="48" height="54" style={{display:"block",width:48,height:54,objectFit:"contain",margin:"0 auto 5px"}}/>
-          <div style={{fontSize:17,fontWeight:900,letterSpacing:2}}>RKS</div>
-          <div style={{fontSize:13,fontWeight:800,letterSpacing:2}}>MF</div>
+          <FiscalLogo/>
           <div style={{fontWeight:700,marginTop:5}}>e-kuponi</div>
           <div style={{fontSize:10,marginTop:7,fontWeight:800}}>ATK TEST — DOKUMENT TESTUES</div>
           <div style={{fontSize:10,marginTop:3}}>Nuk është kupon fiskal i vlefshëm për shitje reale dhe nuk dëshmon certifikim të Fiskalo nga ATK.</div>
