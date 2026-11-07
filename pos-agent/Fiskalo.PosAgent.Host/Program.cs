@@ -509,14 +509,21 @@ if (OperatingSystem.IsWindows())
 
 if (OperatingSystem.IsWindows())
 {
-    // The service is shared with unit tests. It only retries failures proven
-    // to occur before request delivery; ambiguous responses are reconciled.
+    // Connectivity is probed independently of sales so Article 44's 48-hour
+    // recovery clock starts when the ATK connection first becomes unavailable.
     app.Lifetime.ApplicationStarted.Register(() =>
     {
         _ = Task.Run(async () =>
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
             var stoppingToken = app.Lifetime.ApplicationStopping;
+            var connectivity = new FiscalConnectivityMonitor(queueStore, async token =>
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                using var request = new HttpRequestMessage(HttpMethod.Head, AtkTestClient.TestBaseUri);
+                using var response = await http.SendAsync(request, token);
+                return (int)response.StatusCode < 500;
+            });
             var delivery = new FiscalQueueDeliveryService(queueStore, async (signed, token) =>
             {
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
@@ -526,12 +533,13 @@ if (OperatingSystem.IsWindows())
             {
                 try
                 {
+                    await connectivity.ProbeAsync(cancellationToken: stoppingToken);
                     await delivery.DeliverDueAsync(cancellationToken: stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-                catch (Exception ex) when (ex is IOException or CryptographicException or UnauthorizedAccessException)
+                catch (Exception ex) when (ex is IOException or CryptographicException or UnauthorizedAccessException or HttpRequestException)
                 {
-                    Console.Error.WriteLine("Fiscal queue worker could not access the protected queue; records remain stored.");
+                    Console.Error.WriteLine("ATK connectivity/queue worker failed; signed fiscal records remain stored.");
                 }
 
                 try
