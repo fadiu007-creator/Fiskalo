@@ -48,6 +48,24 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task FortyEightHourDeadlineStartsAtFirstConfirmedOfflineFailure_AndIsSharedAcrossOutage()
+    {
+        using var fixture = new QueueFixture();
+        var created = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        var outage = created.AddMinutes(5);
+        await fixture.Store.EnqueueAsync("sale-outage-1", "Sale", "cG9zMQ==", "c2lnMQ==", created);
+        await fixture.Store.MarkSubmittingAsync("sale-outage-1");
+        var first = await fixture.Store.RequeueDefinitelyNotSentAsync("sale-outage-1", "DNS failure", outage);
+
+        await fixture.Store.EnqueueAsync("sale-outage-2", "Sale", "cG9zMg==", "c2lnMg==", outage.AddHours(4));
+        var second = (await fixture.Store.GetAllAsync()).Single(x => x.IdempotencyKey == "sale-outage-2");
+
+        Assert.Equal(outage, first.OfflineIssuedAtUtc);
+        Assert.Equal(outage.AddHours(48), first.RecoveryDeadlineUtc);
+        Assert.Equal(outage.AddHours(48), second.RecoveryDeadlineUtc);
+    }
+
+    [Fact]
     public async Task FailedRetryAfterRecoveryDeadline_RemainsQueued()
     {
         using var fixture = new QueueFixture();
