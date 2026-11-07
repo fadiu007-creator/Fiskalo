@@ -15,7 +15,7 @@ public sealed record PosCouponInput(
     IReadOnlyList<PosCouponItemInput> Items, IReadOnlyList<PosCouponPaymentInput> Payments,
     long TotalCents, IReadOnlyList<PosCouponTaxGroupInput> TaxGroups,
     long TotalTaxCents, long TotalNoTaxCents, long TotalDiscountCents,
-    ulong? ReferenceCouponId = null);
+    ulong? ReferenceCouponId = null, long DailyNumber = 0);
 
 public static class PosCouponBuilder
 {
