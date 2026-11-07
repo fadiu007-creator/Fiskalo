@@ -275,12 +275,12 @@ public sealed class FiscalQueueStoreTests
         await fixture.Store.EnqueueAsync(
             "sale-recovered-at-deadline", "Sale", "cG9z", "c2ln", outage.AddMinutes(1));
 
-        var lastFailedAttempt = outage.AddHours(47).AddMinutes(59).AddSeconds(45);
+        var lastFailedAttempt = outage.AddHours(47).AddMinutes(59).AddSeconds(55);
         var delayed = await fixture.Store.RecordFailureAsync(
             "sale-recovered-at-deadline", "temporary ATK outage", lastFailedAttempt);
         Assert.True(delayed.NextAttemptAtUtc > outage.AddHours(48));
 
-        var recoveredAt = outage.AddHours(47).AddMinutes(59).AddSeconds(50);
+        var recoveredAt = outage.AddHours(47).AddMinutes(59).AddSeconds(58);
         await fixture.Store.MarkConnectivityAvailableAsync(recoveredAt);
         var attempts = 0;
         var delivery = new Fiskalo.PosAgent.Core.Atk.FiscalQueueDeliveryService(
