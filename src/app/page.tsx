@@ -8,7 +8,7 @@ type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;is_copy?:boolean};
 type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -108,6 +108,7 @@ export default function Home(){
           qr_svg_base64:queued?.qrSvgBase64??null,
           pos_identifier:pos?pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"):null,
           business_address:pos?.location??null,
+          unit_name:pos?.label??null,
           operator_name:user?.id===s.operator_id?(String(user.user_metadata?.full_name??user.email??s.operator_id)):s.operator_id,
           operator_identifier:s.operator_id,
           document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
@@ -233,7 +234,8 @@ export default function Home(){
         transaction_id:fiscal.transactionId,nui_kf:fiscal.nuiKf,daily_number:fiscal.dailyNumber,
         submission_state:fiscal.status==="accepted"?"accepted":"queued",
         offline_issued_at:fiscal.offlineIssuedAtUtc??null,recovery_deadline_at:fiscal.recoveryDeadlineUtc??null,
-        qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.branch_id+"-"+business.nui+"-"+pos.pos_id,
+        qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.branch_id+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+        unit_name:pos.label,
         business_address:pos.location,operator_name:String(user!.user_metadata?.full_name??user!.email??user!.id),
         operator_identifier:user!.id,document_type:"SHITJE",is_offline:fiscal.offline
       };
@@ -291,7 +293,8 @@ export default function Home(){
         <div style={{textAlign:"center",paddingBottom:8,borderBottom:"1px dashed #888"}}>
           <strong style={{fontSize:18,letterSpacing:1}}>FISKALO</strong>
           <div style={{fontWeight:700,marginTop:4}}>{business.name}</div>
-          <div>{receipt.business_address||"Adresa e njësisë nuk është konfiguruar"}</div>
+          <div>Njësia: {receipt.unit_name||"—"}</div>
+          <div>Adresa: {receipt.business_address||"Adresa e njësisë nuk është konfiguruar"}</div>
           <div>NF-NUI: {business.nui}</div>
           {business.vat_number&&<div>Numri TVSH: {business.vat_number}</div>}
           <div>Operator: {receipt.operator_name||receipt.operator_identifier||receipt.operator_id}</div>
