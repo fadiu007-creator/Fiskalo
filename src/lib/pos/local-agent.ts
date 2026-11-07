@@ -24,6 +24,7 @@ export type AtkCouponSubmitResult={
   qrSvgBase64:string;
   offline:boolean;
   recoveryDeadlineUtc?:string;
+  offlineIssuedAtUtc?:string|null;
   retryScheduled?:boolean;
   duplicateRequest?:boolean;
   environment:"ATK TEST";
@@ -42,6 +43,9 @@ export type LocalFiscalQueueItem={
   atkTransactionId:string|null;
   nuiKf:string|null;
   dailyNumber:number|null;
+  offlineIssuedAtUtc:string|null;
+  citizenPayloadBase64:string|null;
+  citizenSignatureBase64:string|null;
   citizenQrPayload:string|null;
   qrSvgBase64:string|null;
   detailsBase64:string|null;
