@@ -10,6 +10,7 @@ namespace Fiskalo.PosAgent.Core.Atk;
 public sealed class AtkTestClient
 {
     public const string TestBaseUrl = "https://fiskalizimi-test.atk-ks.org";
+    public static Uri TestBaseUri { get; } = new(TestBaseUrl);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _http;
 
