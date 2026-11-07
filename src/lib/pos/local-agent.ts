@@ -42,6 +42,7 @@ export type LocalFiscalQueueItem={
   lastError:string|null;
   atkTransactionId:string|null;
   nuiKf:string|null;
+  legacyNuiKf:string|null;
   dailyNumber:number|null;
   offlineIssuedAtUtc:string|null;
   citizenPayloadBase64:string|null;
