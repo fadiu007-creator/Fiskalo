@@ -574,13 +574,8 @@ if (OperatingSystem.IsWindows())
 
 app.Run();
 
-static bool IsDefinitelyNotSent(HttpRequestException exception)
-{
-    if (exception.InnerException is not SocketException socket) return false;
-    return socket.SocketErrorCode is SocketError.HostNotFound or SocketError.NoData or
-        SocketError.TryAgain or SocketError.ConnectionRefused or SocketError.NetworkUnreachable or
-        SocketError.HostUnreachable or SocketError.NetworkDown or SocketError.AddressNotAvailable;
-}
+static bool IsDefinitelyNotSent(HttpRequestException exception) =>
+    AtkTransportFailureClassifier.IsDefinitelyNotSent(exception);
 
 static bool HasValidSession(HttpContext context, string? expectedToken)
 {
