@@ -39,9 +39,10 @@ begin
      length(coalesce(p_signed_payload,''))=0 or length(coalesce(p_signature,''))=0 then
     raise exception 'Idempotency key, signed payload and signature are required';
   end if;
-  if p_atk_response->>'status'<>'accepted' or
-     p_atk_response->>'transactionId'<>p_atk_transaction_id::text or
-     p_atk_response->>'environment'<>'ATK TEST' then
+  if p_atk_response is null or
+     coalesce(p_atk_response->>'status','')<>'accepted' or
+     coalesce(p_atk_response->>'transactionId','')<>p_atk_transaction_id::text or
+     coalesce(p_atk_response->>'environment','')<>'ATK TEST' then
     raise exception 'ATK response must be an accepted TEST response matching the transaction_id';
   end if;
   if not exists(
