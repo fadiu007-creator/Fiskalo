@@ -115,26 +115,26 @@ create policy fiskalo_basic_member_insert on public.fiskalo_basic_members
 
 create policy fiskalo_basic_pos_access on public.fiskalo_basic_pos
   for all to authenticated
-  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()))
-  with check (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()));
+  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_pos.business_id and m.user_id=auth.uid()))
+  with check (exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_pos.business_id and m.user_id=auth.uid()));
 
 create policy fiskalo_basic_products_access on public.fiskalo_basic_products
   for all to authenticated
-  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()))
-  with check (exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid()));
+  using (exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_products.business_id and m.user_id=auth.uid()))
+  with check (exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_products.business_id and m.user_id=auth.uid()));
 
 create policy fiskalo_basic_sales_read on public.fiskalo_basic_sales
   for select to authenticated using (
-    exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid())
+    exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_sales.business_id and m.user_id=auth.uid())
   );
 create policy fiskalo_basic_sales_insert on public.fiskalo_basic_sales
   for insert to authenticated with check (
-    operator_id=auth.uid() and exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid())
+    operator_id=auth.uid() and exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_sales.business_id and m.user_id=auth.uid())
   );
 
 create policy fiskalo_basic_fiscal_access on public.fiskalo_basic_fiscal_documents
   for select to authenticated using (
-    exists(select 1 from public.fiskalo_basic_members m where m.business_id=business_id and m.user_id=auth.uid())
+    exists(select 1 from public.fiskalo_basic_members m where m.business_id=public.fiskalo_basic_fiscal_documents.business_id and m.user_id=auth.uid())
   );
 
 grant select,insert on public.fiskalo_basic_businesses to authenticated;
