@@ -368,8 +368,11 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_content" });
         if (existing is not null && (existing.NuiKf is null || existing.CitizenPayloadBase64 is null || existing.CitizenSignatureBase64 is null))
             return Results.Conflict(new { status = existing.Status.ToString(), error = "legacy_queue_item_missing_signed_citizen_receipt_requires_operator_reconciliation" });
+        if (existing is not null && !FiscalReceiptIdentity.IsValidNuiKf(existing.NuiKf))
+            return Results.Conflict(new { status = existing.Status.ToString(), error = "legacy_queue_item_uses_invalid_pre_spec_nuikf_requires_operator_reconciliation" });
 
-        var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf();
+        var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf(
+            installation.FiscalizationNumber, coupon.BranchId, coupon.Time);
         var signedCitizen = existing is null
             ? AtkCouponSigner.SignCitizenCoupon(AtkCouponSigner.CreateCitizenCoupon(coupon), key)
             : null;
