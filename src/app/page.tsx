@@ -63,7 +63,7 @@ export default function Home(){
       if(data.user){try{await loadWorkspace(data.user.id)}catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira.")}}
       setLoading(false);
     });
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{setUser(session?.user??null);if(!session?.user){setBusiness(null);setProducts([]);setPositions([]);}});
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{setUser(session?.user??null);if(session?.user){void loadWorkspace(session.user.id).catch(e=>setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira."));}else{setBusiness(null);setProducts([]);setPositions([]);}});
     return()=>subscription.unsubscribe();
   },[supabase,loadWorkspace]);
 
