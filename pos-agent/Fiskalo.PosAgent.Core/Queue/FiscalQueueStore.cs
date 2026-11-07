@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Fiskalo.PosAgent.Core.Atk;
 using System.Text.Json;
 
 namespace Fiskalo.PosAgent.Core.Queue;
@@ -109,9 +110,33 @@ public sealed class FiscalQueueStore
         try
         {
             var items = await LoadAsync(cancellationToken);
+            var changed = false;
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                var hasCitizenReceipt = item.NuiKf is not null ||
+                                        item.CitizenPayloadBase64 is not null ||
+                                        item.CitizenSignatureBase64 is not null;
+                if (item.Status != FiscalQueueStatus.Queued || !hasCitizenReceipt)
+                    continue;
+                if (FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(
+                    item.PayloadBase64, item.CitizenPayloadBase64, item.NuiKf))
+                    continue;
+
+                items[i] = item with
+                {
+                    Status = FiscalQueueStatus.NeedsReconciliation,
+                    LegacyNuiKf = item.NuiKf,
+                    NuiKf = null,
+                    LastError = "Legacy queue item NUIKF does not match the signed POS and CitizenCoupon VerificationNo. Check ATK before any retry."
+                };
+                changed = true;
+            }
+            if (changed) await SaveAsync(items, cancellationToken);
+
             // The 48-hour recovery deadline is an operational compliance target,
             // not permission to discard or stop transmitting an unsent fiscal record.
-            // Keep overdue documents encrypted and eligible for automatic delivery;
+            // Keep valid overdue documents encrypted and eligible for automatic delivery;
             // the host exposes RecoveryDeadlineUtc so it can raise an overdue alert.
             return items.Where(x => x.Status == FiscalQueueStatus.Queued &&
                     x.NextAttemptAtUtc <= timestamp)
