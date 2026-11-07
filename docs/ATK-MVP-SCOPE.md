@@ -68,7 +68,7 @@ The ATK legal instruction states that the SEF must save transactions securely wh
 
 **Deployment verification (2026-11-07):** migrations 0005 and 0006 are applied to Supabase project `zikos`. The catalog/privilege regression script for migration 0005 passed. The daily counter function is configured for `Europe/Belgrade` (Kosovo local time). The test receipt UI and Agent changes are committed, but the current GitHub Actions run must pass before this batch is considered build-verified.
 
-- Migrations 0007-0008 add an owner-visible, self-managed operator display name and snapshot it into every new sale. The POS requires a named operator before checkout, while retaining the authenticated user ID as the stable operator identifier. Owner access to the business operator roster is mediated through a private SECURITY DEFINER helper to avoid recursive RLS policies.
+- Migrations 0007-0008 add an owner-visible, self-managed operator display name and snapshot it into every new sale. The POS requires a named operator before checkout, while retaining the authenticated user ID internally as the stable operator key; the ATK PosCoupon OperatorId field carries the registered operator name. Owner access to the business operator roster is mediated through a private SECURITY DEFINER helper to avoid recursive RLS policies.
 
 **Receipt scope caveat:** the current Basic checkout records one payment method per sale and does not yet support split-tender payments or item-level discounts/markups. The receipt prints the full amount against the selected method and VAT breakdown; split allocations and discount/markup rows remain unimplemented if a business needs them.
 
