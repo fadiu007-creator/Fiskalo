@@ -20,4 +20,9 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run build
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet test pos-agent/Fiskalo.PosAgent.Tests/Fiskalo.PosAgent.Tests.csproj --configuration Release
+      - run: dotnet build pos-agent/Fiskalo.PosAgent.Host/Fiskalo.PosAgent.Host.csproj --configuration Release
       - run: npm run cf-build
