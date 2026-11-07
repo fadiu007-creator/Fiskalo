@@ -221,7 +221,7 @@ export default function Home(){
       if(!sale.daily_number||Number(sale.daily_number)<=0)throw new Error("Numri ditor i kuponit nuk u caktua nga baza e të dhënave.");
       const coupon={
         businessId:Number(business.nui),couponId:Number(sale.coupon_id),dailyNumber:Number(sale.daily_number),
-        branchId:pos.branch_id,location:pos.location,operatorId:user!.id,posId:pos.pos_id,
+        branchId:pos.branch_id,location:pos.location,operatorId:operatorName.trim(),posId:pos.pos_id,
         applicationId:Number(pos.application_id),verificationNo:pos.verification_no,type:1,
         unixTime:Math.floor(new Date(sale.created_at).getTime()/1000),
         items:(lines??[]).map(line=>({name:line.description,unitPriceEuro:Number(line.unit_price),unit:line.atk_unit_code,quantity:Number(line.quantity),lineTotalCents:cents(line.line_total),taxRate:line.atk_vat_code,itemType:line.atk_item_category_code})),
