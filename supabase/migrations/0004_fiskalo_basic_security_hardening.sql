@@ -109,6 +109,7 @@ drop policy if exists fiskalo_basic_sale_items_insert on public.fiskalo_basic_sa
 drop policy if exists fiskalo_basic_fiscal_insert on public.fiskalo_basic_fiscal_documents;
 
 revoke insert,update,delete on public.fiskalo_basic_sales from authenticated;
+revoke update(status) on public.fiskalo_basic_sales from authenticated;
 grant select on public.fiskalo_basic_sales to authenticated;
 revoke insert,update,delete on public.fiskalo_basic_sale_items from authenticated;
 grant select on public.fiskalo_basic_sale_items to authenticated;
@@ -117,11 +118,14 @@ grant select on public.fiskalo_basic_fiscal_documents to authenticated;
 
 -- These functions perform the privileged writes only after validating auth.uid(),
 -- business membership, POS ownership, sale identity and ATK response identity.
--- Each function already pins its search_path to public,pg_temp and fully qualifies
--- auth.uid() and the tables it accesses.
+-- Pin built-ins ahead of writable schemas; the functions fully qualify table and
+-- auth references. Keep temporary objects last in the path.
 alter function public.fiskalo_basic_create_business(text,text) security definer;
+alter function public.fiskalo_basic_create_business(text,text) set search_path = pg_catalog,public,pg_temp;
 alter function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) security definer;
+alter function public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb) set search_path = pg_catalog,public,pg_temp;
 alter function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) security definer;
+alter function public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb) set search_path = pg_catalog,public,pg_temp;
 
 -- Coupon numbers are allocated only inside the checkout RPC.
 revoke usage,select on sequence public.fiskalo_basic_coupon_seq from authenticated;
