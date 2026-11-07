@@ -57,7 +57,7 @@ export default function Home(){
     if(!supabase)return;
     const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name").eq("user_id",uid).limit(1).maybeSingle();
     if(memberError)throw memberError;
-    if(!member){setBusiness(null);setMemberRole(null);setProducts([]);setPositions([]);setSelectedPos("");return;}
+    if(!member){setBusiness(null);setMemberRole(null);setOperatorName("");setProducts([]);setPositions([]);setSelectedPos("");return;}
     setMemberRole(member.role as MemberRole);
     if(member.role==="cashier")setTab("pos");
     const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui,vat_number").eq("id",member.business_id).single();
