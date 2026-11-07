@@ -55,7 +55,7 @@ export default function Home(){
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
   const loadWorkspace=useCallback(async(uid:string)=>{
     if(!supabase)return;
-    const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role").eq("user_id",uid).limit(1).maybeSingle();
+    const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name").eq("user_id",uid).limit(1).maybeSingle();
     if(memberError)throw memberError;
     if(!member){setBusiness(null);setMemberRole(null);setProducts([]);setPositions([]);setSelectedPos("");return;}
     setMemberRole(member.role as MemberRole);
