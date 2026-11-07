@@ -114,10 +114,11 @@ public sealed class FiscalQueueStore
             for (var i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                var hasCitizenReceipt = item.NuiKf is not null ||
-                                        item.CitizenPayloadBase64 is not null ||
-                                        item.CitizenSignatureBase64 is not null;
-                if (item.Status != FiscalQueueStatus.Queued || !hasCitizenReceipt)
+                var hasFiscalReceiptIdentity = item.NuiKf is not null ||
+                                               item.CitizenPayloadBase64 is not null ||
+                                               item.CitizenSignatureBase64 is not null ||
+                                               FiscalReceiptIdentity.IsPosCouponPayload(item.PayloadBase64);
+                if (item.Status != FiscalQueueStatus.Queued || !hasFiscalReceiptIdentity)
                     continue;
                 if (FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(
                     item.PayloadBase64, item.CitizenPayloadBase64, item.NuiKf))
