@@ -75,13 +75,13 @@ begin
   where idempotency_key=p_idempotency_key
   for update;
   if found then
-    if v_existing.business_id<>p_business_id or v_existing.sale_id<>p_sale_id or
-       v_existing.coupon_id<>p_correction_coupon_id or
-       v_existing.document_type<>p_document_type or
-       v_existing.reference_coupon_id<>p_original_coupon_id or
+    if v_existing.business_id is distinct from p_business_id or v_existing.sale_id is distinct from p_sale_id or
+       v_existing.coupon_id is distinct from p_correction_coupon_id or
+       v_existing.document_type is distinct from p_document_type or
+       v_existing.reference_coupon_id is distinct from p_original_coupon_id or
        v_existing.parent_document_id<>v_original.id or
-       v_existing.signed_payload<>p_signed_payload or
-       v_existing.signature<>p_signature then
+       v_existing.signed_payload is distinct from p_signed_payload or
+       v_existing.signature is distinct from p_signature then
       raise exception 'Idempotency key already exists with different correction data';
     end if;
     if v_existing.submission_state='accepted' and
