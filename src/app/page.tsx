@@ -95,7 +95,7 @@ export default function Home(){
     if(productError)throw productError;if(posError)throw posError;
     setProducts(prods??[]);setPositions(poses??[]);
     setSelectedPos(current=>poses?.some(p=>p.id===current)?current:(poses?.[0]?.id??""));
-  },[supabase,selectedPos]);
+  },[supabase]);
 
   const loadSales=useCallback(async()=>{
     if(!supabase||!business)return;
