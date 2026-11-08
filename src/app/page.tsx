@@ -19,7 +19,7 @@ function FiscalLogo(){
       alt="Stema e Republikës së Kosovës"
       width="34"
       height="38"
-      style={{width:9,height:10,objectFit:"contain"}}
+      style={{width:"9mm",height:"10mm",objectFit:"contain"}}
     />
     <div style={{textAlign:"left",lineHeight:1.05,color:"#111"}}>
       <div style={{fontSize:13,fontWeight:900,letterSpacing:1}}>RKS</div>
