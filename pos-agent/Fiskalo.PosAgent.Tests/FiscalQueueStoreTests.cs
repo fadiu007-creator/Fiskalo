@@ -215,6 +215,27 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task ConnectivityMonitor_UsesPersistedLastHealthyProbeAfterAgentRestart()
+    {
+        using var fixture = new QueueFixture();
+        var lastHealthyProbe = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        var initialMonitor = new Fiskalo.PosAgent.Core.Atk.FiscalConnectivityMonitor(
+            fixture.Store, _ => Task.FromResult(true));
+        Assert.Null(await initialMonitor.ProbeAsync(lastHealthyProbe));
+
+        // Simulate a process restart by constructing a new store and monitor
+        // over the same encrypted files and installation protector.
+        var restartedStore = new FiscalQueueStore(fixture.Path, fixture.Protector);
+        var restartedMonitor = new Fiskalo.PosAgent.Core.Atk.FiscalConnectivityMonitor(
+            restartedStore, _ => Task.FromResult(false));
+        var outageDetected = lastHealthyProbe.AddHours(2);
+
+        Assert.Equal(lastHealthyProbe, await restartedMonitor.ProbeAsync(outageDetected));
+        Assert.Equal(lastHealthyProbe, await restartedStore.GetConnectivityOutageStartedAtUtcAsync());
+        Assert.Equal(lastHealthyProbe, await restartedStore.GetLastSuccessfulConnectivityProbeAtUtcAsync());
+    }
+
+    [Fact]
     public async Task ConnectivityMonitor_ClearsCurrentOutageWhenATKBecomesReachable()
     {
         using var fixture = new QueueFixture();
@@ -484,11 +505,13 @@ public sealed class FiscalQueueStoreTests
     {
         public string Path { get; } = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), "fiskalo-queue-tests-" + Guid.NewGuid().ToString("N"), "queue.bin");
-        public FiscalQueueStore Store { get; } = null!;
+        public FiscalQueueStore Store { get; }
+        public TestProtector Protector { get; }
 
         public QueueFixture()
         {
-            Store = new FiscalQueueStore(Path, new TestProtector());
+            Protector = new TestProtector();
+            Store = new FiscalQueueStore(Path, Protector);
         }
 
         public void Dispose()
