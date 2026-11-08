@@ -30,27 +30,29 @@ public static class AtkCorrectionCouponFactory
         CouponType correctionType)
     {
         ArgumentNullException.ThrowIfNull(acceptedSale);
-        ArgumentException.ThrowIfNullOrWhiteSpace(verificationNo);
 
         if (acceptedSale.Type != CouponType.Sale)
             throw new ArgumentException("A correction must reference an original Sale coupon.", nameof(acceptedSale));
-        if (acceptedSale.CouponId == 0)
-            throw new ArgumentException("The original Sale coupon must have a non-zero coupon ID.", nameof(acceptedSale));
+        if (acceptedSale.BusinessId == 0 || acceptedSale.CouponId == 0 ||
+            acceptedSale.BranchId == 0 || acceptedSale.PosId == 0 || acceptedSale.ApplicationId == 0)
+            throw new ArgumentException("The original Sale coupon must contain complete ATK business, branch, POS, application and coupon identifiers.", nameof(acceptedSale));
         if (correctionCouponId == 0 || correctionCouponId == acceptedSale.CouponId)
             throw new ArgumentOutOfRangeException(nameof(correctionCouponId), "The correction needs its own non-zero coupon ID.");
-        if (verificationNo.Length > 16)
-            throw new ArgumentOutOfRangeException(nameof(verificationNo), "ATK verification numbers must not exceed 16 characters.");
+        if (!FiscalReceiptIdentity.IsValidNuiKf(verificationNo))
+            throw new ArgumentException("The correction needs a unique 16-character uppercase alphanumeric NUIKF.", nameof(verificationNo));
         if (issuedAt.Offset != TimeSpan.Zero)
             throw new ArgumentException("Correction issue time must be supplied in UTC.", nameof(issuedAt));
 
         // Protobuf Clone preserves the original tax groups, items and payment allocations.
-        // The original object is never mutated; the new document links to it through ReferenceNo.
+        // TransactionNo is assigned by ATK in its response and must not be copied into
+        // the newly submitted correction request.
         var correction = acceptedSale.Clone();
         correction.CouponId = correctionCouponId;
         correction.ReferenceNo = acceptedSale.CouponId;
         correction.VerificationNo = verificationNo;
         correction.Type = correctionType;
         correction.Time = issuedAt.ToUnixTimeSeconds();
+        correction.TransactionNo = 0;
         return correction;
     }
 }
