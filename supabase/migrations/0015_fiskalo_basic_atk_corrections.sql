@@ -79,7 +79,7 @@ begin
        v_existing.coupon_id is distinct from p_correction_coupon_id or
        v_existing.document_type is distinct from p_document_type or
        v_existing.reference_coupon_id is distinct from p_original_coupon_id or
-       v_existing.parent_document_id<>v_original.id or
+       v_existing.parent_document_id is distinct from v_original.id or
        v_existing.signed_payload is distinct from p_signed_payload or
        v_existing.signature is distinct from p_signature then
       raise exception 'Idempotency key already exists with different correction data';
