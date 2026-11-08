@@ -96,10 +96,10 @@ Implemented in the clean repository:
 - Web paid-sale path: builds the ATK Sale coupon, submits through the local agent and stores the accepted response only when a valid transaction ID is returned.
 
 Not yet complete:
-- ATK Cancel and Return workflows and their end-to-end acceptance tests.
+- A POS Agent correction-coupon factory creates immutable full-cancellation and full-return protobuf documents with a distinct coupon ID, original-sale `ReferenceNo`, new verification number and UTC issue time. It preserves the original sale's fiscal values and clears the ATK response transaction number on the new request. Migration 0015 adds a durable correction journal linked to the original accepted Sale document and a server-side RPC that requires an accepted original and a matching accepted ATK TEST response before recording the correction. Migration 0015 is committed but has not been applied. Partial item returns, refund/payment calculation, signed-correction submission integration, web UI actions and end-to-end ATK acceptance tests remain unimplemented; do not expose this as a completed user-facing correction workflow.
 - Verified official unit/category catalogue and dropdowns. The sample integration repository demonstrates payload values but is not itself a complete current ATK catalogue.
 - Complete browser/operator reconciliation and authority-request export.
-- Apply migration 0004 and run its privilege regression test; then execute authenticated owner/cashier cross-tenant RLS integration tests.
+- Run authenticated owner/cashier and cross-tenant RLS integration tests with real test JWTs. Migrations 0014 and 0015 are committed but have not been executed against the database; apply them only to a staging database after reviewing each migration and its backup/rollback procedure. Run the 0004, 0014 and 0015 SQL regression scripts against that staging schema.
 - Physical POS tests for Windows installation, printer output, offline recovery and duplicate/timeout scenarios.
 - ATK provider/software certification and production credentials.
 

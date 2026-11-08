@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 
@@ -10,6 +11,10 @@ namespace Fiskalo.PosAgent.Core.Atk;
 /// </summary>
 public static class AtkTransportFailureClassifier
 {
+    public static bool IsDefinitiveRejection(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or
+            HttpStatusCode.Forbidden or HttpStatusCode.NotFound or HttpStatusCode.UnprocessableEntity;
+
     public static bool IsDefinitelyNotSent(HttpRequestException exception)
     {
         ArgumentNullException.ThrowIfNull(exception);

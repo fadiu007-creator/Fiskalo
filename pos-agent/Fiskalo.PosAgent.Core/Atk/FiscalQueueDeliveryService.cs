@@ -45,7 +45,7 @@ public sealed class FiscalQueueDeliveryService
                     throw new AtkApiException("ATK returned no transaction_id.", System.Net.HttpStatusCode.BadGateway, "");
                 await _queue.MarkAcceptedAsync(item.IdempotencyKey, response.TransactionId.ToString(), cancellationToken);
             }
-            catch (AtkApiException ex) when ((int)ex.StatusCode >= 400 && (int)ex.StatusCode < 500)
+            catch (AtkApiException ex) when (AtkTransportFailureClassifier.IsDefinitiveRejection(ex.StatusCode))
             {
                 await _queue.MarkRejectedAsync(item.IdempotencyKey,
                     "ATK rejected the queued test coupon with HTTP " + (int)ex.StatusCode, cancellationToken);

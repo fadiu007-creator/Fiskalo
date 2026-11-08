@@ -1,4 +1,4 @@
--- Run after migrations 0001-0004 in a Supabase SQL session.
+-- Run after migrations 0001-0014 in a Supabase SQL session.
 -- This is a catalog/privilege regression test; it does not replace an authenticated
 -- owner-vs-cashier RLS integration test using real JWT claims.
 do $$
@@ -30,7 +30,7 @@ begin
 
   foreach function_name in array array[
     'fiskalo_private.fiskalo_basic_create_business(text,text)',
-    'fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb)',
+    'fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb,uuid)',
     'fiskalo_private.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb)'
   ] loop
     helper_oid := to_regprocedure(function_name);
@@ -71,8 +71,11 @@ begin
     where n.nspname='public' and p.proname like 'fiskalo_basic_%' and p.prosecdef
   ) then raise exception 'public Basic RPC wrappers must remain SECURITY INVOKER'; end if;
 
-  if not has_function_privilege('authenticated','public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb)','EXECUTE') or
+  if not has_function_privilege('authenticated','public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb,uuid)','EXECUTE') or
      not has_function_privilege('authenticated','public.fiskalo_basic_record_atk_sale(uuid,uuid,bigint,text,text,text,numeric,jsonb)','EXECUTE') then
     raise exception 'Authenticated public RPC wrappers are missing execute permission';
+  end if;
+  if has_function_privilege('authenticated','public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb)','EXECUTE') then
+    raise exception 'Legacy checkout RPC without an idempotency key must not be executable';
   end if;
 end $$;

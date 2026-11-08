@@ -415,7 +415,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
                 detailsBase64 = persisted.PayloadBase64, signatureBase64 = persisted.SignatureBase64,
                 nuiKf, dailyNumber = persisted.DailyNumber, citizenQrPayload, qrSvgBase64,
                 message = result.Message, environment = "ATK TEST", productionEnabled = false, offline = false });
-        } catch (AtkApiException ex) when ((int)ex.StatusCode >= 400 && (int)ex.StatusCode < 500) {
+        } catch (AtkApiException ex) when (AtkTransportFailureClassifier.IsDefinitiveRejection(ex.StatusCode)) {
             await queueStore.MarkRejectedAsync(request.IdempotencyKey, "ATK rejected the test coupon with HTTP " + (int)ex.StatusCode, cancellationToken);
             return Results.Problem("ATK rejected the test coupon (HTTP " + (int)ex.StatusCode + "). Review the payload and ATK response before creating a corrected test document.", statusCode: StatusCodes.Status422UnprocessableEntity);
         } catch (HttpRequestException ex) when (IsDefinitelyNotSent(ex)) {
