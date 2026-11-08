@@ -198,7 +198,9 @@ public sealed class FiscalQueueStore
             // Prefer the outage time captured by the continuous connectivity monitor.
             // Fall back to this first confirmed no-connect failure if the monitor was
             // unable to persist a probe result.
-            var outageStart = await LoadConnectivityOutageAsync(cancellationToken) ??
+            var connectivityState = await LoadConnectivityStateAsync(cancellationToken);
+            var outageStart = connectivityState.OutageStartedAtUtc ??
+                connectivityState.LastSuccessfulProbeAtUtc ??
                 items[index].OfflineIssuedAtUtc ?? timestamp;
             for (var i = 0; i < items.Count; i++)
             {
