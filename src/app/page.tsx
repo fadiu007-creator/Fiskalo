@@ -15,7 +15,7 @@ type MemberRole="owner"|"cashier";
 function FiscalLogo(){
   return <div role="img" aria-label="Stema zyrtare e Republikës së Kosovës dhe MFPT" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,margin:"0 auto",height:"12mm"}}>
     <img
-      src="https://upload.wikimedia.org/wikipedia/commons/2/29/Coat_of_arms_of_Republic_of_Kosovo.svg"
+      src="/rks-coat-of-arms.svg"
       alt="Stema e Republikës së Kosovës"
       width="34"
       height="38"
