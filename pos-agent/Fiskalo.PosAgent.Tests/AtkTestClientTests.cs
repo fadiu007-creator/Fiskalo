@@ -29,13 +29,13 @@ public sealed class AtkTestClientTests
         {
             Assert.Equal("https://fiskalizimi-test.atk-ks.org/ca/verify/123456789", request.RequestUri!.ToString());
             Assert.Equal(HttpMethod.Post, request.Method);
-            return Json("{\"business_name\":\"Test Business\",\"verification_code\":\"TEST-CODE\"}");
+            return Json("{\"business_name\":\"Test Business\",\"verification_code\":1234567890123456}");
         });
         using var http = new HttpClient(handler);
         var result = await new AtkTestClient(http).VerifyPosAsync(123456789, "EDI-TEST-CODE", 7, 2, 99);
 
         Assert.Equal("Test Business", result.BusinessName);
-        Assert.Equal("TEST-CODE", result.VerificationCode);
+        Assert.Equal("1234567890123456", result.VerificationCode);
     }
 
     [Fact]
@@ -44,11 +44,16 @@ public sealed class AtkTestClientTests
         var handler = new StubHandler(request =>
         {
             Assert.Equal("https://fiskalizimi-test.atk-ks.org/ca/signcsr", request.RequestUri!.ToString());
+            var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            using var document = System.Text.Json.JsonDocument.Parse(body);
+            var root = document.RootElement;
+            Assert.Equal(1234567890123456L, root.GetProperty("verification_no").GetInt64());
+            Assert.False(root.TryGetProperty("verification_code", out _));
             return Json("{\"signed_certificate\":\"TEST-CERT\"}");
         });
         using var http = new HttpClient(handler);
         var result = await new AtkTestClient(http).SignCsrAsync(
-            "Test Business", 123456789, 2, "VERIFY", 7, 99, "-----BEGIN CERTIFICATE REQUEST-----\nTEST\n-----END CERTIFICATE REQUEST-----");
+            "Test Business", 123456789, 2, "1234567890123456", 7, 99, "-----BEGIN CERTIFICATE REQUEST-----\nTEST\n-----END CERTIFICATE REQUEST-----");
 
         Assert.Equal("TEST-CERT", result.SignedCertificate);
     }
