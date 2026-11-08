@@ -59,3 +59,14 @@ export async function submitLocalTestCoupon(token:string,idempotencyKey:string,c
 export async function getLocalAgentQueue(token:string){
   return call<{count:number;overdueCount:number;items:LocalFiscalQueueItem[]}>("/api/v1/queue",token);
 }
+export type LocalQueueReconcileInput=
+  | {decision:"accepted";atkTransactionId:string}
+  | {decision:"rejected";operatorNote:string}
+  | {decision:"not_found_confirmed";confirmedNoAtkRecord:true};
+export type LocalQueueReconcileResult={
+  idempotencyKey:string;status:string;transactionId:string|null;lastError:string|null;
+  manualResubmissionPermitted:boolean;automaticRetryEnabled:boolean;
+};
+export async function reconcileLocalAgentQueue(token:string,idempotencyKey:string,input:LocalQueueReconcileInput){
+  return call<LocalQueueReconcileResult>("/api/v1/queue/reconcile",token,{idempotencyKey,...input});
+}

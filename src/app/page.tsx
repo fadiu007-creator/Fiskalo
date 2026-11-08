@@ -2,13 +2,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
 
 type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -71,6 +71,9 @@ export default function Home(){
   const [agentStatus,setAgentStatus]=useState<AgentStatus|null>(null);
   const [verification,setVerification]=useState<AtkVerification|null>(null);
   const [cart,setCart]=useState<Record<string,CartLine>>({});
+  const [checkoutKey,setCheckoutKey]=useState("");
+  const [checkoutAttempted,setCheckoutAttempted]=useState(false);
+  const [checkoutDraftLoaded,setCheckoutDraftLoaded]=useState(false);
   const [payment,setPayment]=useState("cash");
 
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
@@ -122,6 +125,7 @@ export default function Home(){
         const doc=docsBySale.get(s.id);
         return {
           ...s,
+          idempotency_key:idempotencyKey,
           items:itemsBySale.get(s.id)??[],
           transaction_id:String(doc?.atk_transaction_id??queued?.atkTransactionId??"")||null,
           nui_kf:doc?.nui_kf??(queued?.nuiKf&&/^[A-Z0-9]{16}$/.test(queued.nuiKf)?queued.nuiKf:null),
@@ -160,7 +164,7 @@ export default function Home(){
       const couponId=Number(parts[3]);
       if(!Number.isSafeInteger(couponId)||couponId<=0)continue;
       const {data:sale,error:saleError}=await supabase.from("fiskalo_basic_sales")
-        .select("id,coupon_id,pos_id,daily_number").eq("business_id",business.id)
+        .select("id,coupon_id,pos_id,daily_number,checkout_idempotency_key").eq("business_id",business.id)
         .eq("coupon_id",couponId).maybeSingle();
       if(saleError)throw saleError;
       if(!sale)continue;
@@ -183,8 +187,33 @@ export default function Home(){
         });
         if(qrError)throw qrError;
       }
+      if(sale.checkout_idempotency_key===checkoutKey){
+        setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+      }
     }
-  },[supabase,business,agentToken,positions]);
+  },[supabase,business,agentToken,positions,checkoutKey]);
+
+  async function reconcileSaleQueue(sale:SaleRecord,decision:"accepted"|"not_found_confirmed"){
+    if(!agentToken||!sale.idempotency_key){setMessage("Lidh POS Agent para reconciliimit.");return;}
+    setBusy(true);setMessage("");
+    try{
+      if(decision==="accepted"){
+        const transactionId=window.prompt("Vendos transaction_id që e ke verifikuar në regjistrin e ATK-së:");
+        if(!transactionId)return;
+        if(!/^[1-9][0-9]{0,19}$/.test(transactionId.trim()))throw new Error("Transaction ID duhet të jetë numër pozitiv deri në 20 shifra.");
+        await reconcileLocalAgentQueue(agentToken,sale.idempotency_key,{decision:"accepted",atkTransactionId:transactionId.trim()});
+        await syncAcceptedQueue();
+        setMessage("Pranimi i verifikuar u regjistrua. Fiskalo po sinkronizon kuponin dhe transaction_id.");
+      }else{
+        if(!window.confirm("Vazhdo vetëm pasi të kesh kontrolluar regjistrin e ATK-së dhe të kesh konfirmuar se ky kupon nuk ekziston. Kjo do të lejojë ridërgimin e të njëjtit dokument të nënshkruar. A e konfirmon?"))return;
+        await reconcileLocalAgentQueue(agentToken,sale.idempotency_key,{decision:"not_found_confirmed",confirmedNoAtkRecord:true});
+        setMessage("Ridërgimi u lejua pas konfirmimit manual se ATK nuk ka regjistrim. Dokumenti origjinal mbetet i pandryshuar.");
+      }
+      await loadSales();
+    }catch(e){setMessage(e instanceof Error?e.message:"Reconciliimi i kuponit dështoi.");}
+    finally{setBusy(false);}
+  }
 
   useEffect(()=>{
     if(!user||!business||!agentToken)return;
@@ -209,6 +238,45 @@ export default function Home(){
 
   useEffect(()=>{const token=sessionStorage.getItem("fiskalo.posAgentToken");if(!token)return;setAgentToken(token);void getLocalAgentStatus(token).then(setAgentStatus).catch(()=>{sessionStorage.removeItem("fiskalo.posAgentToken");setAgentToken("");setAgentStatus(null);});},[]);
 
+  useEffect(()=>{
+    if(!business)return;
+    const storageKey="fiskalo.pendingCheckout."+business.id;
+    const raw=sessionStorage.getItem(storageKey);
+    if(!raw){setCheckoutDraftLoaded(true);return;}
+    if(!products.length)return;
+    try{
+      const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;payment?:string;selectedPos?:string};
+      if(!draft.key||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draft.key)||!Array.isArray(draft.lines)){
+        sessionStorage.removeItem(storageKey);setCheckoutDraftLoaded(true);return;
+      }
+      const restored:Record<string,CartLine>={};
+      for(const line of draft.lines){
+        const product=products.find(p=>p.id===line.productId);
+        const quantity=Number(line.quantity);
+        if(product&&Number.isFinite(quantity)&&quantity>0)restored[product.id]={product,quantity};
+      }
+      if(Object.keys(restored).length){
+        setCart(restored);setCheckoutKey(draft.key);setCheckoutAttempted(!!draft.attempted);
+        if(draft.payment==="cash"||draft.payment==="card"||draft.payment==="bank_transfer")setPayment(draft.payment);
+        if(positions.some(p=>p.id===draft.selectedPos))setSelectedPos(draft.selectedPos!);
+      }else{
+        sessionStorage.removeItem(storageKey);
+      }
+    }catch{
+      sessionStorage.removeItem(storageKey);
+    }finally{
+      setCheckoutDraftLoaded(true);
+    }
+  },[business,products,positions]);
+
+  useEffect(()=>{
+    if(!business||!checkoutDraftLoaded)return;
+    const storageKey="fiskalo.pendingCheckout."+business.id;
+    const lines=Object.values(cart).map(line=>({productId:line.product.id,quantity:line.quantity}));
+    if(!checkoutKey||!lines.length){sessionStorage.removeItem(storageKey);return;}
+    sessionStorage.setItem(storageKey,JSON.stringify({key:checkoutKey,attempted:checkoutAttempted,lines,payment,selectedPos}));
+  },[business,cart,checkoutKey,checkoutAttempted,payment,selectedPos,checkoutDraftLoaded]);
+
   async function signIn(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabase!.auth.signInWithPassword({email:(document.getElementById("email") as HTMLInputElement).value,password:(document.getElementById("password") as HTMLInputElement).value});if(error)throw error;}catch(e){setMessage(e instanceof Error?e.message:"Hyrja dështoi.");}finally{setBusy(false);}}
   async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
   async function saveOperatorIdentity(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(error)throw error;setMessage("Emri dhe identifikuesi i operatorit u ruajtën për kuponët e ardhshëm.");}catch(e){setMessage(e instanceof Error?e.message:"Identiteti i operatorit nuk u ruajt.");}finally{setBusy(false);}}
@@ -219,7 +287,7 @@ export default function Home(){
   async function requestAtkCertificate(){const pos=positions.find(p=>p.id===selectedPos);if(!pos||!business||!agentToken||!pos.application_id||!pos.verification_no){setMessage("Kryej fillimisht verifikimin ATK për këtë POS.");return;}setBusy(true);setMessage("");try{const result=await issueLocalTestCertificate(agentToken,{businessName:pos.verified_business_name||verification?.businessName||business.name,businessNui:Number(business.nui),branchId:pos.branch_id,verificationCode:pos.verification_no,posId:pos.pos_id,applicationId:Number(pos.application_id)});if(!result.certificateStatus.includes("RECEIVED_AND_KEY_MATCHED"))throw new Error("ATK certificate was not confirmed as matching the local POS key.");const {error}=await supabase!.from("fiskalo_basic_pos").update({certificate_status:"certificate_issued"}).eq("id",pos.id);if(error)throw error;setAgentStatus(await getLocalAgentStatus(agentToken));await loadWorkspace(user!.id);setMessage("Certifikata ATK TEST u ruajt në POS dhe çelësi publik u përputh.");}catch(e){setMessage(e instanceof Error?e.message:"Lëshimi i certifikatës dështoi.");}finally{setBusy(false);}}
   async function addPos(e:React.FormEvent){e.preventDefault();if(!business)return;if(!/^[0-9]{7}$/.test(unitNumber.trim())){setMessage("Numri i njësisë ARBK duhet të ketë 7 shifra.");return;}setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_pos").insert({business_id:business.id,label:posLabel,location:posLocation,unit_number:unitNumber.trim(),branch_id:Number(branchId),pos_id:Number(posId),fiscalization_number:fiscalizationNumber,application_id:applicationId||null});if(error)throw error;setUnitNumber("");await loadWorkspace(user!.id);setMessage("POS-i u regjistrua në Fiskalo. Kjo nuk e verifikon automatikisht te ATK.");}catch(e){setMessage(e instanceof Error?e.message:"POS-i nuk u ruajt.");}finally{setBusy(false);}}
   async function savePosUnitNumber(posUuid:string){const value=(unitNumberEdits[posUuid]??positions.find(p=>p.id===posUuid)?.unit_number??"").trim();if(!/^[0-9]{7}$/.test(value)){setMessage("Numri i njësisë ARBK duhet të ketë 7 shifra.");return;}setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_pos").update({unit_number:value}).eq("id",posUuid);if(error)throw error;await loadWorkspace(user!.id);setUnitNumberEdits(current=>({...current,[posUuid]:value}));setMessage("Numri i njësisë ARBK u ruajt.");}catch(e){setMessage(e instanceof Error?e.message:"Numri i njësisë nuk u ruajt.");}finally{setBusy(false);}}
-  function changeCart(product:Product,delta:number){setCart(current=>{const next={...current};const qty=(next[product.id]?.quantity??0)+delta;if(qty<=0)delete next[product.id];else next[product.id]={product,quantity:qty};return next;});}
+  function changeCart(product:Product,delta:number){if(checkoutAttempted){setMessage("Kjo shitje ka nisur. Mos e ndrysho shportën derisa të përfundojë fiskalizimi ose reconciliimi.");return;}setCheckoutKey(crypto.randomUUID());setCart(current=>{const next={...current};const qty=(next[product.id]?.quantity??0)+delta;if(qty<=0)delete next[product.id];else next[product.id]={product,quantity:qty};return next;});}
   const cartLines=Object.values(cart);
   const total=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*(1+line.product.vat_rate/100),0);
   async function completeSale(){
@@ -228,15 +296,23 @@ export default function Home(){
     const pos=positions.find(p=>p.id===selectedPos);
     if(!pos)return;
     if(!/^[0-9]{7}$/.test(pos.unit_number??"")){setMessage("Plotëso numrin 7-shifror të njësisë ARBK për këtë POS para lëshimit të kuponit.");return;}
+    const checkoutIdempotencyKey=checkoutKey||crypto.randomUUID();
+    setCheckoutKey(checkoutIdempotencyKey);setCheckoutAttempted(true);
+    try{
+      sessionStorage.setItem("fiskalo.pendingCheckout."+business.id,JSON.stringify({
+        key:checkoutIdempotencyKey,attempted:true,
+        lines:cartLines.map(line=>({productId:line.product.id,quantity:line.quantity})),
+        payment,selectedPos
+      }));
+    }catch{}
     setBusy(true);setMessage("");
     try{
       const {error:operatorError}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(operatorError)throw operatorError;
       if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id)throw new Error("Ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk u regjistrua.");
       const agent=await getLocalAgentStatus(agentToken);
       if(!agent.paired||!agent.testCertificateInstalled||!agent.testInstallationVerified)throw new Error("POS Agent nuk është i çiftuar ose certifikata TEST nuk është verifikuar. Shitja nuk u regjistrua.");
-      const {data:saleId,error}=await supabase!.rpc("fiskalo_basic_create_sale",{p_business_id:business.id,p_pos_id:selectedPos,p_payment_method:payment,p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity}))});
+      const {data:saleId,error}=await supabase!.rpc("fiskalo_basic_create_sale",{p_business_id:business.id,p_pos_id:selectedPos,p_payment_method:payment,p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity})),p_idempotency_key:checkoutIdempotencyKey});
       if(error)throw error;
-      setCart({});
       const [{data:sale,error:saleError},{data:lines,error:linesError}]=await Promise.all([
         supabase!.from("fiskalo_basic_sales").select("*").eq("id",saleId).single(),
         supabase!.from("fiskalo_basic_sale_items").select("*").eq("sale_id",saleId).order("id")
@@ -262,6 +338,15 @@ export default function Home(){
         totalTaxCents:cents(sale.vat_total),totalNoTaxCents:cents(sale.subtotal),totalDiscountCents:0
       };
       const idempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+sale.coupon_id;
+      const existingQueue=await getLocalAgentQueue(agentToken);
+      const existingQueueItem=existingQueue.items.find(item=>item.idempotencyKey===idempotencyKey);
+      if(existingQueueItem&&["submitting","needsreconciliation","rejected"].includes(existingQueueItem.status.toLowerCase())){
+        throw new Error(existingQueueItem.status.toLowerCase()==="needsreconciliation"
+          ?"Kuponi ka rezultat të paqartë. Mos e ridërgo. Hap Shitjet dhe kryej reconciliimin me regjistrin e ATK-së."
+          :existingQueueItem.status.toLowerCase()==="submitting"
+            ?"Kuponi është duke u dërguar nga POS Agent. Prit sinkronizimin para riprovimit."
+            :"ATK e ka refuzuar këtë dokument. Kontrollo përgjigjen dhe mos krijo kupon të dytë për të njëjtën pagesë.");
+      }
       const fiscal=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon);
       if(!/^[A-Z0-9]{16}$/.test(fiscal.nuiKf||"")||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)throw new Error("POS Agent did not produce a valid 16-character ATK NUIKF and signed CitizenCoupon QR. Do not print this as a fiscal receipt.");
       if(fiscal.status==="accepted"&&(!fiscal.transactionId||!(/^[1-9][0-9]{0,19}$/.test(fiscal.transactionId))))throw new Error("ATK did not return a valid transaction_id.");
@@ -310,9 +395,18 @@ export default function Home(){
         if(qrError)throw new Error("Kuponi offline është ruajtur, por ruajtja e QR për ribotim dështoi: "+qrError.message);
         setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
       }
+      setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+      sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
       await loadWorkspace(user!.id);
     }catch(e){
-      await loadWorkspace(user!.id);
+      const {data:existingSale,error:lookupError}=await supabase!.from("fiskalo_basic_sales")
+        .select("id").eq("business_id",business.id)
+        .eq("checkout_idempotency_key",checkoutIdempotencyKey).maybeSingle();
+      if(!lookupError&&!existingSale){
+        setCheckoutKey("");setCheckoutAttempted(false);
+        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+      }
+      try{await loadWorkspace(user!.id)}catch{}
       setMessage(e instanceof Error?e.message:"Shitja/fiskalizimi dështoi. Kontrollo radhën lokale para çdo riprovimi.");
     }finally{setBusy(false);}
   }
@@ -331,7 +425,7 @@ export default function Home(){
     <div className="row" style={{margin:"22px 0"}}><button className={tab==="pos"?"btn":"btn secondary"} onClick={()=>setTab("pos")}>Arka / POS</button>{memberRole==="owner"&&<><button className={tab==="products"?"btn":"btn secondary"} onClick={()=>setTab("products")}>Artikujt</button><button className={tab==="atk"?"btn":"btn secondary"} onClick={()=>setTab("atk")}>ATK / POS</button><button className={tab==="sales"?"btn":"btn secondary"} onClick={()=>{setTab("sales");void loadSales();}}>Shitjet</button></>}</div>
     {message&&<p className="notice" role="status">{message}</p>}
     {tab==="products"&&memberRole==="owner"&&<div className="grid" style={{gridTemplateColumns:"minmax(260px,1fr) minmax(280px,1.4fr)"}}><section className="panel"><h2>Artikull i ri</h2><form onSubmit={addProduct}><div className="field"><label>Emri</label><input required value={productName} onChange={e=>setProductName(e.target.value)}/></div><div className="field"><label>Çmimi pa TVSH (€)</label><input type="number" min="0" step="0.0001" required value={productPrice} onChange={e=>setProductPrice(e.target.value)}/></div><div className="field"><label>Stoku</label><input type="number" min="0" step="0.001" value={productStock} onChange={e=>setProductStock(e.target.value)}/></div><div className="field"><label>Norma TVSH</label><select value={vatRate} onChange={e=>{setVatRate(e.target.value);setVatCode(e.target.value==="18"?"E":e.target.value==="8"?"D":"A")}}><option value="18">18%</option><option value="8">8%</option><option value="0">0%</option></select></div><div className="field"><label>Kodi ATK – njësia</label><input required value={unitCode} onChange={e=>setUnitCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – kategoria</label><input required value={categoryCode} onChange={e=>setCategoryCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – TVSH</label><input required maxLength={1} value={vatCode} onChange={e=>setVatCode(e.target.value.toUpperCase())}/></div><button className="btn" disabled={busy}>Ruaj artikullin</button></form></section><section className="panel"><h2>Katalogu</h2>{products.length===0?<p className="sub">Nuk ka artikuj ende.</p>:products.map(p=><div key={p.id} className="row" style={{justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--line)"}}><div><strong>{p.name}</strong><div className="sub" style={{fontSize:12}}>Stoku {p.stock} · TVSH {p.vat_rate}%</div></div><strong>€{Number(p.price).toFixed(2)}</strong></div>)}</section></div>}
-    {tab==="sales"&&memberRole==="owner"&&<section className="panel"><div className="row" style={{justifyContent:"space-between"}}><div><h2>Historia e shitjeve</h2><p className="sub">50 shitjet e fundit të këtij biznesi. Statusi ATK shfaqet veçmas nga pagesa.</p></div><button className="btn secondary" disabled={busy} onClick={()=>void loadSales()}>Rifresko</button></div>{sales.length===0?<p className="sub">Nuk ka shitje të regjistruara në këtë listë.</p>:<><div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",margin:"16px 0"}}><div className="stat-card"><span className="eyebrow">Shitje të listuara</span><strong className="stat">{sales.length}</strong></div><div className="stat-card"><span className="eyebrow">Vlera e listuar</span><strong className="stat">€{sales.reduce((sum,s)=>sum+Number(s.total),0).toFixed(2)}</strong></div><div className="stat-card"><span className="eyebrow">Të fiskalizuara</span><strong className="stat">{sales.filter(s=>s.status==="fiscalized").length}</strong></div></div>{sales.map(s=><div key={s.id} className="row" style={{justifyContent:"space-between",gap:12,padding:"13px 0",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}><div><strong>Kupon #{s.coupon_id}</strong><div className="sub" style={{fontSize:12}}>{new Date(s.created_at).toLocaleString("sq-XK")} · {s.payment_method}</div><div className="sub" style={{fontSize:12}}>ATK: {s.submission_state?.toLowerCase()==="accepted"||s.status==="fiscalized"?"Pranuar · "+(s.transaction_id??"Transaction ID i ruajtur"):s.submission_state?.toLowerCase()==="queued"?"Në radhë · dërgim automatik":s.submission_state?.toLowerCase()==="needsreconciliation"?"Kërkohet reconciliim":s.submission_state?.toLowerCase()==="rejected"?"Refuzuar nga ATK":"Jo i konfirmuar"}</div>{s.queue_last_error&&<div className="sub" style={{fontSize:12,color:"#b91c1c"}}>{s.queue_last_error}</div>}</div><div className="row"><strong>€{Number(s.total).toFixed(2)}</strong><button className="btn secondary" onClick={()=>setReceipt({...s,is_copy:true})}>Kuponi</button></div></div>)}</>}</section>}
+    {tab==="sales"&&memberRole==="owner"&&<section className="panel"><div className="row" style={{justifyContent:"space-between"}}><div><h2>Historia e shitjeve</h2><p className="sub">50 shitjet e fundit të këtij biznesi. Statusi ATK shfaqet veçmas nga pagesa.</p></div><button className="btn secondary" disabled={busy} onClick={()=>void loadSales()}>Rifresko</button></div>{sales.length===0?<p className="sub">Nuk ka shitje të regjistruara në këtë listë.</p>:<><div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",margin:"16px 0"}}><div className="stat-card"><span className="eyebrow">Shitje të listuara</span><strong className="stat">{sales.length}</strong></div><div className="stat-card"><span className="eyebrow">Vlera e listuar</span><strong className="stat">€{sales.reduce((sum,s)=>sum+Number(s.total),0).toFixed(2)}</strong></div><div className="stat-card"><span className="eyebrow">Të fiskalizuara</span><strong className="stat">{sales.filter(s=>s.status==="fiscalized").length}</strong></div></div>{sales.map(s=><div key={s.id} className="row" style={{justifyContent:"space-between",gap:12,padding:"13px 0",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}><div><strong>Kupon #{s.coupon_id}</strong><div className="sub" style={{fontSize:12}}>{new Date(s.created_at).toLocaleString("sq-XK")} · {s.payment_method}</div><div className="sub" style={{fontSize:12}}>ATK: {s.submission_state?.toLowerCase()==="accepted"||s.status==="fiscalized"?"Pranuar · "+(s.transaction_id??"Transaction ID i ruajtur"):s.submission_state?.toLowerCase()==="queued"?"Në radhë · dërgim automatik":s.submission_state?.toLowerCase()==="needsreconciliation"?"Kërkohet reconciliim":s.submission_state?.toLowerCase()==="rejected"?"Refuzuar nga ATK":"Jo i konfirmuar"}</div>{s.queue_last_error&&<div className="sub" style={{fontSize:12,color:"#b91c1c"}}>{s.queue_last_error}</div>}{s.submission_state?.toLowerCase()==="needsreconciliation"&&agentToken&&s.idempotency_key&&<div className="row no-print" style={{marginTop:8}}><button className="btn secondary" disabled={busy} onClick={()=>void reconcileSaleQueue(s,"accepted")}>ATK e ka pranuar</button><button className="btn secondary" disabled={busy} onClick={()=>void reconcileSaleQueue(s,"not_found_confirmed")}>ATK nuk e gjen</button></div>}</div><div className="row"><strong>€{Number(s.total).toFixed(2)}</strong><button className="btn secondary" onClick={()=>setReceipt({...s,is_copy:true})}>Kuponi</button></div></div>)}</>}</section>}
     {receipt&&<div className="panel receipt" style={{marginTop:18,maxWidth:420,fontFamily:"Arial, sans-serif",color:"#111",background:"#fff"}}>
       <div className="row no-print" style={{justifyContent:"space-between"}}>
         <strong>Paraqitja e kuponit fiskal</strong>
@@ -400,7 +494,7 @@ export default function Home(){
     </div>}
     {tab==="atk"&&memberRole==="owner"&&<div className="grid" style={{gridTemplateColumns:"minmax(260px,1fr) minmax(280px,1.4fr)"}}><section className="panel"><h2>Regjistro POS</h2><form onSubmit={addPos}><div className="field"><label>Emërtimi</label><input required value={posLabel} onChange={e=>setPosLabel(e.target.value)}/></div><div className="field"><label>Lokacioni i biznesit</label><input required value={posLocation} onChange={e=>setPosLocation(e.target.value)} placeholder="Adresa e njësisë së regjistruar"/></div><div className="field"><label>Numri i njësisë ARBK (7 shifra)</label><input required inputMode="numeric" pattern="[0-9]{7}" maxLength={7} value={unitNumber} onChange={e=>setUnitNumber(e.target.value)} placeholder="p.sh. 5130484"/></div><div className="field"><label>Branch ID (ATK)</label><input type="number" min="1" required value={branchId} onChange={e=>setBranchId(e.target.value)}/></div><div className="field"><label>Numri POS</label><input type="number" min="1" required value={posId} onChange={e=>setPosId(e.target.value)}/></div><div className="field"><label>Numri i fiskalizimit TEST</label><input required value={fiscalizationNumber} onChange={e=>setFiscalizationNumber(e.target.value)} placeholder="Numri i fiskalizimit nga EDI"/></div><div className="field"><label>Application ID TEST</label><input required value={applicationId} onChange={e=>setApplicationId(e.target.value)}/></div><button className="btn" disabled={busy}>Ruaj POS-in</button></form></section><section className="panel"><h2>Pajisjet</h2>{positions.length===0?<p className="sub">Nuk është regjistruar asnjë POS.</p>:positions.map(p=><div key={p.id} style={{padding:"12px 0",borderBottom:"1px solid var(--line)"}}><div className="row" style={{justifyContent:"space-between"}}><strong>{p.label}</strong><span className="status">{p.certificate_status}</span></div><p className="sub" style={{fontSize:12,margin:"5px 0"}}>Njësia ARBK {p.unit_number||"Nuk është konfiguruar"} · Branch ID {p.branch_id} · POS {p.pos_id} · TEST {p.fiscalization_number}</p>{memberRole==="owner"&&<div className="row" style={{marginTop:8}}><input style={{flex:1,minWidth:130}} inputMode="numeric" pattern="[0-9]{7}" maxLength={7} value={unitNumberEdits[p.id]??p.unit_number??""} onChange={e=>setUnitNumberEdits(current=>({...current,[p.id]:e.target.value}))} placeholder="Numri i njësisë ARBK"/><button className="btn secondary" disabled={busy} onClick={()=>savePosUnitNumber(p.id)}>Ruaj</button></div>}</div>)}</section>
       <section className="panel"><h2>Lidhja me POS Agent (Windows)</h2><p className="sub">Nise Fiskalo POS Agent në kompjuterin e arkës. Përdor kodin njëpërdorimësh që shfaqet në dritaren e tij.</p><div className="row"><input style={{flex:1,minWidth:160}} placeholder="Kodi i çiftimit" value={pairCode} onChange={e=>setPairCode(e.target.value)}/><button className="btn" disabled={busy||!pairCode.trim()} onClick={pairAgent}>Lidh pajisjen</button></div>{agentStatus&&<p className="sub" style={{marginTop:12}}>Agent {agentStatus.version} · Windows keystore: {agentStatus.windowsKeyStoreAvailable?"Gati":"Nuk u zbulua"} · Certifikata TEST: {agentStatus.testCertificateInstalled?"Po":"Jo"}</p>}<div className="field"><label>POS për verifikim</label><select value={selectedPos} onChange={e=>setSelectedPos(e.target.value)}><option value="">Zgjidh POS</option>{positions.map(p=><option key={p.id} value={p.id}>{p.label} · POS {p.pos_id}</option>)}</select></div><div className="row"><button className="btn secondary" disabled={busy||!agentToken||!selectedPos} onClick={verifyAtkPos}>Verifiko me ATK TEST</button><button className="btn" disabled={busy||!agentToken||!positions.find(p=>p.id===selectedPos)?.verification_no} onClick={requestAtkCertificate}>Merr certifikatën TEST</button></div>{verification&&<p className="notice" style={{marginTop:12}}>Biznesi i verifikuar: {verification.businessName}. Kodi i verifikimit u ruajt në konfigurimin e POS-it.</p>}<p className="footer">Çelësi privat dhe certifikata ruhen në kompjuterin Windows. Fiskalo nuk i ngarkon çelësat privatë në cloud.</p></section></div>}
-    {tab==="pos"&&<div className="grid" style={{gridTemplateColumns:"minmax(280px,1.5fr) minmax(260px,1fr)"}}><section className="panel"><div className="row" style={{justifyContent:"space-between"}}><h2>Artikujt</h2><span className="eyebrow">{products.length} artikuj</span></div>{products.length===0?<p className="sub">Shto artikujt fillimisht te skeda Artikujt.</p>:<div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))"}}>{products.map(p=><button key={p.id} className="tile" style={{minHeight:110}} onClick={()=>changeCart(p,1)}><span className="icon">+</span><strong>{p.name}</strong><p>€{(Number(p.price)*(1+Number(p.vat_rate)/100)).toFixed(2)} · stok {p.stock}</p></button>)}</div>}</section><section className="panel"><h2>Shporta</h2>{cartLines.map(line=><div key={line.product.id} className="row" style={{justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--line)"}}><div><strong>{line.product.name}</strong><div className="sub" style={{fontSize:12}}>Sasia: {line.quantity}</div></div><div className="row"><button className="btn secondary" onClick={()=>changeCart(line.product,-1)}>-</button><button className="btn secondary" onClick={()=>changeCart(line.product,1)}>+</button></div></div>)}<div className="field"><label>POS</label><select value={selectedPos} onChange={e=>setSelectedPos(e.target.value)}><option value="">Zgjidh POS</option>{positions.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></div><div className="field"><label>Pagesa</label><select value={payment} onChange={e=>setPayment(e.target.value)}><option value="cash">Cash</option><option value="card">Kartelë</option><option value="bank_transfer">Transfer bankar</option></select></div><div className="row" style={{justifyContent:"space-between",margin:"18px 0"}}><strong>Totali</strong><strong className="stat">€{total.toFixed(2)}</strong></div><button className="btn" style={{width:"100%"}} disabled={busy||!cartLines.length||!selectedPos} onClick={completeSale}>{busy?"Duke ruajtur…":"Regjistro pagesën"}</button><p className="footer">Pa certifikatë TEST aktive dhe POS Agent të lidhur, pagesa ruhet por nuk është kupon fiskal. Production nuk është aktivizuar.</p></section></div>}
+    {tab==="pos"&&<div className="grid" style={{gridTemplateColumns:"minmax(280px,1.5fr) minmax(260px,1fr)"}}><section className="panel"><div className="row" style={{justifyContent:"space-between"}}><h2>Artikujt</h2><span className="eyebrow">{products.length} artikuj</span></div>{products.length===0?<p className="sub">Shto artikujt fillimisht te skeda Artikujt.</p>:<div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))"}}>{products.map(p=><button key={p.id} className="tile" style={{minHeight:110}} disabled={checkoutAttempted} onClick={()=>changeCart(p,1)}><span className="icon">+</span><strong>{p.name}</strong><p>€{(Number(p.price)*(1+Number(p.vat_rate)/100)).toFixed(2)} · stok {p.stock}</p></button>)}</div>}</section><section className="panel"><h2>Shporta</h2>{cartLines.map(line=><div key={line.product.id} className="row" style={{justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--line)"}}><div><strong>{line.product.name}</strong><div className="sub" style={{fontSize:12}}>Sasia: {line.quantity}</div></div><div className="row"><button className="btn secondary" disabled={checkoutAttempted} onClick={()=>changeCart(line.product,-1)}>-</button><button className="btn secondary" disabled={checkoutAttempted} onClick={()=>changeCart(line.product,1)}>+</button></div></div>)}<div className="field"><label>POS</label><select value={selectedPos} disabled={checkoutAttempted} onChange={e=>{setSelectedPos(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="">Zgjidh POS</option>{positions.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></div><div className="field"><label>Pagesa</label><select value={payment} disabled={checkoutAttempted} onChange={e=>{setPayment(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="cash">Cash</option><option value="card">Kartelë</option><option value="bank_transfer">Transfer bankar</option></select></div><div className="row" style={{justifyContent:"space-between",margin:"18px 0"}}><strong>Totali</strong><strong className="stat">€{total.toFixed(2)}</strong></div>{checkoutAttempted&&<p className="notice" role="alert">Kjo pagesë është nisur. Shporta dhe çelësi i saj ruhen për riprovim të sigurt. Mos krijo shitje të re derisa të konfirmohet pranimi nga ATK ose të përfundojë reconciliimi.</p>}<button className="btn" style={{width:"100%"}} disabled={busy||!cartLines.length||!selectedPos} onClick={completeSale}>{busy?"Duke ruajtur…":checkoutAttempted?"Riprovo të njëjtën shitje":"Regjistro pagesën"}</button><p className="footer">Pa certifikatë TEST aktive dhe POS Agent të lidhur, pagesa ruhet por nuk është kupon fiskal. Production nuk është aktivizuar.</p></section></div>}
     <section className="panel" style={{marginTop:18}}><div className="row" style={{justifyContent:"space-between"}}><div><div className="eyebrow">Gjendja e ATK</div><h3 style={{margin:"7px 0"}}>Integrimi në zhvillim</h3></div><span className="status">TEST · jo i certifikuar</span></div><p className="sub" style={{margin:0}}>Fiskalo nuk shënon kupon si fiskalizuar pa përgjigje të pranuar nga ATK dhe transaction_id të ruajtur.</p></section>
     <p className="footer">Fiskalo Basic ATK MVP · Provider authorization and formal ATK certification are external release gates.</p>
     <style jsx global>{`@media print{body *{visibility:hidden!important}.receipt,.receipt *{visibility:visible!important}.receipt{position:absolute!important;left:0!important;top:0!important;width:80mm!important;max-width:80mm!important;margin:0!important;padding:4mm!important;box-shadow:none!important;border:0!important}.no-print{display:none!important}@page{size:80mm auto;margin:0}}`}</style>

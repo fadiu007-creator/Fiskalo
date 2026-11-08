@@ -346,6 +346,55 @@ public sealed class FiscalQueueStoreTests
         Assert.Equal(1, attempts);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.UnprocessableEntity)]
+    public async Task DeliveryService_MarksDefinitiveClientRejectionsAsRejected(HttpStatusCode statusCode)
+    {
+        using var fixture = new QueueFixture();
+        var now = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.EnqueueAsync("definitive-" + (int)statusCode, "Sale", "cG9z", "c2ln", now);
+        var delivery = new Fiskalo.PosAgent.Core.Atk.FiscalQueueDeliveryService(
+            fixture.Store, (signed, token) => Task.FromException<Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse>(
+                new Fiskalo.PosAgent.Core.Atk.AtkApiException("ATK rejected", statusCode, "rejected")));
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(now));
+        var item = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(FiscalQueueStatus.Rejected, item.Status);
+        Assert.Empty(await fixture.Store.GetDueAsync(now.AddHours(1)));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.Conflict)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    public async Task DeliveryService_QuarantinesAmbiguousHttpResponsesForReconciliation(HttpStatusCode statusCode)
+    {
+        using var fixture = new QueueFixture();
+        var now = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.EnqueueAsync("ambiguous-" + (int)statusCode, "Sale", "cG9z", "c2ln", now);
+        var attempts = 0;
+        var delivery = new Fiskalo.PosAgent.Core.Atk.FiscalQueueDeliveryService(
+            fixture.Store, (signed, token) =>
+            {
+                attempts++;
+                return Task.FromException<Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse>(
+                    new Fiskalo.PosAgent.Core.Atk.AtkApiException("ATK outcome uncertain", statusCode, "uncertain"));
+            });
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(now));
+        var item = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(FiscalQueueStatus.NeedsReconciliation, item.Status);
+        Assert.Equal(1, attempts);
+        Assert.Empty(await fixture.Store.GetDueAsync(now.AddHours(1)));
+        Assert.Equal(0, await delivery.DeliverDueAsync(now.AddHours(1)));
+        Assert.Equal(1, attempts);
+    }
+
     [Fact]
     public async Task AcceptedDocumentCannotBeChangedToRejected()
     {
