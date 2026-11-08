@@ -19,6 +19,8 @@ public sealed class FiscalQueueStore
     private readonly IFiscalQueueProtector _protector;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    private sealed record ConnectivityState(DateTimeOffset? LastSuccessfulProbeAtUtc, DateTimeOffset? OutageStartedAtUtc);
+
     public FiscalQueueStore(string path, IFiscalQueueProtector protector)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Queue path is required.", nameof(path));
@@ -78,7 +80,8 @@ public sealed class FiscalQueueStore
 
             if (nuiKf is not null && items.Any(x => string.Equals(x.NuiKf, nuiKf, StringComparison.Ordinal)))
                 throw new InvalidOperationException("NUIKF collision detected in the local fiscal queue. Generate a new identifier.");
-            var monitoredOutageStart = await LoadConnectivityOutageAsync(cancellationToken);
+            var connectivityState = await LoadConnectivityStateAsync(cancellationToken);
+            var monitoredOutageStart = connectivityState.OutageStartedAtUtc;
             var item = new FiscalQueueItem
             {
                 IdempotencyKey = idempotencyKey,
@@ -319,10 +322,15 @@ public sealed class FiscalQueueStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var existing = await LoadConnectivityOutageAsync(cancellationToken);
-            if (existing.HasValue) return existing.Value;
-            await SaveConnectivityOutageAsync(timestamp, cancellationToken);
-            return timestamp;
+            var state = await LoadConnectivityStateAsync(cancellationToken);
+            if (state.OutageStartedAtUtc.HasValue) return state.OutageStartedAtUtc.Value;
+
+            // Use the last persisted healthy probe, including across agent restarts.
+            // The caller's timestamp is only a conservative fallback when no healthy
+            // probe has ever been persisted on this installation.
+            var outageStart = state.LastSuccessfulProbeAtUtc ?? timestamp;
+            await SaveConnectivityStateAsync(state with { OutageStartedAtUtc = outageStart }, cancellationToken);
+            return outageStart;
         }
         finally { _gate.Release(); }
     }
@@ -335,7 +343,7 @@ public sealed class FiscalQueueStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var existing = await LoadConnectivityOutageAsync(cancellationToken);
+            var state = await LoadConnectivityStateAsync(cancellationToken);
             var items = await LoadAsync(cancellationToken);
             var changed = false;
             for (var i = 0; i < items.Count; i++)
@@ -346,8 +354,11 @@ public sealed class FiscalQueueStore
                 changed = true;
             }
             if (changed) await SaveAsync(items, cancellationToken);
-            if (File.Exists(_connectivityPath)) File.Delete(_connectivityPath);
-            return existing;
+
+            // Persist healthy reachability even when no outage is active. This anchors
+            // the next 48-hour clock if the agent restarts before detecting a failure.
+            await SaveConnectivityStateAsync(new ConnectivityState(timestamp, null), cancellationToken);
+            return state.OutageStartedAtUtc;
         }
         finally { _gate.Release(); }
     }
@@ -355,7 +366,14 @@ public sealed class FiscalQueueStore
     public async Task<DateTimeOffset?> GetConnectivityOutageStartedAtUtcAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
-        try { return await LoadConnectivityOutageAsync(cancellationToken); }
+        try { return (await LoadConnectivityStateAsync(cancellationToken)).OutageStartedAtUtc; }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<DateTimeOffset?> GetLastSuccessfulConnectivityProbeAtUtcAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try { return (await LoadConnectivityStateAsync(cancellationToken)).LastSuccessfulProbeAtUtc; }
         finally { _gate.Release(); }
     }
 
@@ -454,15 +472,26 @@ public sealed class FiscalQueueStore
         finally { _gate.Release(); }
     }
 
-    private async Task<DateTimeOffset?> LoadConnectivityOutageAsync(CancellationToken cancellationToken)
+    private async Task<ConnectivityState> LoadConnectivityStateAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_connectivityPath)) return null;
+        if (!File.Exists(_connectivityPath)) return new ConnectivityState(null, null);
         var encrypted = await File.ReadAllBytesAsync(_connectivityPath, cancellationToken);
         byte[]? plaintext = null;
         try
         {
             plaintext = _protector.Unprotect(encrypted);
-            return JsonSerializer.Deserialize<DateTimeOffset>(plaintext, JsonOptions);
+            try
+            {
+                var state = JsonSerializer.Deserialize<ConnectivityState>(plaintext, JsonOptions);
+                if (state is not null) return state;
+            }
+            catch (JsonException)
+            {
+                // Older queue versions stored only a DateTimeOffset outage timestamp.
+            }
+
+            var legacyOutage = JsonSerializer.Deserialize<DateTimeOffset>(plaintext, JsonOptions);
+            return new ConnectivityState(null, legacyOutage);
         }
         finally
         {
@@ -471,18 +500,12 @@ public sealed class FiscalQueueStore
         }
     }
 
-    private async Task SaveConnectivityOutageAsync(DateTimeOffset? outageStart, CancellationToken cancellationToken)
+    private async Task SaveConnectivityStateAsync(ConnectivityState state, CancellationToken cancellationToken)
     {
-        if (!outageStart.HasValue)
-        {
-            if (File.Exists(_connectivityPath)) File.Delete(_connectivityPath);
-            return;
-        }
-
         var directory = Path.GetDirectoryName(_connectivityPath)
             ?? throw new InvalidOperationException("Connectivity state path must include a directory.");
         Directory.CreateDirectory(directory);
-        var plaintext = JsonSerializer.SerializeToUtf8Bytes(outageStart.Value, JsonOptions);
+        var plaintext = JsonSerializer.SerializeToUtf8Bytes(state, JsonOptions);
         byte[]? encrypted = null;
         var temporaryPath = _connectivityPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
