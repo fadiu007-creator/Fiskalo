@@ -33,7 +33,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
 - [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and thermal printer support
 - [x] Browser-session restoration for the paired local POS Agent
-- [x] Apply and verify the isolated `fiskalo_basic_*` migrations in Supabase project `zikos` (2026-11-07); RLS is enabled on all seven tables and authenticated RPC grants were verified
+- [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migration 0014 is committed but has not been executed against the database. Treat database migration execution and authenticated RLS integration testing as separate release gates.
 - [ ] Implement and test ATK Cancel and Return flows (not just Protobuf model support)
 - [ ] Official ATK unit/category dropdown catalogue with source/version evidence
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
