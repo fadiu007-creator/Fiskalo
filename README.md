@@ -33,14 +33,17 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
 - [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and thermal printer support
 - [x] Browser-session restoration for the paired local POS Agent
-- [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0015 are committed but have not been executed against the database. Treat database migration execution and authenticated RLS integration testing as separate release gates.
-- [x] Correction protobuf factory and durable accepted-correction journal/RPC source (migration 0015 committed; not applied; UI and end-to-end submission tests remain open)
+- [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0017 are committed but have not been executed against the database. Treat database migration execution and authenticated RLS integration testing as separate release gates.
+- [x] Correction coupon factory and durable accepted-correction journal/RPC source (migration 0015 committed; not applied; cancellation/return UI and end-to-end submission tests remain open)
+- [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
 - [ ] Official ATK unit/category dropdown catalogue with source/version evidence
+- [ ] Apply and verify migrations 0014–0017 on the approved Fiskalo Supabase project; run SQL contract tests 0014–0017 and authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
+- [ ] Complete cancellation/return POS workflow using the existing correction-document factory
 - [ ] Verify physical POS installation, printer, offline recovery and ATK TEST acceptance
 - [ ] Cloudflare deployment and live smoke tests
 
-The app currently supports a TEST sale submission path only. Cancel/Return UI, official catalogue dropdowns, authority exports, Android support, live deployment and production submission are not complete. The database migrations are applied to `zikos` under the isolated `fiskalo_basic_*` namespace; this does not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
+The app currently supports a TEST sale submission path only. Cancel/Return UI, official catalogue dropdowns, authority exports, Android support, live deployment and production submission are not complete. Basic inventory, purchases and expenses are implemented in source but remain unavailable until migrations 0016–0017 are applied and verified. The database migrations are applied to `zikos` under the isolated `fiskalo_basic_*` namespace; this does not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
 
 A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued.
 
