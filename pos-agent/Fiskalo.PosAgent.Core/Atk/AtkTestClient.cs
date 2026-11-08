@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using Atk;
 
 namespace Fiskalo.PosAgent.Core.Atk;
@@ -38,11 +40,14 @@ public sealed class AtkTestClient
     {
         if (string.IsNullOrWhiteSpace(businessName) || string.IsNullOrWhiteSpace(verificationCode) ||
             string.IsNullOrWhiteSpace(csrPem))
-            throw new ArgumentException("Business name, verification code and CSR are required.");
+            throw new ArgumentException("Business name, numeric ATK verification code and CSR are required.");
         if (businessNui == 0 || branchId == 0 || posId == 0 || applicationId == 0)
             throw new ArgumentOutOfRangeException(nameof(businessNui));
+        if (!long.TryParse(verificationCode, NumberStyles.None, CultureInfo.InvariantCulture, out var verificationNo) ||
+            verificationNo <= 0)
+            throw new ArgumentException("ATK verification code must be a positive integer as specified by the ATK TEST API.", nameof(verificationCode));
 
-        var body = new SignCsrRequest(businessName, businessNui, branchId, verificationCode, posId, applicationId, csrPem);
+        var body = new SignCsrRequest(businessName, businessNui, branchId, verificationNo, posId, applicationId, csrPem);
         return PostAsync<AtkCertificateResponse>("/ca/signcsr", body, cancellationToken);
     }
 
@@ -101,7 +106,7 @@ public sealed class AtkTestClient
         [property: JsonPropertyName("business_name")] string BusinessName,
         [property: JsonPropertyName("business_id")] ulong BusinessId,
         [property: JsonPropertyName("branch_id")] ulong BranchId,
-        [property: JsonPropertyName("verification_code")] string VerificationCode,
+        [property: JsonPropertyName("verification_no")] long VerificationNo,
         [property: JsonPropertyName("pos_id")] ulong PosId,
         [property: JsonPropertyName("application_id")] ulong ApplicationId,
         [property: JsonPropertyName("csr")] string Csr);
@@ -113,7 +118,23 @@ public sealed class AtkTestClient
 
 public sealed record AtkVerificationResponse(
     [property: JsonPropertyName("business_name")] string BusinessName,
-    [property: JsonPropertyName("verification_code")] string VerificationCode);
+    [property: JsonPropertyName("verification_code")]
+    [property: JsonConverter(typeof(AtkIntegerAsStringConverter))] string VerificationCode);
+
+public sealed class AtkIntegerAsStringConverter : JsonConverter<string>
+{
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType switch
+        {
+            JsonTokenType.String => reader.GetString() ?? "",
+            JsonTokenType.Number when reader.TryGetInt64(out var value) =>
+                value.ToString(CultureInfo.InvariantCulture),
+            _ => throw new JsonException("ATK verification_code must be an integer or numeric string.")
+        };
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value);
+}
 
 public sealed record AtkCertificateResponse(
     [property: JsonPropertyName("signed_certificate")] string SignedCertificate);
