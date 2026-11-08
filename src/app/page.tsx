@@ -355,9 +355,8 @@ export default function Home(){
           {receipt.is_offline&&<div style={{fontWeight:800,marginTop:3}}>OFFLINE</div>}
           <div>{receipt.document_type||"SHITJE"}</div>
           <div>{new Date(receipt.created_at).toLocaleString("sq-XK")}</div>
-          <div>Nr. kuponit: {receipt.coupon_id}</div>
+          <div>Nr. rendor: {receipt.coupon_id}</div>
           <div>ARTIKUJ: {receipt.items.length}</div>
-          <div>Kupon fiskal ditor nr. {String(receipt.daily_number??"—").padStart(4,"0")}</div>
           <div>Nr. identifikues i SEF: {receipt.pos_identifier||"—"}</div>
           <div>Njësia ARBK: {receipt.unit_number??"—"} · Branch ID: {receipt.unit_code??"—"} · POS: {receipt.pos_number??"—"}</div>
         </div>
@@ -385,6 +384,7 @@ export default function Home(){
             : receipt.legacy_nui_kf
               ? <div style={{fontWeight:800,color:"#b91c1c"}}>NUIKF I VJETËR TESTUES — FORMAT I PAVLEFSHËM: {receipt.legacy_nui_kf}</div>
               : <div style={{fontWeight:800,color:"#b91c1c"}}>NUIKF NUK ËSHTË GJENERUAR</div>}
+          <div>Kupon fiskal ditor nr. {String(receipt.daily_number??"—").padStart(4,"0")}</div>
           {receipt.qr_svg_base64?<img alt="Kodi QR i kuponit të nënshkruar" src={"data:image/svg+xml;base64,"+receipt.qr_svg_base64} style={{width:170,height:170,objectFit:"contain",margin:"8px auto",display:"block"}}/>:<div style={{padding:12,border:"1px solid #b91c1c",color:"#b91c1c",fontWeight:700}}>QR mungon — mos e përdor këtë dokument si kupon fiskal.</div>}
           <div>Statusi ATK: {receipt.submission_state?.toLowerCase()==="accepted"||receipt.status==="fiscalized"?"ACCEPTED":receipt.submission_state?.toLowerCase()==="needsreconciliation"?"RECONCILIIM I NEVOJSHËM":receipt.submission_state?.toLowerCase()==="rejected"?"REFUZUAR NGA ATK":receipt.is_offline?"OFFLINE · NË RADHË":"PENDING"}</div>
           {receipt.transaction_id&&<div>Transaction ID: {receipt.transaction_id}</div>}{receipt.queue_last_error&&<div style={{fontSize:10,marginTop:4}}>Shënim: {receipt.queue_last_error}</div>}
