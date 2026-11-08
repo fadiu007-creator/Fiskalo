@@ -87,6 +87,6 @@ public sealed class AtkCorrectionCouponFactoryTests
     public void RejectsNonUtcIssueTime()
     {
         Assert.Throws<ArgumentException>(() => AtkCorrectionCouponFactory.CreateFullCancellation(
-            OriginalSale(), 43, "CANCEL-VERIFY", DateTimeOffset.Now));
+            OriginalSale(), 43, "CANCEL-VERIFY", new DateTimeOffset(2026, 11, 8, 12, 0, 0, TimeSpan.FromHours(1))));
     }
 }
