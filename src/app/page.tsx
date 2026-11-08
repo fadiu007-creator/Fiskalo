@@ -326,7 +326,7 @@ export default function Home(){
       s.transaction_id??"",s.nui_kf??"",s.daily_number??"",
       s.items.map(item=>item.description+" x "+item.quantity+" @ "+Number(item.unit_price).toFixed(4)).join("; ")
     ]);
-    const csv="\\uFEFF"+[headers,...rows].map(row=>row.map(quote).join(",")).join("\\r\\n");
+    const csv="\uFEFF"+[headers,...rows].map(row=>row.map(quote).join(",")).join("\r\n");
     const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
     const link=document.createElement("a");link.href=url;link.download="fiskalo-shitjet-50-te-fundit-"+new Date().toISOString().slice(0,10)+".csv";
     document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
