@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
+using Atk;
 using Fiskalo.PosAgent.Core.Queue;
 using Fiskalo.PosAgent.Core.Atk;
 using Xunit;
