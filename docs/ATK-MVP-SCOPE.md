@@ -15,8 +15,8 @@ Deliver the smallest maintainable product that can complete ATK's required onboa
 - Basic sales, VAT and fiscal transmission status.
 
 ## Explicitly deferred
-- Supplier/purchase management and supplier payment ledger.
-- Advanced stock movement workflows.
+- Advanced inventory valuation and supplier payment reconciliation.
+- Supplier purchases, basic stock movements and operating expenses are now included in the owner workspace (migrations 0016–0017); they remain gated until those migrations are applied and tested.
 - Subscription plans, billing and product limits.
 - ARBK registry lookup.
 - Advanced shift/cash reconciliation and internal X/Z reporting.
@@ -85,6 +85,19 @@ Migration `0004_fiskalo_basic_security_hardening.sql` narrows the database trust
 
 **Deployment status (2026-11-07):** migration 0004 is applied to the existing Supabase project `zikos`. The privilege regression SQL completed successfully against that database. The `fiskalo_private` schema is not in the configured exposed-schema override (the setting is unset, leaving the Supabase default exposed schemas); keep it out of any future exposed-schema list. This catalog test does not replace authenticated owner/cashier and cross-tenant RLS integration tests. The current UI still does not provide a complete owner-managed cashier invitation workflow; role provisioning needs its own secure implementation and tests.
 
+
+## Current ATK 2026 onboarding and technical source references
+
+The live ATK SEF portal currently publishes the Administrative Instruction (MFPT) No. 01/2026, the current specific technical/functional requirements for PEF/SF/SEF, certification and maintenance procedures, and the test/application user guide. The EDI service "Kërkesë për Fiskalizim" is the route through which a taxpayer obtains the Unique Fiscalization Code; ATK describes this code as a prerequisite for using SEF.
+
+Official sources (re-check these before each certification submission because ATK may revise documents):
+- ATK SEF application and document portal: https://apps.atk-ks.org/sefaplikimi/
+- ATK EDI announcement for the 2026 "Kërkesë për Fiskalizim" service: https://www.atk-ks.org/njoftim-per-tatimpagues-publikohet-versioni-i-ri-i-sistemit-elektronik-edi/
+- ATK legislation index, including the 29 May 2026 technical requirements and 27 April 2026 Administrative Instruction: https://www.atk-ks.org/portfolio/legjislacioni-perkates/
+- ATK published technical requirements document (portal download): https://apps.atk-ks.org/sefaplikimi/
+
+Do not populate production ATK unit/category dropdowns from guessed values, legacy EFD category numbers, or sample repository constants. Extract and version the current official catalogue/specification and retain the source document/version/date alongside the data. The existing free-text product fields are not evidence of an official validated catalogue.
+
 ## Current status
 
 Implemented in the clean repository:
@@ -99,7 +112,8 @@ Not yet complete:
 - A POS Agent correction-coupon factory creates immutable full-cancellation and full-return protobuf documents with a distinct coupon ID, original-sale `ReferenceNo`, new verification number and UTC issue time. It preserves the original sale's fiscal values and clears the ATK response transaction number on the new request. Migration 0015 adds a durable correction journal linked to the original accepted Sale document and a server-side RPC that requires an accepted original and a matching accepted ATK TEST response before recording the correction. Migration 0015 is committed but has not been applied. Partial item returns, refund/payment calculation, signed-correction submission integration, web UI actions and end-to-end ATK acceptance tests remain unimplemented; do not expose this as a completed user-facing correction workflow.
 - Verified official unit/category catalogue and dropdowns. The sample integration repository demonstrates payload values but is not itself a complete current ATK catalogue.
 - Complete browser/operator reconciliation and authority-request export.
-- Run authenticated owner/cashier and cross-tenant RLS integration tests with real test JWTs. Migrations 0014 and 0015 are committed but have not been executed against the database; apply them only to a staging database after reviewing each migration and its backup/rollback procedure. Run the 0004, 0014 and 0015 SQL regression scripts against that staging schema.
+- Add a tested POS cancellation/return UI and local-agent correction submission endpoint; the current code has a protobuf factory and persistence RPC only.
+- Run authenticated owner/cashier and cross-tenant RLS integration tests with real test JWTs. Migrations 0014–0017 are committed but have not been executed against the database; apply them only to an approved staging database after confirming the correct Supabase project, reviewing each migration and its backup/rollback procedure. Run SQL contract scripts 0004 and 0014–0016 against that staging schema, plus authenticated owner/cashier and cross-tenant RLS integration tests. PR #2 adds the 0016–0017 business-operations schema contract test.
 - Physical POS tests for Windows installation, printer output, offline recovery and duplicate/timeout scenarios.
 - ATK provider/software certification and production credentials.
 
