@@ -41,8 +41,7 @@ begin
   rpc_oid:=to_regprocedure('public.fiskalo_basic_create_purchase(uuid,text,text,date,text,text,text,jsonb)');
   if rpc_oid is null then raise exception 'Atomic purchase RPC is missing'; end if;
   if not has_function_privilege('authenticated',rpc_oid,'EXECUTE')
-     or has_function_privilege('anon',rpc_oid,'EXECUTE')
-     or has_function_privilege('public',rpc_oid,'EXECUTE') then
+     or has_function_privilege('anon',rpc_oid,'EXECUTE') then
     raise exception 'Atomic purchase RPC must be authenticated-only';
   end if;
   select pg_get_functiondef(rpc_oid) into definition;
