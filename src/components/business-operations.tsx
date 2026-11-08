@@ -8,8 +8,7 @@ type Movement={id:string;product_id:string;movement_type:string;quantity_delta:n
 type Purchase={id:string;supplier_name:string;invoice_number:string|null;purchase_date:string;payment_status:string;subtotal:number};
 type Expense={id:string;description:string;category:string;amount:number;expense_date:string;payment_method:string;supplier_name:string|null};
 
-export default function BusinessOperations({businessId,products,onRefresh}:{businessId:string;products:Product[];onRefresh:()=>Promise<void>}){
-  const [section,setSection]=useState<"inventory"|"purchases">("inventory");
+export default function BusinessOperations({businessId,products,onRefresh,mode}:{businessId:string;products:Product[];onRefresh:()=>Promise<void>;mode:"inventory"|"purchases"}){
   const [movements,setMovements]=useState<Movement[]>([]);
   const [purchases,setPurchases]=useState<Purchase[]>([]);
   const [expenses,setExpenses]=useState<Expense[]>([]);
@@ -95,12 +94,8 @@ export default function BusinessOperations({businessId,products,onRefresh}:{busi
   const productName=(id:string)=>products.find(p=>p.id===id)?.name??"Produkt i arkivuar";
   const addPurchaseLine=()=>setPurchaseLines(lines=>[...lines,{product_id:products[0]?.id??"",quantity:"1",unit_cost:"0.00"}]);
   return <section className="panel" style={{marginTop:16}}>
-    <div className="row" style={{gap:8,marginBottom:18}}>
-      <button className={section==="inventory"?"btn":"btn secondary"} type="button" onClick={()=>setSection("inventory")}>Inventari &amp; lëvizjet</button>
-      <button className={section==="purchases"?"btn":"btn secondary"} type="button" onClick={()=>setSection("purchases")}>Blerjet &amp; shpenzimet</button>
-    </div>
     {error&&<p className="notice" role="alert">{error}</p>}{success&&<p className="notice" role="status">{success}</p>}
-    {section==="inventory"&&<>
+    {mode==="inventory"&&<>
       <h2>Inventari</h2><p className="sub">Stoku ndryshon përmes blerjeve dhe lëvizjeve të regjistruara. Historiku është auditues dhe nuk mund të fshihet nga paneli.</p>
       <div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",margin:"14px 0"}}>
         <div className="stat-card"><span className="eyebrow">Produkte aktive</span><strong className="stat">{products.length}</strong></div>
@@ -116,7 +111,7 @@ export default function BusinessOperations({businessId,products,onRefresh}:{busi
       <h3 style={{marginTop:24}}>Gjendja e stokut</h3><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}><thead><tr><th style={{textAlign:"left",padding:9}}>Produkti</th><th style={{textAlign:"right",padding:9}}>Stoku</th><th style={{textAlign:"right",padding:9}}>Çmimi</th></tr></thead><tbody>{products.map(p=><tr key={p.id} style={{borderTop:"1px solid var(--line)"}}><td style={{padding:9}}>{p.name}</td><td style={{padding:9,textAlign:"right"}}>{Number(p.stock).toLocaleString("sq-XK")}</td><td style={{padding:9,textAlign:"right"}}>€{Number(p.price).toFixed(2)}</td></tr>)}</tbody></table></div>
       <h3 style={{marginTop:24}}>Historiku i lëvizjeve</h3>{movements.length===0?<p className="sub">Nuk ka ende lëvizje të inventarit. Blerjet dhe korrigjimet do të shfaqen këtu.</p>:movements.map(m=><div key={m.id} className="row" style={{justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid var(--line)",gap:12}}><div><strong>{productName(m.product_id)}</strong><div className="sub" style={{fontSize:12}}>{m.reason} · {new Date(m.created_at).toLocaleString("sq-XK")}</div></div><strong style={{color:Number(m.quantity_delta)>0?"#16834a":"#b33b32"}}>{Number(m.quantity_delta)>0?"+":""}{Number(m.quantity_delta).toLocaleString("sq-XK")}</strong></div>)}
     </>}
-    {section==="purchases"&&<>
+    {mode==="purchases"&&<>
       <h2>Blerjet &amp; shpenzimet</h2><p className="sub">Regjistro faturat e furnizuesve, hyrjen e artikujve në stok dhe shpenzimet operative. Blerjet përditësojnë inventarin automatikisht.</p>
       <div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",margin:"14px 0"}}>
         <div className="stat-card"><span className="eyebrow">Blerjet e listuara</span><strong className="stat">€{purchaseTotal.toFixed(2)}</strong></div>
