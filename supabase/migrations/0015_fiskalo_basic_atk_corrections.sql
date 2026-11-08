@@ -30,7 +30,7 @@ declare
   v_new_id uuid;
 begin
   if auth.uid() is null then raise exception 'Authentication required'; end if;
-  if p_document_type not in (2,3) then
+  if p_document_type is null or p_document_type not in (2,3) then
     raise exception 'Correction document type must be ATK Cancel (2) or Return (3)';
   end if;
   if p_original_coupon_id is null or p_original_coupon_id<=0 or
