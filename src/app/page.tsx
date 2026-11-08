@@ -359,16 +359,20 @@ export default function Home(){
     return()=>document.removeEventListener("fullscreenchange",syncFullscreen);
   },[]);
   async function togglePosFullscreen(){
+    if(isPosFullscreen&&!document.fullscreenElement){
+      setIsPosFullscreen(false);
+      return;
+    }
     try{
       if(document.fullscreenElement){
         await document.exitFullscreen();
       }else if(document.documentElement.requestFullscreen){
         await document.documentElement.requestFullscreen();
       }else{
-        setIsPosFullscreen(value=>!value);
+        setIsPosFullscreen(true);
       }
     }catch{
-      setIsPosFullscreen(value=>!value);
+      setIsPosFullscreen(true);
     }
   }
   async function completeSale(){
