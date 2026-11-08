@@ -96,7 +96,7 @@ Implemented in the clean repository:
 - Web paid-sale path: builds the ATK Sale coupon, submits through the local agent and stores the accepted response only when a valid transaction ID is returned.
 
 Not yet complete:
-- ATK Cancel and Return workflows and their end-to-end acceptance tests.
+- A POS Agent correction-coupon factory now creates immutable full-cancellation and full-return protobuf documents with a distinct coupon ID, original-sale `ReferenceNo`, new verification number and UTC issue time. It preserves the original sale's fiscal values and leaves the source sale untouched. Partial item returns, refund/payment calculation, durable correction journaling, web UI actions and end-to-end ATK acceptance tests remain unimplemented; do not expose this factory as a completed correction workflow.
 - Verified official unit/category catalogue and dropdowns. The sample integration repository demonstrates payload values but is not itself a complete current ATK catalogue.
 - Complete browser/operator reconciliation and authority-request export.
 - Run authenticated owner/cashier and cross-tenant RLS integration tests with real test JWTs. Migration 0014 is committed but has not been executed against the database; apply it only to a staging database after reviewing the migration and backup/rollback procedure. Re-run the 0004 and 0014 SQL regression scripts against that staging schema.
