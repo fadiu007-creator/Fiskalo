@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using Fiskalo.PosAgent.Core.Queue;
+using Fiskalo.PosAgent.Core.Atk;
 using Xunit;
 
 namespace Fiskalo.PosAgent.Tests;
