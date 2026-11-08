@@ -99,7 +99,7 @@ Not yet complete:
 - ATK Cancel and Return workflows and their end-to-end acceptance tests.
 - Verified official unit/category catalogue and dropdowns. The sample integration repository demonstrates payload values but is not itself a complete current ATK catalogue.
 - Complete browser/operator reconciliation and authority-request export.
-- Apply migration 0004 and run its privilege regression test; then execute authenticated owner/cashier cross-tenant RLS integration tests.
+- Run authenticated owner/cashier and cross-tenant RLS integration tests with real test JWTs. Migration 0014 is committed but has not been executed against the database; apply it only to a staging database after reviewing the migration and backup/rollback procedure. Re-run the 0004 and 0014 SQL regression scripts against that staging schema.
 - Physical POS tests for Windows installation, printer output, offline recovery and duplicate/timeout scenarios.
 - ATK provider/software certification and production credentials.
 
