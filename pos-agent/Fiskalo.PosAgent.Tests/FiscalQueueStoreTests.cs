@@ -281,6 +281,91 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task OfflineReceipt_EndToEndSurvivesRestartBuildsSignedQrAndSyncsBeforeFortyEightHours()
+    {
+        using var fixture = new QueueFixture();
+        var lastHealthyProbe = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        var outageDetected = lastHealthyProbe.AddSeconds(15);
+
+        // Persist a healthy probe, then simulate the agent process restarting
+        // while ATK is unavailable.
+        await fixture.Store.MarkConnectivityAvailableAsync(lastHealthyProbe);
+        var restartedStore = new FiscalQueueStore(fixture.Path, fixture.Protector);
+        var offlineMonitor = new Fiskalo.PosAgent.Core.Atk.FiscalConnectivityMonitor(
+            restartedStore, _ => Task.FromResult(false));
+        Assert.Equal(lastHealthyProbe, await offlineMonitor.ProbeAsync(outageDetected));
+
+        var input = new PosCouponInput(
+            BusinessId: 812345678,
+            CouponId: 7001,
+            BranchId: 1,
+            Location: "Prishtina",
+            OperatorId: "OP-1",
+            PosId: 1,
+            ApplicationId: 1,
+            VerificationNo: "",
+            Type: (CouponType)1,
+            UnixTime: outageDetected.ToUnixTimeSeconds(),
+            Items: new[] { new PosCouponItemInput("Water", 1m, "PCE", 1m, 118, "E", "A") },
+            Payments: new[] { new PosCouponPaymentInput((PaymentType)1, 118) },
+            TotalCents: 118,
+            TaxGroups: new[] { new PosCouponTaxGroupInput("E", 100, 18) },
+            TotalTaxCents: 18,
+            TotalNoTaxCents: 100,
+            TotalDiscountCents: 0);
+        var nuiKf = Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.CreateNuiKf();
+        var posCoupon = Fiskalo.PosAgent.Core.Atk.PosCouponBuilder.Build(input, nuiKf);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var signedPos = Fiskalo.PosAgent.Core.Atk.AtkCouponSigner.SignPosCoupon(posCoupon, key);
+        var signedCitizen = Fiskalo.PosAgent.Core.Atk.AtkCouponSigner.SignCitizenCoupon(
+            Fiskalo.PosAgent.Core.Atk.AtkCouponSigner.CreateCitizenCoupon(posCoupon), key);
+        var qrPayload = Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.BuildCitizenQrPayload(signedCitizen);
+        var qrSvg = Fiskalo.PosAgent.Core.Atk.FiscalReceiptQrCode.CreateSvgData(qrPayload);
+
+        Assert.StartsWith("<svg", qrSvg);
+        Assert.True(Fiskalo.PosAgent.Core.Atk.FiscalReceiptIdentity.IsNuiKfEmbeddedInSignedCoupons(
+            signedPos.DetailsBase64, signedCitizen.DetailsBase64, nuiKf));
+
+        var queued = await restartedStore.EnqueueAsync(
+            "offline-sale-7001", "Sale", signedPos.DetailsBase64, signedPos.SignatureBase64,
+            outageDetected, nuiKf: nuiKf,
+            citizenPayloadBase64: signedCitizen.DetailsBase64,
+            citizenSignatureBase64: signedCitizen.SignatureBase64,
+            dailyNumber: 1);
+        Assert.Equal(lastHealthyProbe, queued.OfflineIssuedAtUtc);
+        Assert.Equal(lastHealthyProbe.AddHours(48), queued.RecoveryDeadlineUtc);
+
+        var attempts = 0;
+        var delivery = new Fiskalo.PosAgent.Core.Atk.FiscalQueueDeliveryService(restartedStore, (signed, token) =>
+        {
+            attempts++;
+            if (attempts == 1)
+                return Task.FromException<Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse>(
+                    new HttpRequestException("DNS failure", new SocketException((int)SocketError.HostNotFound)));
+            return Task.FromResult(new Fiskalo.PosAgent.Core.Atk.AtkPosCouponResponse("accepted", 9877001));
+        });
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(outageDetected));
+        var delayed = await restartedStore.RecordFailureAsync(
+            "offline-sale-7001", "temporary ATK connection failure",
+            lastHealthyProbe.AddHours(47).AddMinutes(59).AddSeconds(55));
+        Assert.True(delayed.NextAttemptAtUtc > lastHealthyProbe.AddHours(48));
+
+        var recoveredAt = lastHealthyProbe.AddHours(47).AddMinutes(59).AddSeconds(58);
+        var recoveredMonitor = new Fiskalo.PosAgent.Core.Atk.FiscalConnectivityMonitor(
+            restartedStore, _ => Task.FromResult(true));
+        Assert.Null(await recoveredMonitor.ProbeAsync(recoveredAt));
+        Assert.Equal(1, await delivery.DeliverDueAsync(recoveredAt));
+
+        var accepted = Assert.Single(await restartedStore.GetAllAsync());
+        Assert.Equal(FiscalQueueStatus.Accepted, accepted.Status);
+        Assert.Equal("9877001", accepted.AtkTransactionId);
+        Assert.Equal(lastHealthyProbe.AddHours(48), accepted.RecoveryDeadlineUtc);
+        Assert.True(recoveredAt < accepted.RecoveryDeadlineUtc);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
     public async Task DeliveryService_RecoversAndTransmitsBeforeFortyEightHourDeadline()
     {
         using var fixture = new QueueFixture();
