@@ -13,21 +13,19 @@ type Tab="pos"|"products"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
 function FiscalLogo(){
-  return <svg role="img" aria-label="Logoja fiskale RKS MF" viewBox="0 0 120 60" width="20mm" height="10mm" style={{display:"block",margin:"0 auto",overflow:"visible"}} xmlns="http://www.w3.org/2000/svg">
-    <path d="M5 7 L31 3 L57 7 L55 37 Q52 49 31 57 Q10 49 7 37 Z" fill="#fff" stroke="#111" strokeWidth="2.5"/>
-    <path d="M9 10 L31 6 L53 10 L51 36 Q48 46 31 53 Q14 46 11 36 Z" fill="#222"/>
-    <g fill="#fff">
-      <path d="M14 14 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
-      <path d="M20 11 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
-      <path d="M27 10 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
-      <path d="M34 10 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
-      <path d="M41 11 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
-      <path d="M47 14 l1.5 3 3.3.5-2.4 2.3.6 3.3-3-1.6-3 1.6.6-3.3-2.4-2.3 3.3-.5z"/>
-    </g>
-    <path d="M24 23 L29 20 L34 22 L38 27 L35 32 L32 34 L31 40 L27 42 L25 37 L21 34 L19 29 Z" fill="#fff"/>
-    <text x="64" y="29" fontFamily="Arial,sans-serif" fontSize="22" fontWeight="900" fill="#111" letterSpacing="1">RKS</text>
-    <text x="64" y="47" fontFamily="Arial,sans-serif" fontSize="14" fontWeight="800" fill="#111" letterSpacing="1">MF</text>
-  </svg>;
+  return <div role="img" aria-label="Stema zyrtare e Republikës së Kosovës dhe MFPT" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,margin:"0 auto",height:"12mm"}}>
+    <img
+      src="https://upload.wikimedia.org/wikipedia/commons/2/29/Coat_of_arms_of_Republic_of_Kosovo.svg"
+      alt="Stema e Republikës së Kosovës"
+      width="34"
+      height="38"
+      style={{width:9,height:10,objectFit:"contain"}}
+    />
+    <div style={{textAlign:"left",lineHeight:1.05,color:"#111"}}>
+      <div style={{fontSize:13,fontWeight:900,letterSpacing:1}}>RKS</div>
+      <div style={{fontSize:8,fontWeight:800,letterSpacing:.5}}>MFPT</div>
+    </div>
+  </div>;
 }
 
 export default function Home(){
