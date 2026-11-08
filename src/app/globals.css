@@ -76,3 +76,7 @@
 .pos-workspace--fullscreen .pos-cart-lines{max-height:36vh}
 @media(max-width:900px){.pos-workspace{grid-template-columns:minmax(0,1.25fr) minmax(300px,.9fr);gap:12px}.pos-catalog,.pos-order-panel{padding:15px}.pos-product-grid{grid-template-columns:repeat(auto-fill,minmax(135px,1fr))}.pos-workspace--fullscreen{grid-template-columns:minmax(0,1.2fr) minmax(290px,.9fr)}}
 @media(max-width:680px){.pos-workspace,.pos-workspace--fullscreen{grid-template-columns:1fr;gap:12px}.pos-heading{align-items:flex-start}.pos-heading h2{font-size:21px}.pos-fullscreen-btn{padding:9px 11px;font-size:11px}.pos-product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pos-product-card{min-height:165px}.pos-order-panel,.pos-workspace--fullscreen .pos-order-panel{position:relative;top:auto;max-height:none;height:auto}.pos-workspace--fullscreen{padding:10px}.pos-workspace--fullscreen .pos-catalog{height:auto;min-height:55vh}.pos-workspace--fullscreen .pos-order-panel{min-height:60vh}.pos-workspace--fullscreen .pos-cart-lines{max-height:28vh}}
+
+.pos-order-actions{display:flex;align-items:center;gap:7px}
+.pos-clear-cart{border:0;background:transparent;color:#9a5548;font-size:10px;font-weight:800;padding:7px}
+.pos-clear-cart:disabled{opacity:.35;cursor:not-allowed}
