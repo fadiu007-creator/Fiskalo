@@ -76,6 +76,9 @@ export default function Home(){
   const [checkoutAttempted,setCheckoutAttempted]=useState(false);
   const [checkoutDraftLoaded,setCheckoutDraftLoaded]=useState(false);
   const [payment,setPayment]=useState("cash");
+  const [productSearch,setProductSearch]=useState("");
+  const [selectedCategory,setSelectedCategory]=useState("all");
+  const [isPosFullscreen,setIsPosFullscreen]=useState(false);
 
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
   const loadWorkspace=useCallback(async(uid:string)=>{
@@ -339,6 +342,35 @@ export default function Home(){
   function changeCart(product:Product,delta:number){if(checkoutAttempted){setMessage("Kjo shitje ka nisur. Mos e ndrysho shportën derisa të përfundojë fiskalizimi ose reconciliimi.");return;}setCheckoutKey(crypto.randomUUID());setCart(current=>{const next={...current};const qty=(next[product.id]?.quantity??0)+delta;if(qty<=0)delete next[product.id];else next[product.id]={product,quantity:qty};return next;});}
   const cartLines=Object.values(cart);
   const total=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*(1+line.product.vat_rate/100),0);
+  const categoryOptions=useMemo(()=>Array.from(new Set(products.map(product=>product.atk_item_category_code).filter(Boolean))).sort((a,b)=>a.localeCompare(b)),[products]);
+  const filteredProducts=useMemo(()=>{
+    const query=productSearch.trim().toLocaleLowerCase("sq");
+    return products.filter(product=>
+      (selectedCategory==="all"||product.atk_item_category_code===selectedCategory)&&
+      (!query||product.name.toLocaleLowerCase("sq").includes(query)||product.atk_item_category_code.toLocaleLowerCase("sq").includes(query))
+    );
+  },[products,productSearch,selectedCategory]);
+  const cartQuantity=cartLines.reduce((sum,line)=>sum+line.quantity,0);
+  const vatTotal=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*line.product.vat_rate/100,0);
+
+  useEffect(()=>{
+    const syncFullscreen=()=>setIsPosFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange",syncFullscreen);
+    return()=>document.removeEventListener("fullscreenchange",syncFullscreen);
+  },[]);
+  async function togglePosFullscreen(){
+    try{
+      if(document.fullscreenElement){
+        await document.exitFullscreen();
+      }else if(document.documentElement.requestFullscreen){
+        await document.documentElement.requestFullscreen();
+      }else{
+        setIsPosFullscreen(value=>!value);
+      }
+    }catch{
+      setIsPosFullscreen(value=>!value);
+    }
+  }
   async function completeSale(){
     if(!business||!selectedPos||!cartLines.length)return;
     if(operatorName.trim().length<2||operatorIdentifier.trim().length<1){setMessage("Vendos emrin dhe numrin identifikues të operatorit para lëshimit të kuponit fiskal.");return;}
@@ -543,7 +575,51 @@ export default function Home(){
     </div>}
     {tab==="atk"&&memberRole==="owner"&&<div className="grid" style={{gridTemplateColumns:"minmax(260px,1fr) minmax(280px,1.4fr)"}}><section className="panel"><h2>Regjistro POS</h2><form onSubmit={addPos}><div className="field"><label>Emërtimi</label><input required value={posLabel} onChange={e=>setPosLabel(e.target.value)}/></div><div className="field"><label>Lokacioni i biznesit</label><input required value={posLocation} onChange={e=>setPosLocation(e.target.value)} placeholder="Adresa e njësisë së regjistruar"/></div><div className="field"><label>Numri i njësisë ARBK (7 shifra)</label><input required inputMode="numeric" pattern="[0-9]{7}" maxLength={7} value={unitNumber} onChange={e=>setUnitNumber(e.target.value)} placeholder="p.sh. 5130484"/></div><div className="field"><label>Branch ID (ATK)</label><input type="number" min="1" required value={branchId} onChange={e=>setBranchId(e.target.value)}/></div><div className="field"><label>Numri POS</label><input type="number" min="1" required value={posId} onChange={e=>setPosId(e.target.value)}/></div><div className="field"><label>Numri i fiskalizimit TEST</label><input required value={fiscalizationNumber} onChange={e=>setFiscalizationNumber(e.target.value)} placeholder="Numri i fiskalizimit nga EDI"/></div><div className="field"><label>Application ID TEST</label><input required value={applicationId} onChange={e=>setApplicationId(e.target.value)}/></div><button className="btn" disabled={busy}>Ruaj POS-in</button></form></section><section className="panel"><h2>Pajisjet</h2>{positions.length===0?<p className="sub">Nuk është regjistruar asnjë POS.</p>:positions.map(p=><div key={p.id} style={{padding:"12px 0",borderBottom:"1px solid var(--line)"}}><div className="row" style={{justifyContent:"space-between"}}><strong>{p.label}</strong><span className="status">{p.certificate_status}</span></div><p className="sub" style={{fontSize:12,margin:"5px 0"}}>Njësia ARBK {p.unit_number||"Nuk është konfiguruar"} · Branch ID {p.branch_id} · POS {p.pos_id} · TEST {p.fiscalization_number}</p>{memberRole==="owner"&&<div className="row" style={{marginTop:8}}><input style={{flex:1,minWidth:130}} inputMode="numeric" pattern="[0-9]{7}" maxLength={7} value={unitNumberEdits[p.id]??p.unit_number??""} onChange={e=>setUnitNumberEdits(current=>({...current,[p.id]:e.target.value}))} placeholder="Numri i njësisë ARBK"/><button className="btn secondary" disabled={busy} onClick={()=>savePosUnitNumber(p.id)}>Ruaj</button></div>}</div>)}</section>
       <section className="panel"><h2>Lidhja me POS Agent (Windows)</h2><p className="sub">Nise Fiskalo POS Agent në kompjuterin e arkës. Përdor kodin njëpërdorimësh që shfaqet në dritaren e tij.</p><div className="row"><input style={{flex:1,minWidth:160}} placeholder="Kodi i çiftimit" value={pairCode} onChange={e=>setPairCode(e.target.value)}/><button className="btn" disabled={busy||!pairCode.trim()} onClick={pairAgent}>Lidh pajisjen</button></div>{agentStatus&&<p className="sub" style={{marginTop:12}}>Agent {agentStatus.version} · Windows keystore: {agentStatus.windowsKeyStoreAvailable?"Gati":"Nuk u zbulua"} · Certifikata TEST: {agentStatus.testCertificateInstalled?"Po":"Jo"}</p>}<div className="field"><label>POS për verifikim</label><select value={selectedPos} onChange={e=>setSelectedPos(e.target.value)}><option value="">Zgjidh POS</option>{positions.map(p=><option key={p.id} value={p.id}>{p.label} · POS {p.pos_id}</option>)}</select></div><div className="row"><button className="btn secondary" disabled={busy||!agentToken||!selectedPos} onClick={verifyAtkPos}>Verifiko me ATK TEST</button><button className="btn" disabled={busy||!agentToken||!positions.find(p=>p.id===selectedPos)?.verification_no} onClick={requestAtkCertificate}>Merr certifikatën TEST</button></div>{verification&&<p className="notice" style={{marginTop:12}}>Biznesi i verifikuar: {verification.businessName}. Kodi i verifikimit u ruajt në konfigurimin e POS-it.</p>}<p className="footer">Çelësi privat dhe certifikata ruhen në kompjuterin Windows. Fiskalo nuk i ngarkon çelësat privatë në cloud.</p></section></div>}
-    {tab==="pos"&&<div className="grid" style={{gridTemplateColumns:"minmax(280px,1.5fr) minmax(260px,1fr)"}}><section className="panel"><div className="row" style={{justifyContent:"space-between"}}><h2>Artikujt</h2><span className="eyebrow">{products.length} artikuj</span></div>{products.length===0?<p className="sub">Shto artikujt fillimisht te skeda Artikujt.</p>:<div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))"}}>{products.map(p=><button key={p.id} className="tile" style={{minHeight:110}} disabled={checkoutAttempted} onClick={()=>changeCart(p,1)}><span className="icon">+</span><strong>{p.name}</strong><p>€{(Number(p.price)*(1+Number(p.vat_rate)/100)).toFixed(2)} · stok {p.stock}</p></button>)}</div>}</section><section className="panel"><h2>Shporta</h2>{cartLines.map(line=><div key={line.product.id} className="row" style={{justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--line)"}}><div><strong>{line.product.name}</strong><div className="sub" style={{fontSize:12}}>Sasia: {line.quantity}</div></div><div className="row"><button className="btn secondary" disabled={checkoutAttempted} onClick={()=>changeCart(line.product,-1)}>-</button><button className="btn secondary" disabled={checkoutAttempted} onClick={()=>changeCart(line.product,1)}>+</button></div></div>)}<div className="field"><label>POS</label><select value={selectedPos} disabled={checkoutAttempted} onChange={e=>{setSelectedPos(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="">Zgjidh POS</option>{positions.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></div><div className="field"><label>Pagesa</label><select value={payment} disabled={checkoutAttempted} onChange={e=>{setPayment(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="cash">Cash</option><option value="card">Kartelë</option><option value="bank_transfer">Transfer bankar</option></select></div><div className="row" style={{justifyContent:"space-between",margin:"18px 0"}}><strong>Totali</strong><strong className="stat">€{total.toFixed(2)}</strong></div>{checkoutAttempted&&<p className="notice" role="alert">Kjo pagesë është nisur. Shporta dhe çelësi i saj ruhen për riprovim të sigurt. Mos krijo shitje të re derisa të konfirmohet pranimi nga ATK ose të përfundojë reconciliimi.</p>}<button className="btn" style={{width:"100%"}} disabled={busy||!cartLines.length||!selectedPos} onClick={completeSale}>{busy?"Duke ruajtur…":checkoutAttempted?"Riprovo të njëjtën shitje":"Regjistro pagesën"}</button><p className="footer">Pa certifikatë TEST aktive dhe POS Agent të lidhur, pagesa ruhet por nuk është kupon fiskal. Production nuk është aktivizuar.</p></section></div>}
+    {tab==="pos"&&<div className={`pos-workspace${isPosFullscreen?" pos-workspace--fullscreen":""}`}>
+      <section className="pos-catalog">
+        <div className="pos-heading">
+          <div><div className="eyebrow">Pika e shitjes</div><h2>Çfarë po porosit klienti?</h2><p className="sub">Prek një artikull për ta shtuar në porosi.</p></div>
+          <button type="button" className="btn secondary pos-fullscreen-btn" onClick={()=>void togglePosFullscreen()} aria-label={isPosFullscreen?"Dil nga ekrani i plotë":"Hap arkën në ekran të plotë"}>{isPosFullscreen?"↙":"⛶"} {isPosFullscreen?"Dil nga fullscreen":"Fullscreen"}</button>
+        </div>
+        <div className="pos-search"><span aria-hidden="true">⌕</span><input aria-label="Kërko artikuj" value={productSearch} onChange={e=>setProductSearch(e.target.value)} placeholder="Kërko produkt ose skano barkodin…" disabled={checkoutAttempted}/>{productSearch&&<button type="button" className="pos-clear-search" onClick={()=>setProductSearch("")} aria-label="Pastro kërkimin">×</button>}</div>
+        <div className="pos-category-strip" aria-label="Kategoritë e artikujve">
+          <button type="button" className={selectedCategory==="all"?"pos-category active":"pos-category"} onClick={()=>setSelectedCategory("all")}>Të gjitha <span>{products.length}</span></button>
+          {categoryOptions.map(code=><button type="button" key={code} className={selectedCategory===code?"pos-category active":"pos-category"} onClick={()=>setSelectedCategory(code)}>Kategori {code}<span>{products.filter(product=>product.atk_item_category_code===code).length}</span></button>)}
+        </div>
+        <div className="pos-products-heading"><strong>{selectedCategory==="all"?"Të gjithë artikujt":"Kategoria "+selectedCategory}</strong><span>{filteredProducts.length} artikuj</span></div>
+        {products.length===0?<div className="pos-empty"><div className="pos-empty-icon">＋</div><strong>Katalogu është bosh</strong><p>Shto produktet dhe kodet fiskale te skeda Artikujt për të filluar porositë.</p></div>:filteredProducts.length===0?<div className="pos-empty"><strong>Nuk u gjet asnjë artikull</strong><p>Ndrysho kërkimin ose zgjidh një kategori tjetër.</p></div>:<div className="pos-product-grid">{filteredProducts.map(product=>{
+          const inCart=cart[product.id]?.quantity??0;
+          const available=Number(product.stock)>0;
+          return <button type="button" key={product.id} className={`pos-product-card${inCart?" in-cart":""}`} disabled={checkoutAttempted||!available} onClick={()=>changeCart(product,1)}>
+            <span className="pos-product-art" aria-hidden="true">{product.name.trim().charAt(0).toLocaleUpperCase("sq")||"•"}</span>
+            <span className="pos-product-name">{product.name}</span>
+            <span className="pos-product-meta">Kategori {product.atk_item_category_code} · stok {product.stock}</span>
+            <span className="pos-product-bottom"><strong>€{(Number(product.price)*(1+Number(product.vat_rate)/100)).toFixed(2)}</strong>{inCart>0&&<span className="pos-in-cart-count">{inCart} në porosi</span>}</span>
+            {!available&&<span className="pos-out-of-stock">Pa stok</span>}
+          </button>;
+        })}</div>}
+      </section>
+      <aside className="pos-order-panel">
+        <div className="pos-order-header"><div><div className="eyebrow">Porosia aktive</div><h2>Porosia <span>#{cartLines.length?String(cartLines.length).padStart(2,"0"):"—"}</span></h2></div><span className="pos-order-count">{cartQuantity} artikuj</span></div>
+        {cartLines.length===0?<div className="pos-cart-empty"><div className="pos-cart-empty-icon">▤</div><strong>Porosia është bosh</strong><p>Zgjidh artikujt nga katalogu për të filluar.</p></div>:<div className="pos-cart-lines">{cartLines.map(line=><div key={line.product.id} className="pos-cart-line">
+          <div className="pos-cart-line-main"><strong>{line.product.name}</strong><span>€{(Number(line.product.price)*(1+Number(line.product.vat_rate)/100)).toFixed(2)} / copë</span><b>€{(Number(line.product.price)*line.quantity*(1+Number(line.product.vat_rate)/100)).toFixed(2)}</b></div>
+          <div className="pos-quantity-control"><button type="button" aria-label={`Hiq një ${line.product.name}`} disabled={checkoutAttempted} onClick={()=>changeCart(line.product,-1)}>−</button><strong>{line.quantity}</strong><button type="button" aria-label={`Shto një ${line.product.name}`} disabled={checkoutAttempted||line.quantity>=Number(line.product.stock)} onClick={()=>changeCart(line.product,1)}>＋</button></div>
+        </div>)}</div>}
+        <div className="pos-order-footer">
+          <div className="field"><label>Arka / POS</label><select value={selectedPos} disabled={checkoutAttempted} onChange={e=>{setSelectedPos(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="">Zgjidh POS</option>{positions.map(position=><option key={position.id} value={position.id}>{position.label}</option>)}</select></div>
+          <div className="pos-payment-label">Mënyra e pagesës</div>
+          <div className="pos-payment-options">
+            <button type="button" className={payment==="cash"?"pos-payment-option selected":"pos-payment-option"} disabled={checkoutAttempted} onClick={()=>{setPayment("cash");if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><span>€</span>Cash</button>
+            <button type="button" className={payment==="card"?"pos-payment-option selected":"pos-payment-option"} disabled={checkoutAttempted} onClick={()=>{setPayment("card");if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><span>▤</span>Kartelë</button>
+            <button type="button" className={payment==="bank_transfer"?"pos-payment-option selected":"pos-payment-option"} disabled={checkoutAttempted} onClick={()=>{setPayment("bank_transfer");if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><span>⇄</span>Transfer</button>
+          </div>
+          <div className="pos-totals"><div><span>Nëntotali me TVSH të përfshirë</span><strong>€{(total-vatTotal).toFixed(2)}</strong></div><div><span>TVSH</span><strong>€{vatTotal.toFixed(2)}</strong></div><div className="pos-grand-total"><span>Totali</span><strong>€{total.toFixed(2)}</strong></div></div>
+          {checkoutAttempted&&<p className="notice" role="alert">Pagesa ka nisur. Mos krijo porosi të re derisa kjo shitje të zgjidhet.</p>}
+          <button type="button" className="pos-checkout-btn" disabled={busy||!cartLines.length||!selectedPos} onClick={completeSale}>{busy?"Duke ruajtur…":checkoutAttempted?"Riprovo të njëjtën shitje":"Vazhdo te pagesa"} <span>→</span></button>
+          <p className="pos-security-note">Kuponi fiskal konfirmohet vetëm pas përgjigjes së pranuar nga ATK.</p>
+        </div>
+      </aside>
+    </div>}
     <section className="panel" style={{marginTop:18}}><div className="row" style={{justifyContent:"space-between"}}><div><div className="eyebrow">Gjendja e ATK</div><h3 style={{margin:"7px 0"}}>Integrimi në zhvillim</h3></div><span className="status">TEST · jo i certifikuar</span></div><p className="sub" style={{margin:0}}>Fiskalo nuk shënon kupon si fiskalizuar pa përgjigje të pranuar nga ATK dhe transaction_id të ruajtur.</p></section>
     <p className="footer">Fiskalo Basic ATK MVP · Provider authorization and formal ATK certification are external release gates.</p>
     <style jsx global>{`@media print{body *{visibility:hidden!important}.receipt,.receipt *{visibility:visible!important}.receipt{position:absolute!important;left:0!important;top:0!important;width:80mm!important;max-width:80mm!important;margin:0!important;padding:4mm!important;box-shadow:none!important;border:0!important}.no-print{display:none!important}@page{size:80mm auto;margin:0}}`}</style>
