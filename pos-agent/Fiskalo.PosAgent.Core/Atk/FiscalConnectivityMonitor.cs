@@ -13,7 +13,6 @@ public sealed class FiscalConnectivityMonitor
     private static readonly TimeSpan InitialOutageSafetyMargin = TimeSpan.FromSeconds(20);
     private readonly FiscalQueueStore _queue;
     private readonly Func<CancellationToken,Task<bool>> _probe;
-    private DateTimeOffset? _lastSuccessfulProbeAtUtc;
 
     public FiscalConnectivityMonitor(FiscalQueueStore queue, Func<CancellationToken,Task<bool>> probe)
     {
@@ -31,7 +30,6 @@ public sealed class FiscalConnectivityMonitor
             var available = await _probe(cancellationToken);
             if (available)
             {
-                _lastSuccessfulProbeAtUtc = probeStartedAt;
                 await _queue.MarkConnectivityAvailableAsync(probeStartedAt, cancellationToken);
                 return null;
             }
@@ -45,11 +43,9 @@ public sealed class FiscalConnectivityMonitor
             // A probe timeout is an outage signal. Application shutdown is not.
         }
 
-        // On the first probe after a process restart, the previous healthy
-        // timestamp is not in memory. Backdate by the 15s polling interval plus
-        // the 5s probe timeout rather than starting the legal clock late.
-        var conservativeOutageStart = _lastSuccessfulProbeAtUtc ??
-            probeStartedAt.Subtract(InitialOutageSafetyMargin);
+        // The queue store prefers the last persisted healthy probe, including
+        // across process restarts. This fallback covers a first-ever probe.
+        var conservativeOutageStart = probeStartedAt.Subtract(InitialOutageSafetyMargin);
         return await _queue.MarkConnectivityUnavailableAsync(conservativeOutageStart, cancellationToken);
     }
 }
