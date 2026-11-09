@@ -38,6 +38,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
 - [ ] Official ATK unit/category dropdown catalogue with source/version evidence
 - [ ] Article 7 item/subtotal discount and markup handling, plus split-tender payment allocations
+- [ ] Cryptographically bind ATK acceptance responses to the paired POS Agent or verify them server-side; a positive transaction ID in browser-supplied JSON is not independent proof of ATK acceptance
 - [ ] Apply and verify migrations 0014–0019 on an approved staging database; run SQL contract tests 0014–0019 and authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
 - [ ] Verify full Cancel/Return against ATK TEST, including duplicate retries, definitive rejection and ambiguous-response reconciliation
