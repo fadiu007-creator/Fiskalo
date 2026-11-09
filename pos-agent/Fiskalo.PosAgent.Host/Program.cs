@@ -4,6 +4,8 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Globalization;
+using Google.Protobuf;
 using Fiskalo.PosAgent.Core.Atk;
 using Fiskalo.PosAgent.Core.Queue;
 using Fiskalo.PosAgent.Core.Security;
@@ -20,6 +22,7 @@ const string QueueReconcilePath = "/api/v1/queue/reconcile";
 const string AtkVerifyPath = "/api/v1/atk/test/verify";
 const string AtkSignCsrPath = "/api/v1/atk/test/sign-csr";
 const string AtkCouponPath = "/api/v1/atk/test/coupon";
+const string AtkCorrectionPath = "/api/v1/atk/test/correction";
 const string PrintersPath = "/api/v1/printers";
 const string PrinterPrintPath = "/api/v1/printers/print";
 const string PrinterTestPath = "/api/v1/printers/test";
@@ -41,6 +44,7 @@ var installationPath = Path.Combine(dataDirectory, "atk-test-installation.dpapi"
 var installationStore = new WindowsDpapiInstallationStore(installationPath);
 var keyStore = new WindowsDpapiEcdsaKeyStore();
 var queueStore = new FiscalQueueStore(queuePath, new WindowsDpapiFiscalQueueProtector());
+var correctionGate = new SemaphoreSlim(1, 1);
 
 Console.WriteLine("Fiskalo POS Agent " + AgentVersion);
 Console.WriteLine("Local endpoint: http://127.0.0.1:17843");
@@ -439,6 +443,239 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         return Results.Problem("Local test certificate or signing key could not be validated.", statusCode: StatusCodes.Status500InternalServerError);
     }
 });
+
+app.MapPost(AtkCorrectionPath, async (AtkCorrectionRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("ATK correction signing and encrypted queue currently require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    if (string.IsNullOrWhiteSpace(request.IdempotencyKey) ||
+        string.IsNullOrWhiteSpace(request.OriginalDetailsBase64) ||
+        string.IsNullOrWhiteSpace(request.OriginalSignatureBase64) ||
+        string.IsNullOrWhiteSpace(request.OriginalTransactionId))
+        return Results.BadRequest(new { error = "idempotencyKey_and_signed_original_sale_are_required" });
+    if (request.CorrectionCouponId == 0 || request.OriginalCouponId == 0 ||
+        request.CorrectionCouponId == request.OriginalCouponId || request.DailyNumber <= 0)
+        return Results.BadRequest(new { error = "correction_coupon_id_daily_number_and_original_coupon_id_must_be_valid" });
+    if (!File.Exists(certificatePath) || !File.Exists(keyPath))
+        return Results.Conflict(new { error = "test_certificate_and_local_key_required", fiscalizationEnabled = false });
+
+    await correctionGate.WaitAsync(cancellationToken);
+    try
+    {
+        using var key = keyStore.LoadOrCreate(keyPath);
+        using var certificate = X509Certificate2.CreateFromPem(await File.ReadAllTextAsync(certificatePath, cancellationToken));
+        if (DateTime.UtcNow < certificate.NotBefore.ToUniversalTime() || DateTime.UtcNow > certificate.NotAfter.ToUniversalTime())
+            return Results.Conflict(new { error = "test_certificate_not_current" });
+        using var certificateKey = certificate.GetECDsaPublicKey();
+        if (certificateKey is null || !SamePublicKey(key, certificateKey))
+            return Results.Conflict(new { error = "certificate_key_mismatch" });
+        var installation = installationStore.Load();
+        if (installation is null || string.IsNullOrWhiteSpace(installation.CertificateThumbprint) ||
+            !string.Equals(installation.CertificateThumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+
+        var correctionType = request.DocumentType.Trim().ToLowerInvariant() switch
+        {
+            "cancel" => CouponType.Cancel,
+            "return" => CouponType.Return,
+            _ => CouponType.UnknownType
+        };
+        if (correctionType == CouponType.UnknownType)
+            return Results.BadRequest(new { error = "documentType_must_be_Cancel_or_Return" });
+        if (request.OriginalCouponId == 0 || request.CorrectionCouponId == 0)
+            return Results.BadRequest(new { error = "original_and_correction_coupon_ids_are_required" });
+
+        var expectedIdempotencyKey = installation.Nui + ":" + installation.BranchId + ":" +
+            installation.PosId + ":" + request.CorrectionCouponId;
+        if (!string.Equals(request.IdempotencyKey, expectedIdempotencyKey, StringComparison.Ordinal))
+            return Results.BadRequest(new { error = "idempotencyKey_must_match_business_branch_pos_correction_coupon_ids", expected = expectedIdempotencyKey });
+
+        var existing = (await queueStore.GetAllAsync(cancellationToken))
+            .SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey);
+        if (existing is not null)
+        {
+            if (existing.NuiKf is null || existing.CitizenPayloadBase64 is null ||
+                existing.CitizenSignatureBase64 is null || !FiscalReceiptIdentity.IsValidNuiKf(existing.NuiKf))
+                return Results.Conflict(new { status = existing.Status.ToString(), error = "existing_correction_queue_item_requires_operator_reconciliation" });
+
+            PosCoupon existingCoupon;
+            try
+            {
+                existingCoupon = PosCoupon.Parser.ParseFrom(Convert.FromBase64String(existing.PayloadBase64));
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidProtocolBufferException)
+            {
+                return Results.Conflict(new { status = existing.Status.ToString(), error = "existing_correction_payload_is_invalid_requires_reconciliation" });
+            }
+            if (existing.DocumentType != correctionType.ToString() ||
+                existingCoupon.Type != correctionType ||
+                existingCoupon.CouponId != request.CorrectionCouponId ||
+                existingCoupon.ReferenceNo != request.OriginalCouponId ||
+                existingCoupon.BusinessId != installation.Nui ||
+                existingCoupon.BranchId != installation.BranchId ||
+                existingCoupon.PosId != installation.PosId ||
+                existingCoupon.ApplicationId != installation.ApplicationId ||
+                existing.DailyNumber != request.DailyNumber)
+                return Results.Conflict(new { status = existing.Status.ToString(), error = "idempotency_key_reused_with_different_correction_identity" });
+
+            var expectedExisting = AtkCorrectionCouponFactory.CreateFromSignedOriginal(
+                request.OriginalDetailsBase64,request.OriginalSignatureBase64,certificateKey,
+                installation.Nui,installation.BranchId,installation.PosId,installation.ApplicationId,
+                request.OriginalCouponId,request.CorrectionCouponId,request.OriginalTransactionId,
+                existingCoupon.VerificationNo,DateTimeOffset.FromUnixTimeSeconds(existingCoupon.Time),correctionType);
+            if (!expectedExisting.ToByteArray().SequenceEqual(existingCoupon.ToByteArray()))
+                return Results.Conflict(new { status = existing.Status.ToString(), error = "idempotency_key_reused_with_different_original_sale" });
+
+            var existingQrPayload = FiscalReceiptIdentity.BuildCitizenQrPayload(
+                new SignedAtkCoupon(existing.CitizenPayloadBase64,existing.CitizenSignatureBase64,""));
+            var existingQrSvg = Convert.ToBase64String(Encoding.UTF8.GetBytes(FiscalReceiptQrCode.CreateSvgData(existingQrPayload)));
+            var existingIssuedAt = DateTimeOffset.FromUnixTimeSeconds(existingCoupon.Time);
+            if (existing.Status == FiscalQueueStatus.Accepted && !string.IsNullOrWhiteSpace(existing.AtkTransactionId))
+                return Results.Ok(new
+                {
+                    status = "accepted", transactionId = existing.AtkTransactionId,
+                    detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64,
+                    nuiKf = existing.NuiKf, dailyNumber = existing.DailyNumber,
+                    citizenQrPayload = existingQrPayload, qrSvgBase64 = existingQrSvg,
+                    issuedAtUtc = existingIssuedAt, duplicateRequest = true,
+                    environment = "ATK TEST", productionEnabled = false, offline = false
+                });
+            if (existing.Status == FiscalQueueStatus.Queued)
+                return Results.Ok(new
+                {
+                    status = "queued_offline", transactionId = (string?)null,
+                    detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64,
+                    nuiKf = existing.NuiKf, dailyNumber = existing.DailyNumber,
+                    citizenQrPayload = existingQrPayload, qrSvgBase64 = existingQrSvg,
+                    issuedAtUtc = existingIssuedAt, recoveryDeadlineUtc = existing.RecoveryDeadlineUtc,
+                    offlineIssuedAtUtc = existing.OfflineIssuedAtUtc, retryScheduled = true,
+                    duplicateRequest = true, environment = "ATK TEST", productionEnabled = false, offline = true
+                });
+            if (existing.Status == FiscalQueueStatus.Rejected)
+                return Results.Ok(new
+                {
+                    status = "rejected", transactionId = (string?)null,
+                    detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64,
+                    nuiKf = existing.NuiKf, dailyNumber = existing.DailyNumber,
+                    citizenQrPayload = existingQrPayload, qrSvgBase64 = existingQrSvg,
+                    issuedAtUtc = existingIssuedAt, lastError = existing.LastError,
+                    duplicateRequest = true, environment = "ATK TEST", productionEnabled = false, offline = false
+                });
+            if (existing.Status == FiscalQueueStatus.NeedsReconciliation)
+                return Results.Ok(new
+                {
+                    status = "needs_reconciliation", transactionId = (string?)null,
+                    detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64,
+                    nuiKf = existing.NuiKf, dailyNumber = existing.DailyNumber,
+                    citizenQrPayload = existingQrPayload, qrSvgBase64 = existingQrSvg,
+                    issuedAtUtc = existingIssuedAt, lastError = existing.LastError,
+                    duplicateRequest = true, environment = "ATK TEST", productionEnabled = false, offline = false
+                });
+            return Results.Conflict(new { status = existing.Status.ToString(), error = "correction_submission_is_already_in_progress" });
+        }
+
+        var issuedAt = DateTimeOffset.UtcNow;
+        var nuiKf = FiscalReceiptIdentity.CreateNuiKf();
+        var correction = AtkCorrectionCouponFactory.CreateFromSignedOriginal(
+            request.OriginalDetailsBase64,request.OriginalSignatureBase64,certificateKey,
+            installation.Nui,installation.BranchId,installation.PosId,installation.ApplicationId,
+            request.OriginalCouponId,request.CorrectionCouponId,request.OriginalTransactionId,
+            nuiKf,issuedAt,correctionType);
+        var signed = AtkCouponSigner.SignPosCoupon(correction,key);
+        var citizen = AtkCouponSigner.SignCitizenCoupon(AtkCouponSigner.CreateCitizenCoupon(correction),key);
+        var citizenQrPayload = FiscalReceiptIdentity.BuildCitizenQrPayload(citizen);
+        var qrSvgBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(FiscalReceiptQrCode.CreateSvgData(citizenQrPayload)));
+
+        var queued = await queueStore.EnqueueAsync(
+            request.IdempotencyKey,correctionType.ToString(),signed.DetailsBase64,signed.SignatureBase64,
+            cancellationToken:cancellationToken,nuiKf:nuiKf,
+            citizenPayloadBase64:citizen.DetailsBase64,citizenSignatureBase64:citizen.SignatureBase64,
+            dailyNumber:request.DailyNumber);
+        await queueStore.MarkSubmittingAsync(request.IdempotencyKey,cancellationToken);
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var result = await new AtkTestClient(http).SubmitSignedPosCouponAsync(
+                new SignedAtkCoupon(queued.PayloadBase64,queued.SignatureBase64,""),cancellationToken);
+            await queueStore.MarkAcceptedAsync(request.IdempotencyKey,result.TransactionId.ToString(CultureInfo.InvariantCulture),cancellationToken);
+            return Results.Ok(new
+            {
+                status = "accepted", transactionId = result.TransactionId.ToString(CultureInfo.InvariantCulture),
+                detailsBase64 = queued.PayloadBase64, signatureBase64 = queued.SignatureBase64,
+                nuiKf, dailyNumber = queued.DailyNumber, citizenQrPayload, qrSvgBase64,
+                issuedAtUtc = issuedAt, message = result.Message,
+                environment = "ATK TEST", productionEnabled = false, offline = false
+            });
+        }
+        catch (AtkApiException ex) when (AtkTransportFailureClassifier.IsDefinitiveRejection(ex.StatusCode))
+        {
+            await queueStore.MarkRejectedAsync(request.IdempotencyKey,
+                "ATK rejected the TEST correction with HTTP " + (int)ex.StatusCode,cancellationToken);
+            return Results.Ok(new
+            {
+                status = "rejected", transactionId = (string?)null,
+                detailsBase64 = queued.PayloadBase64, signatureBase64 = queued.SignatureBase64,
+                nuiKf, dailyNumber = queued.DailyNumber, citizenQrPayload, qrSvgBase64,
+                issuedAtUtc = issuedAt, lastError = "ATK rejected the TEST correction with HTTP " + (int)ex.StatusCode,
+                environment = "ATK TEST", productionEnabled = false, offline = false
+            });
+        }
+        catch (HttpRequestException ex) when (IsDefinitelyNotSent(ex))
+        {
+            var offline = await queueStore.RequeueDefinitelyNotSentAsync(
+                request.IdempotencyKey,"ATK connection unavailable before request delivery; automatic retry is scheduled.",
+                cancellationToken:cancellationToken);
+            return Results.Ok(new
+            {
+                status = "queued_offline", transactionId = (string?)null,
+                detailsBase64 = offline.PayloadBase64, signatureBase64 = offline.SignatureBase64,
+                nuiKf = offline.NuiKf, dailyNumber = offline.DailyNumber,
+                citizenQrPayload, qrSvgBase64, issuedAtUtc = issuedAt,
+                recoveryDeadlineUtc = offline.RecoveryDeadlineUtc,offlineIssuedAtUtc = offline.OfflineIssuedAtUtc,
+                retryScheduled = true,environment = "ATK TEST",productionEnabled = false,offline = true
+            });
+        }
+        catch (Exception ex) when (ex is AtkApiException or HttpRequestException or TaskCanceledException)
+        {
+            await queueStore.MarkNeedsReconciliationAsync(
+                request.IdempotencyKey,"Correction submission outcome is uncertain. Check ATK before any retry.",cancellationToken);
+            return Results.Ok(new
+            {
+                status = "needs_reconciliation", transactionId = (string?)null,
+                detailsBase64 = queued.PayloadBase64, signatureBase64 = queued.SignatureBase64,
+                nuiKf, dailyNumber = queued.DailyNumber, citizenQrPayload, qrSvgBase64,
+                issuedAtUtc = issuedAt,
+                lastError = "Correction submission outcome is uncertain. Check ATK before any retry.",
+                environment = "ATK TEST",productionEnabled = false,offline = false
+            });
+        }
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (CryptographicException)
+    {
+        return Results.Conflict(new { error = "original_sale_signature_or_local_certificate_validation_failed" });
+    }
+    catch (InvalidProtocolBufferException)
+    {
+        return Results.BadRequest(new { error = "original_signed_payload_is_not_a_valid_atk_coupon" });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new { error = ex.Message });
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        return Results.Problem("Unable to persist the encrypted local correction queue.",statusCode:StatusCodes.Status500InternalServerError);
+    }
+    finally
+    {
+        correctionGate.Release();
+    }
+});
+
 app.MapGet(PrintersPath, (HttpContext context) =>
 {
     if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
@@ -620,6 +857,16 @@ internal sealed record AtkSignCsrRequest(
 internal sealed record AtkCouponRequest(
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
     [property: JsonPropertyName("coupon")] PosCouponInput Coupon);
+
+internal sealed record AtkCorrectionRequest(
+    [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
+    [property: JsonPropertyName("documentType")] string DocumentType,
+    [property: JsonPropertyName("originalCouponId")] ulong OriginalCouponId,
+    [property: JsonPropertyName("originalTransactionId")] string OriginalTransactionId,
+    [property: JsonPropertyName("originalDetailsBase64")] string OriginalDetailsBase64,
+    [property: JsonPropertyName("originalSignatureBase64")] string OriginalSignatureBase64,
+    [property: JsonPropertyName("correctionCouponId")] ulong CorrectionCouponId,
+    [property: JsonPropertyName("dailyNumber")] long DailyNumber);
 
 internal sealed record PrinterPrintRequest(
     [property: JsonPropertyName("printerName")] string? PrinterName,
