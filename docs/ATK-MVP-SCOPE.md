@@ -28,7 +28,7 @@ Deliver the smallest maintainable product that can complete ATK's required onboa
 - Each POS has its own key/certificate and stable identifiers.
 - Original fiscal records are immutable; corrections append linked documents.
 - An uncertain submission is reconciled before retry; no blind duplicate submission.
-- A coupon is marked fiscalized only after ATK returns a valid accepted transaction ID and the response is durably saved.
+- The UI marks a coupon accepted only after the paired local POS Agent returns a positive ATK transaction ID and the response is durably saved. The current Supabase RPC still receives that response from the browser and cannot independently authenticate it; a signed agent attestation or server-side ATK verification is a production release gate.
 - Production submission remains disabled until the provider and software solution receive formal ATK authorization/certification and production credentials.
 
 ## Acceptance sequence
