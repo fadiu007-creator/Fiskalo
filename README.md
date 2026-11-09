@@ -37,6 +37,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Full-cancellation/full-return UI, local-agent signing/submission, encrypted queue and manual reconciliation source (migrations 0015 and 0018–0019 committed but not applied; ATK TEST Cancel/Return acceptance and authenticated database integration evidence remain outstanding; partial returns/refunds are not supported)
 - [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
 - [ ] Official ATK unit/category dropdown catalogue with source/version evidence
+- [ ] Article 7 item/subtotal discount and markup handling, plus split-tender payment allocations
 - [ ] Apply and verify migrations 0014–0019 on an approved staging database; run SQL contract tests 0014–0019 and authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
 - [ ] Verify full Cancel/Return against ATK TEST, including duplicate retries, definitive rejection and ambiguous-response reconciliation
