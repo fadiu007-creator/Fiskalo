@@ -133,10 +133,10 @@ begin
 
     v_coupon_id := nextval('public.fiskalo_basic_coupon_seq');
     v_business_date := (clock_timestamp() at time zone 'Europe/Belgrade')::date;
-    insert into fiskalo_private.fiskalo_basic_daily_counters(pos_id,business_date,last_number)
+    insert into fiskalo_private.fiskalo_basic_daily_counters as counter(pos_id,business_date,last_number)
     values (v_pos.id,v_business_date,1)
     on conflict (pos_id,business_date)
-    do update set last_number=fiskalo_private.fiskalo_basic_daily_counters.last_number+1
+    do update set last_number=counter.last_number+1
     returning last_number into v_daily_number;
 
     v_key := v_business.nui || ':' || v_pos.branch_id::text || ':' ||
@@ -213,7 +213,7 @@ begin
     select 1 from public.fiskalo_basic_members m
     where m.business_id=p_business_id and m.user_id=auth.uid() and m.role='owner'
   ) then raise exception 'Owner access required'; end if;
-  if p_submission_state not in ('queued','accepted','rejected','needs_reconciliation') then
+  if p_submission_state is null or p_submission_state not in ('queued','accepted','rejected','needs_reconciliation') then
     raise exception 'Invalid correction submission state';
   end if;
 

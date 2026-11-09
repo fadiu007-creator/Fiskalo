@@ -449,6 +449,7 @@ app.MapPost(AtkCorrectionPath, async (AtkCorrectionRequest request, HttpContext 
     if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
     if (!OperatingSystem.IsWindows()) return Results.Problem("ATK correction signing and encrypted queue currently require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
     if (string.IsNullOrWhiteSpace(request.IdempotencyKey) ||
+        string.IsNullOrWhiteSpace(request.DocumentType) ||
         string.IsNullOrWhiteSpace(request.OriginalDetailsBase64) ||
         string.IsNullOrWhiteSpace(request.OriginalSignatureBase64) ||
         string.IsNullOrWhiteSpace(request.OriginalTransactionId))
@@ -527,7 +528,7 @@ app.MapPost(AtkCorrectionPath, async (AtkCorrectionRequest request, HttpContext 
                 return Results.Conflict(new { status = existing.Status.ToString(), error = "idempotency_key_reused_with_different_original_sale" });
 
             var existingQrPayload = FiscalReceiptIdentity.BuildCitizenQrPayload(
-                new SignedAtkCoupon(existing.CitizenPayloadBase64,existing.CitizenSignatureBase64,""));
+                new SignedAtkCoupon(existing.CitizenPayloadBase64,existing.CitizenSignatureBase64,certificate.Thumbprint));
             var existingQrSvg = Convert.ToBase64String(Encoding.UTF8.GetBytes(FiscalReceiptQrCode.CreateSvgData(existingQrPayload)));
             var existingIssuedAt = DateTimeOffset.FromUnixTimeSeconds(existingCoupon.Time);
             if (existing.Status == FiscalQueueStatus.Accepted && !string.IsNullOrWhiteSpace(existing.AtkTransactionId))
@@ -596,7 +597,7 @@ app.MapPost(AtkCorrectionPath, async (AtkCorrectionRequest request, HttpContext 
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             var result = await new AtkTestClient(http).SubmitSignedPosCouponAsync(
-                new SignedAtkCoupon(queued.PayloadBase64,queued.SignatureBase64,""),cancellationToken);
+                new SignedAtkCoupon(queued.PayloadBase64,queued.SignatureBase64,certificate.Thumbprint),cancellationToken);
             await queueStore.MarkAcceptedAsync(request.IdempotencyKey,result.TransactionId.ToString(CultureInfo.InvariantCulture),cancellationToken);
             return Results.Ok(new
             {
