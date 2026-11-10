@@ -132,8 +132,8 @@ begin
   end if;
 
   -- The legacy payment_method column remains a deterministic compatibility key;
--- payment_allocations is the source of truth for receipts and ATK submissions.
--- Legacy sales did not store a split. Only an exact single-method replay may
+  -- payment_allocations is the source of truth for receipts and ATK submissions.
+  -- Legacy sales did not store a split. Only an exact single-method replay may
   -- backfill their tender; never rewrite an old accepted receipt as a new split.
   if had_existing_sale and (
     pg_catalog.jsonb_array_length(normalized_payments)<>1
