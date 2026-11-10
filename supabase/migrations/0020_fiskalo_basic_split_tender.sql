@@ -42,7 +42,7 @@ declare
   primary_method text;
   sale_uuid uuid;
   sale_total numeric(12,2);
-  allocated_cents bigint;
+  allocated_cents numeric;
   existing_sale public.fiskalo_basic_sales%rowtype;
   had_existing_sale boolean:=false;
   saved_payments jsonb;
@@ -57,17 +57,19 @@ begin
   end if;
   if exists (
     select 1
-    from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents bigint)
+    from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents numeric)
     where x.method is null
       or x.method not in ('cash','card','bank_transfer')
       or x.amount_cents is null
       or x.amount_cents<0
+      or x.amount_cents<>pg_catalog.trunc(x.amount_cents)
+      or x.amount_cents>9223372036854775807
   ) then
     raise exception 'Unsupported payment method or invalid payment amount';
   end if;
   if exists (
     select x.method
-    from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents bigint)
+    from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents numeric)
     group by x.method
     having count(*)>1
   ) then
@@ -76,13 +78,13 @@ begin
 
   select
     pg_catalog.jsonb_agg(
-      pg_catalog.jsonb_build_object('method',x.method,'amount_cents',x.amount_cents)
+      pg_catalog.jsonb_build_object('method',x.method,'amount_cents',x.amount_cents::bigint)
       order by x.method
     ),
-    sum(x.amount_cents)::bigint,
+    sum(x.amount_cents),
     (pg_catalog.array_agg(x.method order by x.method))[1]
   into normalized_payments,allocated_cents,primary_method
-  from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents bigint);
+  from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents numeric);
 
   if allocated_cents is null then raise exception 'Payment allocation total is required'; end if;
 
@@ -110,7 +112,7 @@ begin
   where s.id=sale_uuid and s.business_id=p_business_id
   for update;
   if not found then raise exception 'Paid sale could not be read after checkout'; end if;
-  if allocated_cents<>round(sale_total*100)::bigint then
+  if allocated_cents<>round(sale_total*100)::numeric then
     raise exception 'Payment allocations must equal the exact paid sale total';
   end if;
 
