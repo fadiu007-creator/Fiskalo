@@ -34,7 +34,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
 - [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and thermal printer support
 - [x] Browser-session restoration for the paired local POS Agent
-- [x] Split-tender amounts are included in the signed ATK POS coupon, receipt, sales history and CSV export; the payment-allocation unit tests run in CI
+- [x] Split-tender amounts are included in the signed ATK POS coupon, receipt, sales history and CSV export; the payment-allocation unit tests are included in CI
 - [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0017 and 0020 are committed but have not been executed against the database. Apply all approved migrations in version order on a staging database and run their SQL contract tests plus authenticated tenant-isolation tests before release.
 - [x] Correction coupon factory and durable accepted-correction journal/RPC source (migration 0015 committed; not applied; cancellation/return UI and end-to-end submission tests remain open)
 - [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
