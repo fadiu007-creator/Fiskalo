@@ -1,10 +1,7 @@
-export type PaymentMethod = "cash" | "card" | "bank_transfer";
-
-export type PaymentAllocation = {
-  method: PaymentMethod;
-  amountCents: number;
-};
-
+export type PaymentMethod = "cash" | "card" | "bank_transfer" | "voucher" | "cheque" | "crypto";
+export type AdditionalPaymentMethod = Exclude<PaymentMethod, "cash">;
+export type AdditionalPaymentDraft = { method: AdditionalPaymentMethod; amount: string };
+export type PaymentAllocation = { method: PaymentMethod; amountCents: number };
 export type PaymentAllocationResult = {
   valid: boolean;
   allocations: PaymentAllocation[];
@@ -24,43 +21,54 @@ export function parseEuroAmountToCents(value: string): number | null {
 }
 
 /**
- * Cash is the remainder. Card and bank-transfer inputs are explicit amounts.
- * This makes a normal cash sale zero-configuration while supporting split tender.
+ * Cash is the remainder. Every other tender is an explicit amount.
+ * The resulting array is canonical so retries do not depend on UI row order.
  */
 export function buildPaymentAllocations(
   totalCents: number,
-  cardAmount: string,
-  bankTransferAmount: string,
+  additionalPayments: readonly AdditionalPaymentDraft[],
 ): PaymentAllocationResult {
   if (!Number.isSafeInteger(totalCents) || totalCents < 0) {
     return { valid: false, allocations: [], cashRemainderCents: 0, error: "Vlera totale e pagesës është e pavlefshme." };
   }
 
-  const cardCents = parseEuroAmountToCents(cardAmount);
-  const bankTransferCents = parseEuroAmountToCents(bankTransferAmount);
-  if (cardCents === null || bankTransferCents === null) {
+  const seen = new Set<AdditionalPaymentMethod>();
+  const parsed: Array<{ method: AdditionalPaymentMethod; amountCents: number }> = [];
+  for (const payment of additionalPayments) {
+    if (!["card", "bank_transfer", "voucher", "cheque", "crypto"].includes(payment.method)) {
+      return { valid: false, allocations: [], cashRemainderCents: 0, error: "Zgjidh një mënyrë të vlefshme pagese." };
+    }
+    if (seen.has(payment.method)) {
+      return { valid: false, allocations: [], cashRemainderCents: 0, error: "Çdo mënyrë pagese mund të shtohet vetëm një herë." };
+    }
+    seen.add(payment.method);
+    const amountCents = parseEuroAmountToCents(payment.amount);
+    if (amountCents === null) {
+      return {
+        valid: false,
+        allocations: [],
+        cashRemainderCents: 0,
+        error: "Shumat e pagesës duhet të jenë pozitive ose zero, me maksimum dy shifra dhjetore.",
+      };
+    }
+    if (amountCents > 0) parsed.push({ method: payment.method, amountCents });
+  }
+
+  const nonCashCents = parsed.reduce((sum, payment) => sum + payment.amountCents, 0);
+  if (nonCashCents > totalCents) {
     return {
       valid: false,
       allocations: [],
-      cashRemainderCents: 0,
-      error: "Shumat e kartelës dhe transferit duhet të jenë pozitive ose zero, me maksimum dy shifra dhjetore.",
+      cashRemainderCents: totalCents - nonCashCents,
+      error: "Shuma e pagesave të tjera tejkalon totalin e porosisë.",
     };
   }
 
-  if (cardCents + bankTransferCents > totalCents) {
-    return {
-      valid: false,
-      allocations: [],
-      cashRemainderCents: totalCents - cardCents - bankTransferCents,
-      error: "Shuma e kartelës dhe transferit tejkalon totalin e porosisë.",
-    };
-  }
-
-  const cashRemainderCents = totalCents - cardCents - bankTransferCents;
+  const cashRemainderCents = totalCents - nonCashCents;
   const allocations: PaymentAllocation[] = [];
   if (cashRemainderCents > 0 || totalCents === 0) allocations.push({ method: "cash", amountCents: cashRemainderCents });
-  if (cardCents > 0) allocations.push({ method: "card", amountCents: cardCents });
-  if (bankTransferCents > 0) allocations.push({ method: "bank_transfer", amountCents: bankTransferCents });
+  parsed.sort((a, b) => a.method.localeCompare(b.method));
+  allocations.push(...parsed);
 
   return { valid: true, allocations, cashRemainderCents, error: null };
 }
@@ -71,6 +79,12 @@ export function toAtkPaymentType(method: PaymentMethod): number {
       return 1; // ATK PaymentType.Cash
     case "card":
       return 2; // ATK PaymentType.CreditCard
+    case "voucher":
+      return 3; // ATK PaymentType.Voucher
+    case "cheque":
+      return 4; // ATK PaymentType.Cheque
+    case "crypto":
+      return 5; // ATK PaymentType.CryptoCurrency
     case "bank_transfer":
       return 6; // ATK PaymentType.Other; the official enum has no bank-transfer member
   }
@@ -82,8 +96,14 @@ export function paymentMethodLabel(method: string): string {
       return "KESH";
     case "card":
       return "KARTELË";
+    case "voucher":
+      return "VAUÇER";
+    case "cheque":
+      return "ÇEK";
+    case "crypto":
+      return "KRIPTOVALUTË";
     case "bank_transfer":
-      return "TRANSFER BANKAR";
+      return "TRANSFER BANKAR / TJETËR";
     default:
       return "TJETËR";
   }
