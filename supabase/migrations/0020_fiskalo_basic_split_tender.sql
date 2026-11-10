@@ -49,11 +49,15 @@ declare
 begin
   if auth.uid() is null then raise exception 'Authentication required'; end if;
   if p_idempotency_key is null then raise exception 'Checkout idempotency key is required'; end if;
+  if not exists (
+    select 1 from public.fiskalo_basic_members m
+    where m.business_id=p_business_id and m.user_id=auth.uid()
+  ) then raise exception 'Not a member of this business'; end if;
   if p_payments is null or pg_catalog.jsonb_typeof(p_payments) is distinct from 'array' then
     raise exception 'Payment allocations must be a JSON array';
   end if;
-  if pg_catalog.jsonb_array_length(p_payments)<1 or pg_catalog.jsonb_array_length(p_payments)>3 then
-    raise exception 'A sale must contain between one and three payment allocations';
+  if pg_catalog.jsonb_array_length(p_payments)<1 or pg_catalog.jsonb_array_length(p_payments)>6 then
+    raise exception 'A sale must contain between one and six payment allocations';
   end if;
   if exists (
     select 1
@@ -127,7 +131,9 @@ begin
     return sale_uuid;
   end if;
 
-  -- Legacy sales did not store a split. Only an exact single-method replay may
+  -- The legacy payment_method column remains a deterministic compatibility key;
+-- payment_allocations is the source of truth for receipts and ATK submissions.
+-- Legacy sales did not store a split. Only an exact single-method replay may
   -- backfill their tender; never rewrite an old accepted receipt as a new split.
   if had_existing_sale and (
     pg_catalog.jsonb_array_length(normalized_payments)<>1
