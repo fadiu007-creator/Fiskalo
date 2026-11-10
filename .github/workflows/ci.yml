@@ -17,13 +17,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm install --no-audit --no-fund
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/fiskalo-basic-workers/index.ts
       - run: deno test --check supabase/functions/fiskalo-basic-workers/handler_test.ts
       - run: deno lint supabase/functions/fiskalo-basic-workers
-      - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
