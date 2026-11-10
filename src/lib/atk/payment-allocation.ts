@@ -88,6 +88,8 @@ export function toAtkPaymentType(method: PaymentMethod): number {
       return 5; // ATK PaymentType.CryptoCurrency
     case "bank_transfer":
       return 6; // ATK PaymentType.Other; the official enum has no bank-transfer member
+    default:
+      throw new Error("Unsupported ATK payment method.");
   }
 }
 
