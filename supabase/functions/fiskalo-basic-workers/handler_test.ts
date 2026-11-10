@@ -6,12 +6,12 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 function createDependencies(overrides: Partial<WorkerHandlerDependencies> = {}): WorkerHandlerDependencies {
   return {
-    authenticate: async (token) => token === "valid-token" ? { id: "owner-user" } : null,
-    isOwner: async () => true,
-    listMembers: async () => [],
-    getUserEmail: async () => null,
-    resolveUser: async () => ({ id: "cashier-user", invited: true, delivery: "sent" }),
-    attachCashier: async () => "added",
+    authenticate: (token) => Promise.resolve(token === "valid-token" ? { id: "owner-user" } : null),
+    isOwner: () => Promise.resolve(true),
+    listMembers: () => Promise.resolve([]),
+    getUserEmail: () => Promise.resolve(null),
+    resolveUser: () => Promise.resolve({ id: "cashier-user", invited: true, delivery: "sent" }),
+    attachCashier: () => Promise.resolve("added" as const),
     ...overrides,
   };
 }
@@ -30,10 +30,10 @@ Deno.test("rejects requests without an authenticated owner session", async () =>
 Deno.test("rejects a non-owner before changing membership", async () => {
   let resolved = false;
   const handler = createWorkerHandler(createDependencies({
-    isOwner: async () => false,
-    resolveUser: async () => {
+    isOwner: () => Promise.resolve(false),
+    resolveUser: () => {
       resolved = true;
-      return { id: "cashier-user", invited: true, delivery: "sent" };
+      return Promise.resolve({ id: "cashier-user", invited: true, delivery: "sent" });
     },
   }));
   const response = await post(handler, { action: "invite", businessId, email: "cashier@example.com" });
@@ -43,13 +43,13 @@ Deno.test("rejects a non-owner before changing membership", async () => {
 Deno.test("normalizes email and attaches a newly invited cashier", async () => {
   let attachedUser = "";
   const handler = createWorkerHandler(createDependencies({
-    resolveUser: async (email) => {
+    resolveUser: (email) => {
       assert(email === "cashier@example.com", "email must be trimmed and lowercased");
-      return { id: "cashier-user", invited: true, delivery: "sent" };
+      return Promise.resolve({ id: "cashier-user", invited: true, delivery: "sent" });
     },
-    attachCashier: async (_businessId, userId) => {
+    attachCashier: (_businessId, userId) => {
       attachedUser = userId;
-      return "added";
+      return Promise.resolve("added" as const);
     },
   }));
   const response = await post(handler, { action: "invite", businessId, email: " Cashier@Example.com " });
@@ -61,7 +61,7 @@ Deno.test("normalizes email and attaches a newly invited cashier", async () => {
 });
 Deno.test("adds an existing account without sending a second invitation", async () => {
   const handler = createWorkerHandler(createDependencies({
-    resolveUser: async () => ({ id: "existing-user", invited: false, delivery: "existing" }),
+    resolveUser: () => Promise.resolve({ id: "existing-user", invited: false, delivery: "existing" }),
   }));
   const response = await post(handler, { action: "invite", businessId, email: "existing@example.com" });
   const body = await response.json() as { invited?: boolean; delivery?: string };
@@ -71,8 +71,8 @@ Deno.test("adds an existing account without sending a second invitation", async 
 });
 Deno.test("treats repeated invitations as idempotent membership operations", async () => {
   const handler = createWorkerHandler(createDependencies({
-    resolveUser: async () => ({ id: "cashier-user", invited: false, delivery: "existing" }),
-    attachCashier: async () => "already_member",
+    resolveUser: () => Promise.resolve({ id: "cashier-user", invited: false, delivery: "existing" }),
+    attachCashier: () => Promise.resolve("already_member" as const),
   }));
   const response = await post(handler, { action: "invite", businessId, email: "cashier@example.com" });
   const body = await response.json() as { alreadyMember?: boolean };
@@ -93,11 +93,11 @@ Deno.test("rejects invalid email addresses", async () => {
 });
 Deno.test("lists only the authorized business membership and resolves email addresses", async () => {
   const handler = createWorkerHandler(createDependencies({
-    listMembers: async (requestedBusinessId) => {
+    listMembers: (requestedBusinessId) => {
       assert(requestedBusinessId === businessId, "member lookup must use the requested business scope");
-      return [{ userId: "cashier-user", role: "cashier", operatorName: "Arketari", createdAt: "2026-11-10T08:00:00.000Z" }];
+      return Promise.resolve([{ userId: "cashier-user", role: "cashier" as const, operatorName: "Arketari", createdAt: "2026-11-10T08:00:00.000Z" }]);
     },
-    getUserEmail: async (userId) => userId === "cashier-user" ? "cashier@example.com" : null,
+    getUserEmail: (userId) => Promise.resolve(userId === "cashier-user" ? "cashier@example.com" : null),
   }));
   const response = await post(handler, { action: "list", businessId });
   const body = await response.json() as { members?: Array<{ email?: string | null; role?: string }> };
