@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.114.0";
+import { createClient } from "@supabase/supabase-js";
 import {
   createWorkerHandler,
   WorkerRequestError,
@@ -18,7 +18,7 @@ if (!supabaseUrl || !serviceRoleKey) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  async function findUserByEmail(email: string) {
+  const findUserByEmail = async (email: string) => {
     for (let page = 1; page <= 100; page += 1) {
       const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
       if (error) throw error;
@@ -28,7 +28,7 @@ if (!supabaseUrl || !serviceRoleKey) {
       if (users.length < 1000) return null;
     }
     throw new WorkerRequestError(503, "Kërkimi i llogarisë tejkalon kufirin e sigurt. Kontakto administratorin.");
-  }
+  };
 
   const handler = createWorkerHandler({
     async authenticate(token) {
