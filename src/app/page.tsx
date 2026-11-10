@@ -4,12 +4,13 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
 import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { buildPaymentAllocations, formatPaymentAllocations, paymentMethodLabel, toAtkPaymentType, type AdditionalPaymentMethod } from "@/lib/atk/payment-allocation";
 
 type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;payment_allocations?:Array<{method:string;amount_cents:number}>|null;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -74,7 +75,7 @@ export default function Home(){
   const [checkoutKey,setCheckoutKey]=useState("");
   const [checkoutAttempted,setCheckoutAttempted]=useState(false);
   const [checkoutDraftLoaded,setCheckoutDraftLoaded]=useState(false);
-  const [payment,setPayment]=useState("cash");
+  const [additionalPayments,setAdditionalPayments]=useState<Array<{id:string;method:AdditionalPaymentMethod;amount:string}>>([]);
   const [productSearch,setProductSearch]=useState("");
   const [selectedCategory,setSelectedCategory]=useState("all");
   const [isPosFullscreen,setIsPosFullscreen]=useState(false);
@@ -240,7 +241,7 @@ export default function Home(){
     if(!raw){setCheckoutDraftLoaded(true);return;}
     if(!products.length)return;
     try{
-      const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;payment?:string;selectedPos?:string};
+      const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;payment?:string;additionalPayments?:Array<{id?:string;method?:string;amount?:string}>;selectedPos?:string};
       if(!draft.key||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draft.key)||!Array.isArray(draft.lines)){
         sessionStorage.removeItem(storageKey);setCheckoutDraftLoaded(true);return;
       }
@@ -252,7 +253,22 @@ export default function Home(){
       }
       if(Object.keys(restored).length){
         setCart(restored);setCheckoutKey(draft.key);setCheckoutAttempted(!!draft.attempted);
-        if(draft.payment==="cash"||draft.payment==="card"||draft.payment==="bank_transfer")setPayment(draft.payment);
+        const restoredTotalCents=Object.values(restored).reduce((sum,line)=>{
+          const net=Math.round(line.product.price*line.quantity*100);
+          const vat=Math.round(net*line.product.vat_rate/100);
+          return sum+net+vat;
+        },0);
+        if(Array.isArray(draft.additionalPayments)){
+          const restoredPayments:Array<{id:string;method:AdditionalPaymentMethod;amount:string}>=[];
+          draft.additionalPayments.forEach((item,index)=>{
+            if(item&&typeof item.method==="string"&&["card","bank_transfer","voucher","cheque","crypto"].includes(item.method)&&typeof item.amount==="string"){
+              restoredPayments.push({id:typeof item.id==="string"?item.id:"restored-"+index,method:item.method as AdditionalPaymentMethod,amount:item.amount});
+            }
+          });
+          setAdditionalPayments(restoredPayments);
+        }else if(draft.payment==="card"||draft.payment==="bank_transfer"){
+          setAdditionalPayments([{id:"legacy-"+draft.payment,method:draft.payment,amount:(restoredTotalCents/100).toFixed(2)}]);
+        }
         if(positions.some(p=>p.id===draft.selectedPos))setSelectedPos(draft.selectedPos!);
       }else{
         sessionStorage.removeItem(storageKey);
@@ -269,8 +285,8 @@ export default function Home(){
     const storageKey="fiskalo.pendingCheckout."+business.id;
     const lines=Object.values(cart).map(line=>({productId:line.product.id,quantity:line.quantity}));
     if(!checkoutKey||!lines.length){sessionStorage.removeItem(storageKey);return;}
-    try{sessionStorage.setItem(storageKey,JSON.stringify({key:checkoutKey,attempted:checkoutAttempted,lines,payment,selectedPos}));}catch{}
-  },[business,cart,checkoutKey,checkoutAttempted,payment,selectedPos,checkoutDraftLoaded]);
+    try{sessionStorage.setItem(storageKey,JSON.stringify({key:checkoutKey,attempted:checkoutAttempted,lines,additionalPayments,selectedPos}));}catch{}
+  },[business,cart,checkoutKey,checkoutAttempted,additionalPayments,selectedPos,checkoutDraftLoaded]);
 
   async function signIn(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabase!.auth.signInWithPassword({email:(document.getElementById("email") as HTMLInputElement).value,password:(document.getElementById("password") as HTMLInputElement).value});if(error)throw error;}catch(e){setMessage(e instanceof Error?e.message:"Hyrja dështoi.");}finally{setBusy(false);}}
   async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
@@ -322,9 +338,10 @@ export default function Home(){
   function exportSalesCsv(){
     if(!sales.length)return;
     const quote=(value:unknown)=>'"'+String(value??"").replace(/"/g,'""')+'"';
-    const headers=["Kuponi","Data","Statusi i pageses","Statusi ATK","Metoda e pageses","Neto EUR","TVSH EUR","Totali EUR","Transaction ID","NUIKF","Numri ditor","Artikujt"];
+    const headers=["Kuponi","Data","Statusi i pageses","Statusi ATK","Ndarja e pagesës","Neto EUR","TVSH EUR","Totali EUR","Transaction ID","NUIKF","Numri ditor","Artikujt"];
     const rows=sales.map(s=>[
-      s.coupon_id,s.created_at,s.status,s.submission_state??"not_confirmed",s.payment_method,
+      s.coupon_id,s.created_at,s.status,s.submission_state??"not_confirmed",
+      formatPaymentAllocations(s.payment_allocations??[{method:s.payment_method,amount_cents:Math.round(Number(s.total)*100)}]),
       Number(s.subtotal).toFixed(2),Number(s.vat_total).toFixed(2),Number(s.total).toFixed(2),
       s.transaction_id??"",s.nui_kf??"",s.daily_number??"",
       s.items.map(item=>item.description+" x "+item.quantity+" @ "+Number(item.unit_price).toFixed(4)).join("; ")
@@ -341,7 +358,13 @@ export default function Home(){
   async function savePosUnitNumber(posUuid:string){const value=(unitNumberEdits[posUuid]??positions.find(p=>p.id===posUuid)?.unit_number??"").trim();if(!/^[0-9]{7}$/.test(value)){setMessage("Numri i njësisë ARBK duhet të ketë 7 shifra.");return;}setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_pos").update({unit_number:value}).eq("id",posUuid);if(error)throw error;await loadWorkspace(user!.id);setUnitNumberEdits(current=>({...current,[posUuid]:value}));setMessage("Numri i njësisë ARBK u ruajt.");}catch(e){setMessage(e instanceof Error?e.message:"Numri i njësisë nuk u ruajt.");}finally{setBusy(false);}}
   function changeCart(product:Product,delta:number){if(checkoutAttempted){setMessage("Kjo shitje ka nisur. Mos e ndrysho shportën derisa të përfundojë fiskalizimi ose reconciliimi.");return;}setCheckoutKey(crypto.randomUUID());setCart(current=>{const next={...current};const qty=(next[product.id]?.quantity??0)+delta;if(qty<=0)delete next[product.id];else next[product.id]={product,quantity:qty};return next;});}
   const cartLines=Object.values(cart);
-  const total=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*(1+line.product.vat_rate/100),0);
+  const total=cartLines.reduce((sum,line)=>{
+    const net=Math.round(line.product.price*line.quantity*100)/100;
+    const vat=Math.round(net*line.product.vat_rate)/100;
+    return sum+net+vat;
+  },0);
+  const totalCents=Math.round(total*100);
+  const paymentResult=buildPaymentAllocations(totalCents,additionalPayments);
   const categoryOptions=useMemo(()=>Array.from(new Set(products.map(product=>product.atk_item_category_code).filter(Boolean))).sort((a,b)=>a.localeCompare(b)),[products]);
   const filteredProducts=useMemo(()=>{
     const query=productSearch.trim().toLocaleLowerCase("sq");
@@ -381,13 +404,14 @@ export default function Home(){
     const pos=positions.find(p=>p.id===selectedPos);
     if(!pos)return;
     if(!/^[0-9]{7}$/.test(pos.unit_number??"")){setMessage("Plotëso numrin 7-shifror të njësisë ARBK për këtë POS para lëshimit të kuponit.");return;}
+    if(!paymentResult.valid){setMessage(paymentResult.error??"Kontrollo ndarjen e pagesës.");return;}
     const checkoutIdempotencyKey=checkoutKey||crypto.randomUUID();
     setCheckoutKey(checkoutIdempotencyKey);setCheckoutAttempted(true);
     try{
       sessionStorage.setItem("fiskalo.pendingCheckout."+business.id,JSON.stringify({
         key:checkoutIdempotencyKey,attempted:true,
         lines:cartLines.map(line=>({productId:line.product.id,quantity:line.quantity})),
-        payment,selectedPos
+        additionalPayments,selectedPos
       }));
     }catch{}
     setBusy(true);setMessage("");
@@ -396,7 +420,7 @@ export default function Home(){
       if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id)throw new Error("Ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk u regjistrua.");
       const agent=await getLocalAgentStatus(agentToken);
       if(!agent.paired||!agent.testCertificateInstalled||!agent.testInstallationVerified)throw new Error("POS Agent nuk është i çiftuar ose certifikata TEST nuk është verifikuar. Shitja nuk u regjistrua.");
-      const {data:saleId,error}=await supabase!.rpc("fiskalo_basic_create_sale",{p_business_id:business.id,p_pos_id:selectedPos,p_payment_method:payment,p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity})),p_idempotency_key:checkoutIdempotencyKey});
+      const {data:saleId,error}=await supabase!.rpc("fiskalo_basic_create_sale_with_payments",{p_business_id:business.id,p_pos_id:selectedPos,p_payments:paymentResult.allocations.map(item=>({method:item.method,amount_cents:item.amountCents})),p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity})),p_idempotency_key:checkoutIdempotencyKey});
       if(error)throw error;
       const [{data:sale,error:saleError},{data:lines,error:linesError}]=await Promise.all([
         supabase!.from("fiskalo_basic_sales").select("*").eq("id",saleId).single(),
@@ -410,7 +434,6 @@ export default function Home(){
         const group=grouped.get(key)??{taxRate:key,base:0,tax:0};
         group.base+=cents(line.line_net);group.tax+=cents(line.line_vat);grouped.set(key,group);
       }
-      const paymentType=payment==="cash"?1:payment==="card"?2:6;
       if(!sale.daily_number||Number(sale.daily_number)<=0)throw new Error("Numri ditor i kuponit nuk u caktua nga baza e të dhënave.");
       const coupon={
         businessId:Number(business.nui),couponId:Number(sale.coupon_id),dailyNumber:Number(sale.daily_number),
@@ -418,7 +441,7 @@ export default function Home(){
         applicationId:Number(pos.application_id),verificationNo:"",type:1,
         unixTime:Math.floor(new Date(sale.created_at).getTime()/1000),
         items:(lines??[]).map(line=>({name:line.description,unitPriceEuro:Number(line.unit_price),unit:line.atk_unit_code,quantity:Number(line.quantity),lineTotalCents:cents(line.line_total),taxRate:line.atk_vat_code,itemType:line.atk_item_category_code})),
-        payments:[{type:paymentType,amountCents:cents(sale.total)}],
+        payments:paymentResult.allocations.map(item=>({type:toAtkPaymentType(item.method),amountCents:item.amountCents})),
         totalCents:cents(sale.total),taxGroups:Array.from(grouped.values()).map(g=>({taxRate:g.taxRate,totalForTaxCents:g.base,totalTaxCents:g.tax})),
         totalTaxCents:cents(sale.vat_total),totalNoTaxCents:cents(sale.subtotal),totalDiscountCents:0
       };
@@ -437,7 +460,7 @@ export default function Home(){
       if(fiscal.status==="accepted"&&(!fiscal.transactionId||!(/^[1-9][0-9]{0,19}$/.test(fiscal.transactionId))))throw new Error("ATK did not return a valid transaction_id.");
 
       const receiptRecord:SaleRecord={
-        ...sale,items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
+        ...sale,payment_allocations:paymentResult.allocations.map(item=>({method:item.method,amount_cents:item.amountCents})),items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
         transaction_id:fiscal.transactionId,nui_kf:fiscal.nuiKf,daily_number:fiscal.dailyNumber,
         submission_state:fiscal.status==="accepted"?"accepted":"queued",
         offline_issued_at:fiscal.offlineIssuedAtUtc??null,recovery_deadline_at:fiscal.recoveryDeadlineUtc??null,
@@ -480,7 +503,7 @@ export default function Home(){
         if(qrError)throw new Error("Kuponi offline është ruajtur, por ruajtja e QR për ribotim dështoi: "+qrError.message);
         setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
       }
-      setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+      setCart({});setCheckoutKey("");setCheckoutAttempted(false);setAdditionalPayments([]);
       sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
       await loadWorkspace(user!.id);
     }catch(e){
@@ -512,7 +535,7 @@ export default function Home(){
     {tab==="products"&&memberRole==="owner"&&<><section className="panel" style={{marginBottom:16}}><div className="eyebrow">MENAXHIMI I BIZNESIT</div><h2>PRODUKTET DHE STOKU</h2><p className="sub">Një hapësirë e vetme për katalogun e produkteve, çmimet, barkodet, kodet ATK, sasitë dhe lëvizjet e inventarit.</p></section><div className="grid" style={{gridTemplateColumns:"minmax(260px,1fr) minmax(280px,1.4fr)"}}><section className="panel"><h2>{editingProductId?"Ndrysho produktin":"Produkt i ri"}</h2><form onSubmit={addProduct}><div className="field"><label>Emri</label><input required value={productName} onChange={e=>setProductName(e.target.value)}/></div><div className="field"><label>Çmimi pa TVSH (€)</label><input type="number" min="0" step="0.0001" required value={productPrice} onChange={e=>setProductPrice(e.target.value)}/></div><div className="field"><label>Stoku fillestar / korrigjimi</label><input type="number" min="0" step="0.001" value={productStock} onChange={e=>setProductStock(e.target.value)} disabled={!!editingProductId}/>{editingProductId&&<small className="sub">Përdor panelin e inventarit për të ndryshuar stokun dhe për të ruajtur historikun.</small> }</div><div className="field"><label>Norma TVSH</label><select value={vatRate} onChange={e=>{setVatRate(e.target.value);setVatCode(e.target.value==="18"?"E":e.target.value==="8"?"D":"A")}}><option value="18">18%</option><option value="8">8%</option><option value="0">0%</option></select></div><div className="field"><label>Kodi ATK – njësia</label><input required value={unitCode} onChange={e=>setUnitCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – kategoria</label><input required value={categoryCode} onChange={e=>setCategoryCode(e.target.value)} placeholder="Kodi zyrtar ATK"/></div><div className="field"><label>Kodi ATK – TVSH</label><select required value={vatCode} onChange={e=>setVatCode(e.target.value)}>{vatRate==="18"?<option value="E">E · 18%</option>:vatRate==="8"?<option value="D">D · 8%</option>:<><option value="A">A · 0%</option><option value="C">C · 0%</option></>}</select></div><div className="row"><button className="btn" disabled={busy}>{editingProductId?"Ruaj ndryshimet":"Ruaj artikullin"}</button>{editingProductId&&<button type="button" className="btn secondary" disabled={busy} onClick={resetProductForm}>Anulo</button>}</div></form></section><section className="panel"><h2>Katalogu i produkteve</h2>{products.length===0?<p className="sub">Nuk ka artikuj ende.</p>:products.map(p=><div key={p.id} className="row" style={{justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}><div><strong>{p.name}</strong><div className="sub" style={{fontSize:12}}>Stoku {p.stock} · TVSH {p.vat_rate}% · {p.atk_unit_code} / {p.atk_item_category_code} / {p.atk_vat_code}</div></div><div className="row"><strong>€{Number(p.price).toFixed(2)}</strong><button className="btn secondary" disabled={busy} onClick={()=>startEditProduct(p)}>Ndrysho</button><button className="btn secondary" disabled={busy} onClick={()=>void archiveProduct(p)}>Hiq nga katalogu</button></div></div>)}</section></div>
     {tab==="products"&&memberRole==="owner"&&<BusinessOperations businessId={business.id} products={products} onRefresh={()=>loadWorkspace(user!.id)} mode="inventory"/>}</>}
     {tab==="purchases"&&memberRole==="owner"&&<BusinessOperations businessId={business.id} products={products} onRefresh={()=>loadWorkspace(user!.id)} mode="purchases"/>}
-    {tab==="sales"&&memberRole==="owner"&&<section className="panel"><div className="row" style={{justifyContent:"space-between"}}><div><h2>Historia e shitjeve</h2><p className="sub">50 shitjet e fundit të këtij biznesi. Statusi ATK shfaqet veçmas nga pagesa.</p></div><div className="row"><button className="btn secondary" disabled={busy} onClick={()=>void loadSales()}>Rifresko</button><button className="btn secondary" disabled={busy||!sales.length} onClick={exportSalesCsv}>Eksporto CSV</button></div></div>{sales.length===0?<p className="sub">Nuk ka shitje të regjistruara në këtë listë.</p>:<><div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",margin:"16px 0"}}><div className="stat-card"><span className="eyebrow">Shitje të listuara</span><strong className="stat">{sales.length}</strong></div><div className="stat-card"><span className="eyebrow">Vlera e listuar</span><strong className="stat">€{sales.reduce((sum,s)=>sum+Number(s.total),0).toFixed(2)}</strong></div><div className="stat-card"><span className="eyebrow">Të fiskalizuara</span><strong className="stat">{sales.filter(s=>s.status==="fiscalized").length}</strong></div></div>{sales.map(s=><div key={s.id} className="row" style={{justifyContent:"space-between",gap:12,padding:"13px 0",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}><div><strong>Kupon #{s.coupon_id}</strong><div className="sub" style={{fontSize:12}}>{new Date(s.created_at).toLocaleString("sq-XK")} · {s.payment_method}</div><div className="sub" style={{fontSize:12}}>ATK: {s.submission_state?.toLowerCase()==="accepted"||s.status==="fiscalized"?"Pranuar · "+(s.transaction_id??"Transaction ID i ruajtur"):s.submission_state?.toLowerCase()==="queued"?"Në radhë · dërgim automatik":s.submission_state?.toLowerCase()==="needsreconciliation"?"Kërkohet reconciliim":s.submission_state?.toLowerCase()==="rejected"?"Refuzuar nga ATK":"Jo i konfirmuar"}</div>{s.queue_last_error&&<div className="sub" style={{fontSize:12,color:"#b91c1c"}}>{s.queue_last_error}</div>}{s.submission_state?.toLowerCase()==="needsreconciliation"&&agentToken&&s.idempotency_key&&<div className="row no-print" style={{marginTop:8}}><button className="btn secondary" disabled={busy||memberRole!=="owner"} onClick={()=>void reconcileSaleQueue(s)}>Verifiko mungesën në ATK dhe lejo ridërgimin</button></div>}</div><div className="row"><strong>€{Number(s.total).toFixed(2)}</strong><button className="btn secondary" onClick={()=>setReceipt({...s,is_copy:true})}>Kuponi</button></div></div>)}</>}</section>}
+    {tab==="sales"&&memberRole==="owner"&&<section className="panel"><div className="row" style={{justifyContent:"space-between"}}><div><h2>Historia e shitjeve</h2><p className="sub">50 shitjet e fundit të këtij biznesi. Statusi ATK shfaqet veçmas nga pagesa.</p></div><div className="row"><button className="btn secondary" disabled={busy} onClick={()=>void loadSales()}>Rifresko</button><button className="btn secondary" disabled={busy||!sales.length} onClick={exportSalesCsv}>Eksporto CSV</button></div></div>{sales.length===0?<p className="sub">Nuk ka shitje të regjistruara në këtë listë.</p>:<><div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",margin:"16px 0"}}><div className="stat-card"><span className="eyebrow">Shitje të listuara</span><strong className="stat">{sales.length}</strong></div><div className="stat-card"><span className="eyebrow">Vlera e listuar</span><strong className="stat">€{sales.reduce((sum,s)=>sum+Number(s.total),0).toFixed(2)}</strong></div><div className="stat-card"><span className="eyebrow">Të fiskalizuara</span><strong className="stat">{sales.filter(s=>s.status==="fiscalized").length}</strong></div></div>{sales.map(s=><div key={s.id} className="row" style={{justifyContent:"space-between",gap:12,padding:"13px 0",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}><div><strong>Kupon #{s.coupon_id}</strong><div className="sub" style={{fontSize:12}}>{new Date(s.created_at).toLocaleString("sq-XK")} · {formatPaymentAllocations(s.payment_allocations??[{method:s.payment_method,amount_cents:Math.round(Number(s.total)*100)}])}</div><div className="sub" style={{fontSize:12}}>ATK: {s.submission_state?.toLowerCase()==="accepted"||s.status==="fiscalized"?"Pranuar · "+(s.transaction_id??"Transaction ID i ruajtur"):s.submission_state?.toLowerCase()==="queued"?"Në radhë · dërgim automatik":s.submission_state?.toLowerCase()==="needsreconciliation"?"Kërkohet reconciliim":s.submission_state?.toLowerCase()==="rejected"?"Refuzuar nga ATK":"Jo i konfirmuar"}</div>{s.queue_last_error&&<div className="sub" style={{fontSize:12,color:"#b91c1c"}}>{s.queue_last_error}</div>}{s.submission_state?.toLowerCase()==="needsreconciliation"&&agentToken&&s.idempotency_key&&<div className="row no-print" style={{marginTop:8}}><button className="btn secondary" disabled={busy||memberRole!=="owner"} onClick={()=>void reconcileSaleQueue(s)}>Verifiko mungesën në ATK dhe lejo ridërgimin</button></div>}</div><div className="row"><strong>€{Number(s.total).toFixed(2)}</strong><button className="btn secondary" onClick={()=>setReceipt({...s,is_copy:true})}>Kuponi</button></div></div>)}</>}</section>}
     {receipt&&<div className="panel receipt" style={{marginTop:18,maxWidth:420,fontFamily:"Arial, sans-serif",color:"#111",background:"#fff"}}>
       <div className="row no-print" style={{justifyContent:"space-between"}}>
         <strong>Paraqitja e kuponit fiskal</strong>
@@ -556,7 +579,7 @@ export default function Home(){
           {Object.entries(receipt.items.reduce<Record<string,{base:number;tax:number;rate:number}>>((acc,item)=>{const key=item.atk_vat_code||"A";const group=acc[key]??{base:0,tax:0,rate:Number(item.vat_rate??0)};group.base+=Number(item.line_net??0);group.tax+=Number(item.line_vat??0);acc[key]=group;return acc;},{})).sort(([a],[b])=>a.localeCompare(b)).map(([code,g])=><div key={code} style={{display:"flex",justifyContent:"space-between"}}><span>TVSH {code} {g.rate}%</span><span>€{g.tax.toFixed(2)}</span></div>)}
           <div style={{display:"flex",justifyContent:"space-between"}}><span>TOTALI PA TVSH</span><strong>€{Number(receipt.subtotal).toFixed(2)}</strong></div>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:800,marginTop:6}}><span>TOTALI PËR PAGESË</span><span>€{Number(receipt.total).toFixed(2)}</span></div>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}><span>PAGUAR</span><strong>€{Number(receipt.total).toFixed(2)}</strong></div><div style={{display:"flex",justifyContent:"space-between"}}><span>MËNYRA E PAGESËS</span><strong>{receipt.payment_method==="cash"?"KESH":receipt.payment_method==="card"?"KARTELË":"TRANSFER BANKAR"}</strong></div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}><span>PAGUAR</span><strong>€{Number(receipt.total).toFixed(2)}</strong></div>{(receipt.payment_allocations?.length?receipt.payment_allocations:[{method:receipt.payment_method,amount_cents:Math.round(Number(receipt.total)*100)}]).map((allocation,index)=><div key={allocation.method+"-"+index} style={{display:"flex",justifyContent:"space-between"}}><span>{paymentMethodLabel(allocation.method)}</span><strong>€{(Number(allocation.amount_cents)/100).toFixed(2)}</strong></div>)}
         </div>
         <div style={{textAlign:"center",padding:"8px 0",borderBottom:"1px dashed #888"}}>
           <div style={{fontWeight:700}}>NUIKF</div>
@@ -620,11 +643,11 @@ export default function Home(){
           return <div key={line.product.id} className="pos-reference-cart-item"><span className="pos-reference-cart-art">{glyph}</span><div className="pos-reference-cart-info"><strong>{line.product.name}</strong><span>€{(Number(line.product.price)*(1+Number(line.product.vat_rate)/100)).toFixed(2)}</span><div className="pos-reference-quantity"><button type="button" aria-label={`Hiq një ${line.product.name}`} disabled={checkoutAttempted} onClick={()=>changeCart(line.product,-1)}>−</button><b>{line.quantity}</b><button type="button" aria-label={`Shto një ${line.product.name}`} disabled={checkoutAttempted||line.quantity>=Number(line.product.stock)} onClick={()=>changeCart(line.product,1)}>＋</button></div></div><strong className="pos-reference-line-total">€{(Number(line.product.price)*line.quantity*(1+Number(line.product.vat_rate)/100)).toFixed(2)}</strong></div>;
         })}</div>}
         <div className="pos-reference-order-bottom">
-          <div className="pos-reference-checkout-settings"><label>POS<select value={selectedPos} disabled={checkoutAttempted} onChange={e=>{setSelectedPos(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="">Zgjidh POS</option>{positions.map(position=><option key={position.id} value={position.id}>{position.label}</option>)}</select></label><label>Pagesa<select value={payment} disabled={checkoutAttempted} onChange={e=>{setPayment(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="cash">Cash</option><option value="card">Kartelë</option><option value="bank_transfer">Transfer</option></select></label></div>
+          <div className="pos-reference-checkout-settings"><label>POS<select value={selectedPos} disabled={checkoutAttempted} onChange={e=>{setSelectedPos(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="">Zgjidh POS</option>{positions.map(position=><option key={position.id} value={position.id}>{position.label}</option>)}</select></label></div><div className="pos-reference-payment-settings" style={{display:"grid",gridTemplateColumns:"1fr",gap:8,marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>Cash (mbetja)</span><strong>€{(paymentResult.cashRemainderCents/100).toFixed(2)}</strong></div>{additionalPayments.map(item=><div key={item.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) auto",gap:8,alignItems:"end"}}><label style={{display:"flex",flexDirection:"column",gap:4}}>Mënyra<select value={item.method} disabled={checkoutAttempted} onChange={e=>{setAdditionalPayments(current=>current.map(payment=>payment.id===item.id?{...payment,method:e.target.value as AdditionalPaymentMethod}:payment));if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}>{(["card","bank_transfer","voucher","cheque","crypto"] as AdditionalPaymentMethod[]).map(method=><option key={method} value={method} disabled={additionalPayments.some(other=>other.id!==item.id&&other.method===method)}>{paymentMethodLabel(method)}</option>)}</select></label><label style={{display:"flex",flexDirection:"column",gap:4}}>Shuma (€)<input aria-label={"Shuma "+paymentMethodLabel(item.method)} type="number" min="0" step="0.01" value={item.amount} disabled={checkoutAttempted} onChange={e=>{setAdditionalPayments(current=>current.map(payment=>payment.id===item.id?{...payment,amount:e.target.value}:payment));if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}/></label><button type="button" className="btn secondary" aria-label="Hiq mënyrën e pagesës" disabled={checkoutAttempted} onClick={()=>{setAdditionalPayments(current=>current.filter(payment=>payment.id!==item.id));if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}>×</button></div>)}<button type="button" className="btn secondary" disabled={checkoutAttempted||additionalPayments.length>=5} onClick={()=>{const methods:AdditionalPaymentMethod[]=["card","bank_transfer","voucher","cheque","crypto"];const nextMethod=methods.find(method=>!additionalPayments.some(item=>item.method===method));if(nextMethod){setAdditionalPayments(current=>[...current,{id:crypto.randomUUID(),method:nextMethod,amount:""}]);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}}>+ Shto mënyrë pagese</button><small className="sub">Mund të kombinosh cash, kartelë, transfer bankar, vauçer, çek dhe kriptovalutë. Cash llogaritet automatikisht si mbetja.</small></div>{paymentResult.error&&<p className="notice" role="alert">{paymentResult.error}</p>}
           <div className="pos-reference-total"><span>Totali</span><strong>€{total.toFixed(2)}</strong></div>
           {checkoutAttempted&&<p className="notice" role="alert">Pagesa ka nisur. Mos krijo porosi të re derisa kjo shitje të zgjidhet.</p>}
-          <button type="button" className="pos-reference-done" disabled={busy||!cartLines.length||!selectedPos} onClick={completeSale}>{busy?"Duke ruajtur…":checkoutAttempted?"Riprovo shitjen":"Përfundo porosinë"} <span>→</span></button>
-          {cartLines.length>0&&<button type="button" className="pos-reference-clear" disabled={checkoutAttempted} onClick={()=>{setCart({});setCheckoutKey("");setCheckoutAttempted(false);}}>Pastro porosinë</button>}
+          <button type="button" className="pos-reference-done" disabled={busy||!cartLines.length||!selectedPos||!paymentResult.valid} onClick={completeSale}>{busy?"Duke ruajtur…":checkoutAttempted?"Riprovo shitjen":"Përfundo porosinë"} <span>→</span></button>
+          {cartLines.length>0&&<button type="button" className="pos-reference-clear" disabled={checkoutAttempted} onClick={()=>{setCart({});setCheckoutKey("");setCheckoutAttempted(false);setAdditionalPayments([]);}}>Pastro porosinë</button>}
           <p className="pos-security-note">Kuponi fiskal konfirmohet vetëm pas përgjigjes së pranuar nga ATK.</p>
         </div>
       </aside>
