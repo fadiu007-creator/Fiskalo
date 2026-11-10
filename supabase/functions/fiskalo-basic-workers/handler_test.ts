@@ -106,6 +106,17 @@ Deno.test("lists only the authorized business membership and resolves email addr
   assert(body.members?.[0].email === "cashier@example.com", "member email should be resolved");
   assert(body.members?.[0].role === "cashier", "member role should be preserved");
 });
+
+Deno.test("rejects oversized requests before parsing their JSON body", async () => {
+  const handler = createWorkerHandler(createDependencies());
+  const response = await handler(new Request("https://fiskalo.test/functions/v1/fiskalo-basic-workers", {
+    method: "POST",
+    headers: { authorization: "Bearer valid-token", "content-type": "application/json" },
+    body: "x".repeat(16 * 1024 + 1),
+  }));
+  assert(response.status === 413, "oversized request bodies must be rejected");
+  assert(response.headers.get("Cache-Control") === "no-store", "worker responses must not be cached");
+});
 Deno.test("returns CORS preflight without requiring a session", async () => {
   const handler = createWorkerHandler(createDependencies());
   const response = await handler(new Request("https://fiskalo.test/functions/v1/fiskalo-basic-workers", { method: "OPTIONS" }));
