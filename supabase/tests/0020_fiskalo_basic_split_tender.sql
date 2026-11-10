@@ -7,6 +7,11 @@ declare
   public_oid oid;
   definition text;
 begin
+  if pg_catalog.to_regclass('supabase_migrations.schema_migrations') is not null and (
+    not exists (select 1 from supabase_migrations.schema_migrations where version='0018') or
+    not exists (select 1 from supabase_migrations.schema_migrations where version='0019')
+  ) then raise exception 'Migrations 0018 and 0019 must precede split-tender migration 0020'; end if;
+
   if not exists (
     select 1 from information_schema.columns
     where table_schema='public' and table_name='fiskalo_basic_sales'
