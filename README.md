@@ -35,11 +35,11 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and thermal printer support
 - [x] Browser-session restoration for the paired local POS Agent
 - [x] Split-tender amounts are included in the signed ATK POS coupon, receipt, sales history and CSV export; the payment-allocation unit tests are included in CI
-- [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0017 and 0020 are committed but have not been executed against the database. Apply all approved migrations in version order on a staging database and run their SQL contract tests plus authenticated tenant-isolation tests before release.
+- [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`. Migrations 0014–0017 are on `main`; migrations 0018–0019 are in open PR #6; migration 0020 is in the split-tender branch. None of migrations 0014–0020 has been executed against the database. Migration 0020 explicitly refuses to run until 0018 and 0019 are recorded. Apply the approved migrations in version order on staging and run their SQL contract tests plus authenticated tenant-isolation tests before release.
 - [x] Correction coupon factory and durable accepted-correction journal/RPC source (migration 0015 committed; not applied; cancellation/return UI and end-to-end submission tests remain open)
 - [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
 - [ ] Official ATK unit/category dropdown catalogue with source/version evidence
-- [ ] Apply and verify pending migrations 0014–0017 and 0020 on an approved staging project; run SQL contract tests 0014–0017 and 0020 plus authenticated tenant-isolation tests
+- [ ] After review of PR #6, apply and verify migrations 0014–0020 in version order on an approved staging project; run SQL contract tests 0014–0020 plus authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
 - [ ] Complete cancellation/return POS workflow using the existing correction-document factory
 - [ ] Verify physical POS installation, printer, offline recovery and ATK TEST acceptance
