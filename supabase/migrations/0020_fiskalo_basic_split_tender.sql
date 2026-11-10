@@ -16,7 +16,7 @@ begin
         payment_allocations is null or
         case
           when pg_catalog.jsonb_typeof(payment_allocations)='array'
-          then pg_catalog.jsonb_array_length(payment_allocations) between 1 and 3
+          then pg_catalog.jsonb_array_length(payment_allocations) between 1 and 6
           else false
         end
       );
@@ -39,7 +39,7 @@ set search_path = ''
 as $$
 declare
   normalized_payments jsonb;
-  primary_method text;
+  legacy_method text;
   sale_uuid uuid;
   sale_total numeric(12,2);
   allocated_cents numeric;
@@ -59,7 +59,7 @@ begin
     select 1
     from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents numeric)
     where x.method is null
-      or x.method not in ('cash','card','bank_transfer')
+      or x.method not in ('cash','card','bank_transfer','voucher','cheque','crypto')
       or x.amount_cents is null
       or x.amount_cents<0
       or x.amount_cents<>pg_catalog.trunc(x.amount_cents)
@@ -82,8 +82,12 @@ begin
       order by x.method
     ),
     sum(x.amount_cents),
-    (pg_catalog.array_agg(x.method order by x.method))[1]
-  into normalized_payments,allocated_cents,primary_method
+    case
+      when pg_catalog.bool_or(x.method='card') then 'card'
+      when pg_catalog.bool_or(x.method='bank_transfer') then 'bank_transfer'
+      else 'cash'
+    end
+  into normalized_payments,allocated_cents,legacy_method
   from pg_catalog.jsonb_to_recordset(p_payments) as x(method text,amount_cents numeric);
 
   if allocated_cents is null then raise exception 'Payment allocation total is required'; end if;
@@ -103,7 +107,7 @@ begin
   had_existing_sale:=found;
 
   sale_uuid:=fiskalo_private.fiskalo_basic_create_sale(
-    p_business_id,p_pos_id,primary_method,p_lines,p_idempotency_key
+    p_business_id,p_pos_id,legacy_method,p_lines,p_idempotency_key
   );
 
   select s.total,s.payment_allocations
@@ -127,7 +131,8 @@ begin
   -- backfill their tender; never rewrite an old accepted receipt as a new split.
   if had_existing_sale and (
     pg_catalog.jsonb_array_length(normalized_payments)<>1
-    or normalized_payments->0->>'method'<>existing_sale.payment_method
+    or normalized_payments->0->>'method' not in ('cash','card','bank_transfer')
+    or legacy_method<>existing_sale.payment_method
     or (normalized_payments->0->>'amount_cents')::bigint<>round(sale_total*100)::bigint
   ) then
     raise exception 'This existing sale has no stored payment split; a different tender cannot be applied to it';
