@@ -82,9 +82,9 @@ Deno.test("treats repeated invitations as idempotent membership operations", asy
 Deno.test("rejects invalid email addresses", async () => {
   let resolved = false;
   const handler = createWorkerHandler(createDependencies({
-    resolveUser: async () => {
+    resolveUser: () => {
       resolved = true;
-      return { id: "cashier-user", invited: true, delivery: "sent" };
+      return Promise.resolve({ id: "cashier-user", invited: true, delivery: "sent" });
     },
   }));
   const response = await post(handler, { action: "invite", businessId, email: "not-an-email" });
