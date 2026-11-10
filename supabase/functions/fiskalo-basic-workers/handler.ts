@@ -25,11 +25,13 @@ export class WorkerRequestError extends Error {
 }
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+const MAX_REQUEST_BYTES = 16 * 1024;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json; charset=utf-8",
+  "Cache-Control": "no-store",
 };
 function jsonResponse(status: number, payload: Record<string, unknown>): Response {
   return new Response(JSON.stringify(payload), { status, headers: corsHeaders });
@@ -60,9 +62,24 @@ export function createWorkerHandler(deps: WorkerHandlerDependencies) {
     }
     if (!user) return jsonResponse(401, { error: "Sesioni nuk është i vlefshëm. Hyr përsëri." });
 
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_REQUEST_BYTES) {
+      return jsonResponse(413, { error: "Kërkesa është shumë e madhe." });
+    }
+
+    let rawBody: string;
+    try {
+      rawBody = await request.text();
+    } catch {
+      return jsonResponse(400, { error: "Kërkesa nuk përmban JSON të vlefshëm." });
+    }
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
+      return jsonResponse(413, { error: "Kërkesa është shumë e madhe." });
+    }
+
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch {
       return jsonResponse(400, { error: "Kërkesa nuk përmban JSON të vlefshëm." });
     }
