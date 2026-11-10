@@ -4,13 +4,13 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
 import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
-import { buildPaymentAllocations, formatPaymentAllocations, paymentMethodLabel, toAtkPaymentType } from "@/lib/atk/payment-allocation";
+import { buildPaymentAllocations, formatPaymentAllocations, paymentMethodLabel, toAtkPaymentType, type AdditionalPaymentMethod } from "@/lib/atk/payment-allocation";
 
 type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;payment_allocations?:Array<{method:"cash"|"card"|"bank_transfer";amount_cents:number}>|null;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;payment_allocations?:Array<{method:string;amount_cents:number}>|null;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 
@@ -75,8 +75,7 @@ export default function Home(){
   const [checkoutKey,setCheckoutKey]=useState("");
   const [checkoutAttempted,setCheckoutAttempted]=useState(false);
   const [checkoutDraftLoaded,setCheckoutDraftLoaded]=useState(false);
-  const [cardPaymentAmount,setCardPaymentAmount]=useState("");
-  const [bankTransferPaymentAmount,setBankTransferPaymentAmount]=useState("");
+  const [additionalPayments,setAdditionalPayments]=useState<Array<{id:string;method:AdditionalPaymentMethod;amount:string}>>([]);
   const [productSearch,setProductSearch]=useState("");
   const [selectedCategory,setSelectedCategory]=useState("all");
   const [isPosFullscreen,setIsPosFullscreen]=useState(false);
@@ -242,7 +241,7 @@ export default function Home(){
     if(!raw){setCheckoutDraftLoaded(true);return;}
     if(!products.length)return;
     try{
-      const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;payment?:string;cardPaymentAmount?:string;bankTransferPaymentAmount?:string;selectedPos?:string};
+      const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;payment?:string;additionalPayments?:Array<{id?:string;method?:string;amount?:string}>;selectedPos?:string};
       if(!draft.key||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draft.key)||!Array.isArray(draft.lines)){
         sessionStorage.removeItem(storageKey);setCheckoutDraftLoaded(true);return;
       }
@@ -259,10 +258,17 @@ export default function Home(){
           const vat=Math.round(net*line.product.vat_rate/100);
           return sum+net+vat;
         },0);
-        if(typeof draft.cardPaymentAmount==="string")setCardPaymentAmount(draft.cardPaymentAmount);
-        else if(draft.payment==="card")setCardPaymentAmount((restoredTotalCents/100).toFixed(2));
-        if(typeof draft.bankTransferPaymentAmount==="string")setBankTransferPaymentAmount(draft.bankTransferPaymentAmount);
-        else if(draft.payment==="bank_transfer")setBankTransferPaymentAmount((restoredTotalCents/100).toFixed(2));
+        if(Array.isArray(draft.additionalPayments)){
+          const restoredPayments:Array<{id:string;method:AdditionalPaymentMethod;amount:string}>=[];
+          draft.additionalPayments.forEach((item,index)=>{
+            if(item&&typeof item.method==="string"&&["card","bank_transfer","voucher","cheque","crypto"].includes(item.method)&&typeof item.amount==="string"){
+              restoredPayments.push({id:typeof item.id==="string"?item.id:"restored-"+index,method:item.method as AdditionalPaymentMethod,amount:item.amount});
+            }
+          });
+          setAdditionalPayments(restoredPayments);
+        }else if(draft.payment==="card"||draft.payment==="bank_transfer"){
+          setAdditionalPayments([{id:"legacy-"+draft.payment,method:draft.payment,amount:(restoredTotalCents/100).toFixed(2)}]);
+        }
         if(positions.some(p=>p.id===draft.selectedPos))setSelectedPos(draft.selectedPos!);
       }else{
         sessionStorage.removeItem(storageKey);
@@ -279,8 +285,8 @@ export default function Home(){
     const storageKey="fiskalo.pendingCheckout."+business.id;
     const lines=Object.values(cart).map(line=>({productId:line.product.id,quantity:line.quantity}));
     if(!checkoutKey||!lines.length){sessionStorage.removeItem(storageKey);return;}
-    try{sessionStorage.setItem(storageKey,JSON.stringify({key:checkoutKey,attempted:checkoutAttempted,lines,cardPaymentAmount,bankTransferPaymentAmount,selectedPos}));}catch{}
-  },[business,cart,checkoutKey,checkoutAttempted,cardPaymentAmount,bankTransferPaymentAmount,selectedPos,checkoutDraftLoaded]);
+    try{sessionStorage.setItem(storageKey,JSON.stringify({key:checkoutKey,attempted:checkoutAttempted,lines,additionalPayments,selectedPos}));}catch{}
+  },[business,cart,checkoutKey,checkoutAttempted,additionalPayments,selectedPos,checkoutDraftLoaded]);
 
   async function signIn(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabase!.auth.signInWithPassword({email:(document.getElementById("email") as HTMLInputElement).value,password:(document.getElementById("password") as HTMLInputElement).value});if(error)throw error;}catch(e){setMessage(e instanceof Error?e.message:"Hyrja dështoi.");}finally{setBusy(false);}}
   async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
@@ -332,9 +338,9 @@ export default function Home(){
   function exportSalesCsv(){
     if(!sales.length)return;
     const quote=(value:unknown)=>'"'+String(value??"").replace(/"/g,'""')+'"';
-    const headers=["Kuponi","Data","Statusi i pageses","Statusi ATK","Metoda e pageses","Ndarja e pagesës","Neto EUR","TVSH EUR","Totali EUR","Transaction ID","NUIKF","Numri ditor","Artikujt"];
+    const headers=["Kuponi","Data","Statusi i pageses","Statusi ATK","Ndarja e pagesës","Neto EUR","TVSH EUR","Totali EUR","Transaction ID","NUIKF","Numri ditor","Artikujt"];
     const rows=sales.map(s=>[
-      s.coupon_id,s.created_at,s.status,s.submission_state??"not_confirmed",s.payment_method,
+      s.coupon_id,s.created_at,s.status,s.submission_state??"not_confirmed",
       formatPaymentAllocations(s.payment_allocations??[{method:s.payment_method,amount_cents:Math.round(Number(s.total)*100)}]),
       Number(s.subtotal).toFixed(2),Number(s.vat_total).toFixed(2),Number(s.total).toFixed(2),
       s.transaction_id??"",s.nui_kf??"",s.daily_number??"",
@@ -358,7 +364,7 @@ export default function Home(){
     return sum+net+vat;
   },0);
   const totalCents=Math.round(total*100);
-  const paymentResult=buildPaymentAllocations(totalCents,cardPaymentAmount,bankTransferPaymentAmount);
+  const paymentResult=buildPaymentAllocations(totalCents,additionalPayments);
   const categoryOptions=useMemo(()=>Array.from(new Set(products.map(product=>product.atk_item_category_code).filter(Boolean))).sort((a,b)=>a.localeCompare(b)),[products]);
   const filteredProducts=useMemo(()=>{
     const query=productSearch.trim().toLocaleLowerCase("sq");
@@ -405,7 +411,7 @@ export default function Home(){
       sessionStorage.setItem("fiskalo.pendingCheckout."+business.id,JSON.stringify({
         key:checkoutIdempotencyKey,attempted:true,
         lines:cartLines.map(line=>({productId:line.product.id,quantity:line.quantity})),
-        cardPaymentAmount,bankTransferPaymentAmount,selectedPos
+        additionalPayments,selectedPos
       }));
     }catch{}
     setBusy(true);setMessage("");
@@ -497,7 +503,7 @@ export default function Home(){
         if(qrError)throw new Error("Kuponi offline është ruajtur, por ruajtja e QR për ribotim dështoi: "+qrError.message);
         setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
       }
-      setCart({});setCheckoutKey("");setCheckoutAttempted(false);setCardPaymentAmount("");setBankTransferPaymentAmount("");
+      setCart({});setCheckoutKey("");setCheckoutAttempted(false);setAdditionalPayments([]);
       sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
       await loadWorkspace(user!.id);
     }catch(e){
@@ -637,11 +643,11 @@ export default function Home(){
           return <div key={line.product.id} className="pos-reference-cart-item"><span className="pos-reference-cart-art">{glyph}</span><div className="pos-reference-cart-info"><strong>{line.product.name}</strong><span>€{(Number(line.product.price)*(1+Number(line.product.vat_rate)/100)).toFixed(2)}</span><div className="pos-reference-quantity"><button type="button" aria-label={`Hiq një ${line.product.name}`} disabled={checkoutAttempted} onClick={()=>changeCart(line.product,-1)}>−</button><b>{line.quantity}</b><button type="button" aria-label={`Shto një ${line.product.name}`} disabled={checkoutAttempted||line.quantity>=Number(line.product.stock)} onClick={()=>changeCart(line.product,1)}>＋</button></div></div><strong className="pos-reference-line-total">€{(Number(line.product.price)*line.quantity*(1+Number(line.product.vat_rate)/100)).toFixed(2)}</strong></div>;
         })}</div>}
         <div className="pos-reference-order-bottom">
-          <div className="pos-reference-checkout-settings"><label>POS<select value={selectedPos} disabled={checkoutAttempted} onChange={e=>{setSelectedPos(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="">Zgjidh POS</option>{positions.map(position=><option key={position.id} value={position.id}>{position.label}</option>)}</select></label></div><div className="pos-reference-payment-settings" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}><div style={{display:"flex",flexDirection:"column",gap:4}}><span>Cash (mbetja)</span><strong>€{(paymentResult.cashRemainderCents/100).toFixed(2)}</strong></div><label style={{display:"flex",flexDirection:"column",gap:4}}>Kartelë (€)<input aria-label="Shuma e paguar me kartelë" type="number" min="0" step="0.01" value={cardPaymentAmount} disabled={checkoutAttempted} onChange={e=>{setCardPaymentAmount(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}/></label><label style={{display:"flex",flexDirection:"column",gap:4}}>Transfer bankar (€)<input aria-label="Shuma e paguar me transfer bankar" type="number" min="0" step="0.01" value={bankTransferPaymentAmount} disabled={checkoutAttempted} onChange={e=>{setBankTransferPaymentAmount(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}/></label></div>{paymentResult.error&&<p className="notice" role="alert">{paymentResult.error}</p>}
+          <div className="pos-reference-checkout-settings"><label>POS<select value={selectedPos} disabled={checkoutAttempted} onChange={e=>{setSelectedPos(e.target.value);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}><option value="">Zgjidh POS</option>{positions.map(position=><option key={position.id} value={position.id}>{position.label}</option>)}</select></label></div><div className="pos-reference-payment-settings" style={{display:"grid",gridTemplateColumns:"1fr",gap:8,marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>Cash (mbetja)</span><strong>€{(paymentResult.cashRemainderCents/100).toFixed(2)}</strong></div>{additionalPayments.map(item=><div key={item.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) auto",gap:8,alignItems:"end"}}><label style={{display:"flex",flexDirection:"column",gap:4}}>Mënyra<select value={item.method} disabled={checkoutAttempted} onChange={e=>{setAdditionalPayments(current=>current.map(payment=>payment.id===item.id?{...payment,method:e.target.value as AdditionalPaymentMethod}:payment));if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}>{(["card","bank_transfer","voucher","cheque","crypto"] as AdditionalPaymentMethod[]).map(method=><option key={method} value={method} disabled={additionalPayments.some(other=>other.id!==item.id&&other.method===method)}>{paymentMethodLabel(method)}</option>)}</select></label><label style={{display:"flex",flexDirection:"column",gap:4}}>Shuma (€)<input aria-label={"Shuma "+paymentMethodLabel(item.method)} type="number" min="0" step="0.01" value={item.amount} disabled={checkoutAttempted} onChange={e=>{setAdditionalPayments(current=>current.map(payment=>payment.id===item.id?{...payment,amount:e.target.value}:payment));if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}/></label><button type="button" className="btn secondary" aria-label="Hiq mënyrën e pagesës" disabled={checkoutAttempted} onClick={()=>{setAdditionalPayments(current=>current.filter(payment=>payment.id!==item.id));if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}>×</button></div>)}<button type="button" className="btn secondary" disabled={checkoutAttempted||additionalPayments.length>=5} onClick={()=>{const methods:AdditionalPaymentMethod[]=["card","bank_transfer","voucher","cheque","crypto"];const nextMethod=methods.find(method=>!additionalPayments.some(item=>item.method===method));if(nextMethod){setAdditionalPayments(current=>[...current,{id:crypto.randomUUID(),method:nextMethod,amount:""}]);if(cartLines.length)setCheckoutKey(crypto.randomUUID());}}}>+ Shto mënyrë pagese</button><small className="sub">Mund të kombinosh cash, kartelë, transfer bankar, vauçer, çek dhe kriptovalutë. Cash llogaritet automatikisht si mbetja.</small></div>{paymentResult.error&&<p className="notice" role="alert">{paymentResult.error}</p>}
           <div className="pos-reference-total"><span>Totali</span><strong>€{total.toFixed(2)}</strong></div>
           {checkoutAttempted&&<p className="notice" role="alert">Pagesa ka nisur. Mos krijo porosi të re derisa kjo shitje të zgjidhet.</p>}
           <button type="button" className="pos-reference-done" disabled={busy||!cartLines.length||!selectedPos||!paymentResult.valid} onClick={completeSale}>{busy?"Duke ruajtur…":checkoutAttempted?"Riprovo shitjen":"Përfundo porosinë"} <span>→</span></button>
-          {cartLines.length>0&&<button type="button" className="pos-reference-clear" disabled={checkoutAttempted} onClick={()=>{setCart({});setCheckoutKey("");setCheckoutAttempted(false);setCardPaymentAmount("");setBankTransferPaymentAmount("");}}>Pastro porosinë</button>}
+          {cartLines.length>0&&<button type="button" className="pos-reference-clear" disabled={checkoutAttempted} onClick={()=>{setCart({});setCheckoutKey("");setCheckoutAttempted(false);setAdditionalPayments([]);}}>Pastro porosinë</button>}
           <p className="pos-security-note">Kuponi fiskal konfirmohet vetëm pas përgjigjes së pranuar nga ATK.</p>
         </div>
       </aside>
