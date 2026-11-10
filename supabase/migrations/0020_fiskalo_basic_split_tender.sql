@@ -2,7 +2,7 @@
 -- allocation through the signed ATK POS coupon's repeated Payments field.
 
 -- Migration 0020 must not leapfrog the correction-workflow migrations.
-do $
+do $guard$
 begin
   if pg_catalog.to_regclass('supabase_migrations.schema_migrations') is not null and (
     not exists (select 1 from supabase_migrations.schema_migrations where version='0018') or
@@ -10,7 +10,7 @@ begin
   ) then
     raise exception 'Apply approved migrations 0018 and 0019 before migration 0020';
   end if;
-end $;
+end $guard$;
 alter table public.fiskalo_basic_sales
   add column if not exists payment_allocations jsonb;
 
