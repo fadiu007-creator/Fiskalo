@@ -32,15 +32,20 @@ begin
      has_function_privilege('anon',public_oid,'EXECUTE') then
     raise exception 'Public split-tender wrapper permissions are incorrect';
   end if;
-  if has_function_privilege('authenticated','public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb,uuid)','EXECUTE') then
-    raise exception 'Legacy single-payment checkout RPC remains executable';
+  if has_function_privilege('authenticated','public.fiskalo_basic_create_sale(uuid,uuid,text,jsonb,uuid)','EXECUTE') or
+     has_function_privilege('authenticated','fiskalo_private.fiskalo_basic_create_sale(uuid,uuid,text,jsonb,uuid)','EXECUTE') then
+    raise exception 'Legacy single-payment checkout helper remains executable by clients';
   end if;
 
   select pg_get_functiondef(helper_oid) into definition;
   if position('pg_advisory_xact_lock' in definition)=0 or
      position('payment_allocations' in definition)=0 or
-     position('different payment allocations' in definition)=0 then
-    raise exception 'Split-tender checkout must serialize retries and reject payment-content mismatches';
+     position('different payment allocations' in definition)=0 or
+     position('pg_catalog.trunc' in definition)=0 or
+     position('voucher' in definition)=0 or
+     position('cheque' in definition)=0 or
+     position('crypto' in definition)=0 then
+    raise exception 'Split-tender checkout must validate all ATK tenders, exact cents and idempotent retries';
   end if;
 end $$;
 rollback;
