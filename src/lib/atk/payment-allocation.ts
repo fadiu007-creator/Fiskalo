@@ -69,6 +69,7 @@ export function buildPaymentAllocations(
   if (cashRemainderCents > 0 || totalCents === 0) allocations.push({ method: "cash", amountCents: cashRemainderCents });
   parsed.sort((a, b) => a.method.localeCompare(b.method));
   allocations.push(...parsed);
+  allocations.sort((a, b) => a.method.localeCompare(b.method));
 
   return { valid: true, allocations, cashRemainderCents, error: null };
 }
