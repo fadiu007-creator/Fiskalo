@@ -1,4 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
+// deno-lint-ignore no-import-prefix -- Supabase Edge Functions pin and resolve npm modules at runtime.
+import { createClient } from "npm:@supabase/supabase-js@2.114.0";
 import {
   createWorkerHandler,
   WorkerRequestError,
