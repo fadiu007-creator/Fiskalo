@@ -16,7 +16,7 @@ A sale is counted as ATK-accepted only when its original Sale fiscal document ha
 
 The route requires an authenticated business owner. It calls the read-only `fiskalo_basic_sales_report` RPC, whose private SECURITY DEFINER helper re-checks `auth.uid()`, the business ID, and the `owner` membership role before reading report rows. The private helper is not executable by `anon` or `authenticated`; only the public wrapper is executable by authenticated users. Coupon and ATK transaction identifiers are returned as text so uint64 values are not rounded by JavaScript JSON number parsing.
 
-The report caps a single interval at 20,000 sales and returns a truncation flag when more rows exist; narrow the date range for a complete export of a larger period. The RPC is read-only and does not change sales, stock, or fiscal documents. Existing direct table RLS policies are unchanged by this feature; this RPC does not tighten the broader member-read policy on the sales tables.
+The report caps a single interval at 5,000 sales and returns a truncation flag when more rows exist; narrow the date range for a complete export of a larger period. The RPC is read-only and does not change sales, stock, or fiscal documents. Existing direct table RLS policies are unchanged by this feature; this RPC does not tighten the broader member-read policy on the sales tables.
 
 CSV exports include the current date range and use a UTF-8 BOM for spreadsheet compatibility. Text cells are quoted and formula-prefixed values are neutralized to reduce spreadsheet formula-injection risk.
 
