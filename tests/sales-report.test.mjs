@@ -11,12 +11,12 @@ import {
 test("summarizes sales, VAT groups, payment methods and Kosovo-local days", () => {
   const sales = [
     {
-      id: "sale-1", coupon_id: 10, created_at: "2026-11-11T22:30:00.000Z",
+      id: "sale-1", coupon_id: "10", created_at: "2026-11-11T22:30:00.000Z",
       status: "fiscalized", subtotal: "10.00", vat_total: "2.34", total: "12.34",
       payment_method: "cash",
     },
     {
-      id: "sale-2", coupon_id: 11, created_at: "2026-11-12T00:30:00.000Z",
+      id: "sale-2", coupon_id: "11", created_at: "2026-11-12T00:30:00.000Z",
       status: "paid", subtotal: "5.00", vat_total: "0.00", total: "5.00",
       payment_method: "card",
     },
@@ -53,8 +53,11 @@ test("an ATK acceptance requires a positive uint64 transaction ID", () => {
   assert.equal(hasPositiveUint64("1"), true);
   assert.equal(hasPositiveUint64("18446744073709551615"), true);
   assert.equal(hasPositiveUint64("18446744073709551616"), false);
+  assert.equal(hasPositiveUint64("9007199254740993"), true);
+  assert.equal(hasPositiveUint64(9007199254740993), false);
   assert.equal(hasPositiveUint64("0"), false);
   assert.equal(hasPositiveUint64(""), false);
+  assert.equal(resolveFiscalReportState({ sale_id: "x", submission_state: "accepted", atk_transaction_id: "9007199254740993" }), "accepted");
   assert.equal(resolveFiscalReportState({ sale_id: "x", submission_state: "accepted", atk_transaction_id: null }), "unconfirmed");
   assert.equal(resolveFiscalReportState({ sale_id: "x", submission_state: "needs_reconciliation", atk_transaction_id: null }), "needs_reconciliation");
 });
@@ -70,7 +73,7 @@ test("date filters use an inclusive end date and reject reversed ranges", () => 
 test("CSV output neutralizes spreadsheet formulas from stored text", () => {
   const csv = buildSalesReportCsv([
     {
-      id: "sale-1", coupon_id: 10, created_at: "2026-11-12T00:00:00.000Z",
+      id: "sale-1", coupon_id: "10", created_at: "2026-11-12T00:00:00.000Z",
       status: "=HYPERLINK(\"https://example.invalid\")", subtotal: "1.00",
       vat_total: "0.18", total: "1.18", payment_method: "cash",
     },
@@ -81,7 +84,7 @@ test("CSV output neutralizes spreadsheet formulas from stored text", () => {
 
 test("correction documents do not replace the original sale fiscal status", () => {
   const sale = {
-    id: "sale-1", coupon_id: 10, created_at: "2026-11-12T00:00:00.000Z",
+    id: "sale-1", coupon_id: "10", created_at: "2026-11-12T00:00:00.000Z",
     status: "fiscalized", subtotal: "1.00", vat_total: "0.18", total: "1.18",
     payment_method: "cash",
   };
@@ -100,7 +103,7 @@ test("correction documents do not replace the original sale fiscal status", () =
 test("reports split tenders by their actual allocations and falls back for legacy sales", () => {
   const sales = [
     {
-      id: "split-sale", coupon_id: 20, created_at: "2026-11-12T10:00:00.000Z",
+      id: "split-sale", coupon_id: "20", created_at: "2026-11-12T10:00:00.000Z",
       status: "paid", subtotal: "10.00", vat_total: "2.34", total: "12.34",
       payment_method: "card",
       payment_allocations: [
@@ -109,7 +112,7 @@ test("reports split tenders by their actual allocations and falls back for legac
       ],
     },
     {
-      id: "legacy-sale", coupon_id: 21, created_at: "2026-11-12T11:00:00.000Z",
+      id: "legacy-sale", coupon_id: "21", created_at: "2026-11-12T11:00:00.000Z",
       status: "paid", subtotal: "5.00", vat_total: "0.00", total: "5.00",
       payment_method: "cash", payment_allocations: null,
     },
@@ -128,7 +131,7 @@ test("reports split tenders by their actual allocations and falls back for legac
 
 test("flags inconsistent tender allocations instead of reporting them as the legacy payment method", () => {
   const report = buildSalesReport([{
-    id: "sale-1", coupon_id: 30, created_at: "2026-11-12T12:00:00.000Z",
+    id: "sale-1", coupon_id: "30", created_at: "2026-11-12T12:00:00.000Z",
     status: "paid", subtotal: "10.00", vat_total: "0.00", total: "10.00",
     payment_method: "cash", payment_allocations: [{ method: "card", amount_cents: 900 }],
   }], [], []);

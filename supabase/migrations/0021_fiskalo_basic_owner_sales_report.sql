@@ -101,7 +101,7 @@ begin
           'sale_id', d.sale_id,
           'document_type', d.document_type,
           'submission_state', d.submission_state,
-          'atk_transaction_id', d.atk_transaction_id
+          'atk_transaction_id', d.atk_transaction_id::text
         ) order by d.sale_id, d.id
       ),
       '[]'::jsonb

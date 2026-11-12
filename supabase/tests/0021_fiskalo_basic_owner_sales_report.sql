@@ -38,7 +38,8 @@ begin
      position('p_limit > 5000' in private_definition) = 0 or
      position('p_from' in private_definition) = 0 or
      position('p_to' in private_definition) = 0 or
-     position('payment_allocations' in lower(private_definition)) = 0 then
+     position('payment_allocations' in lower(private_definition)) = 0 or
+     position('d.atk_transaction_id::text' in lower(private_definition)) = 0 then
     raise exception 'Private report helper must enforce owner membership, date range and row limit';
   end if;
   if position('update public.fiskalo_basic_sales' in lower(private_definition)) > 0 or

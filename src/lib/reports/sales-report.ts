@@ -1,6 +1,6 @@
 export type ReportSale = {
   id: string;
-  coupon_id: number | string;
+  coupon_id: string;
   created_at: string;
   status: string;
   subtotal: number | string;
@@ -23,7 +23,7 @@ export type ReportSaleItem = {
 export type ReportFiscalDocument = {
   sale_id: string;
   submission_state: string;
-  atk_transaction_id: number | string | null;
+  atk_transaction_id: string | null;
   document_type?: number | string;
 };
 
@@ -60,7 +60,8 @@ function toCents(value: number | string | null | undefined): number {
 }
 
 export function hasPositiveUint64(value: unknown): boolean {
-  const normalized = String(value ?? "").trim();
+  if (typeof value !== "string") return false;
+  const normalized = value.trim();
   if (!/^[1-9][0-9]{0,19}$/.test(normalized)) return false;
   try {
     const parsed = BigInt(normalized);
