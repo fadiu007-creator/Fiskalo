@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   buildSalesReport,
@@ -29,18 +29,11 @@ function formatMoney(cents: number): string {
   return new Intl.NumberFormat("sq-XK", { style: "currency", currency: "EUR" }).format(cents / 100);
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? date.toLocaleString("sq-XK", { timeZone: "Europe/Belgrade" })
-    : "—";
-}
-
-function tableStyle(): React.CSSProperties {
+function tableStyle(): CSSProperties {
   return { width: "100%", borderCollapse: "collapse", fontSize: 13 };
 }
 
-const headerCell: React.CSSProperties = {
+const headerCell: CSSProperties = {
   textAlign: "left",
   padding: "10px 8px",
   borderBottom: "1px solid var(--line)",
@@ -49,7 +42,7 @@ const headerCell: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const bodyCell: React.CSSProperties = {
+const bodyCell: CSSProperties = {
   padding: "10px 8px",
   borderBottom: "1px solid var(--line)",
   verticalAlign: "top",
@@ -171,7 +164,7 @@ export default function ReportsPage() {
         while (true) {
           const { data, error } = await supabase
             .from("fiskalo_basic_fiscal_documents")
-            .select("id,sale_id,submission_state,atk_transaction_id")
+            .select("id,sale_id,document_type,submission_state,atk_transaction_id")
             .in("sale_id", batch)
             .order("id", { ascending: true })
             .range(documentOffset, documentOffset + CHILD_PAGE_SIZE - 1);
