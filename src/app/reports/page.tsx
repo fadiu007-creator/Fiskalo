@@ -13,8 +13,6 @@ import {
 
 type Business = { id: string; name: string; nui: string };
 type AccessState = "loading" | "owner" | "signed_out" | "forbidden" | "unconfigured";
-const SALES_PAGE_SIZE = 500;
-const CHILD_PAGE_SIZE = 1000;
 const MAX_SALES = 20000;
 
 function dateInputValue(date: Date): string {
@@ -113,74 +111,27 @@ export default function ReportsPage() {
       if (businessError) throw businessError;
 
       const range = localDateRangeToIso(startDate, endDate);
-      const saleRows: ReportSale[] = [];
-      let offset = 0;
-      let hitLimit = false;
-
-      while (true) {
-        const { data, error } = await supabase
-          .from("fiskalo_basic_sales")
-          .select("id,coupon_id,created_at,status,subtotal,vat_total,total,payment_method")
-          .eq("business_id", businessRow.id)
-          .gte("created_at", range.from)
-          .lt("created_at", range.to)
-          .order("created_at", { ascending: true })
-          .order("id", { ascending: true })
-          .range(offset, offset + SALES_PAGE_SIZE - 1);
-        if (error) throw error;
-
-        const page = (data ?? []) as ReportSale[];
-        saleRows.push(...page);
-        if (page.length < SALES_PAGE_SIZE) break;
-        offset += SALES_PAGE_SIZE;
-        if (saleRows.length >= MAX_SALES) {
-          hitLimit = true;
-          break;
-        }
-      }
-
-      const saleIds = saleRows.map(sale => sale.id);
-      const itemRows: ReportSaleItem[] = [];
-      const documentRows: ReportFiscalDocument[] = [];
-
-      for (let index = 0; index < saleIds.length; index += 100) {
-        const batch = saleIds.slice(index, index + 100);
-        let itemOffset = 0;
-        while (true) {
-          const { data, error } = await supabase
-            .from("fiskalo_basic_sale_items")
-            .select("id,sale_id,quantity,vat_rate,atk_vat_code,line_net,line_vat,line_total")
-            .in("sale_id", batch)
-            .order("id", { ascending: true })
-            .range(itemOffset, itemOffset + CHILD_PAGE_SIZE - 1);
-          if (error) throw error;
-          const page = (data ?? []) as ReportSaleItem[];
-          itemRows.push(...page);
-          if (page.length < CHILD_PAGE_SIZE) break;
-          itemOffset += CHILD_PAGE_SIZE;
-        }
-
-        let documentOffset = 0;
-        while (true) {
-          const { data, error } = await supabase
-            .from("fiskalo_basic_fiscal_documents")
-            .select("id,sale_id,document_type,submission_state,atk_transaction_id")
-            .in("sale_id", batch)
-            .order("id", { ascending: true })
-            .range(documentOffset, documentOffset + CHILD_PAGE_SIZE - 1);
-          if (error) throw error;
-          const page = (data ?? []) as ReportFiscalDocument[];
-          documentRows.push(...page);
-          if (page.length < CHILD_PAGE_SIZE) break;
-          documentOffset += CHILD_PAGE_SIZE;
-        }
-      }
-
+      const { data: reportData, error: reportError } = await supabase.rpc("fiskalo_basic_sales_report", {
+        p_business_id: businessRow.id,
+        p_from: range.from,
+        p_to: range.to,
+        p_limit: MAX_SALES,
+      });
+      if (reportError) throw reportError;
+      const payload = (reportData ?? {}) as {
+        sales?: ReportSale[];
+        items?: ReportSaleItem[];
+        documents?: ReportFiscalDocument[];
+        truncated?: boolean;
+      };
+      const saleRows = Array.isArray(payload.sales) ? payload.sales : [];
+      const itemRows = Array.isArray(payload.items) ? payload.items : [];
+      const documentRows = Array.isArray(payload.documents) ? payload.documents : [];
       setBusiness(businessRow as Business);
       setSales(saleRows);
       setItems(itemRows);
       setDocuments(documentRows);
-      setTruncated(hitLimit);
+      setTruncated(!!payload.truncated);
       setAccess("owner");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Raporti nuk u ngarkua.");
