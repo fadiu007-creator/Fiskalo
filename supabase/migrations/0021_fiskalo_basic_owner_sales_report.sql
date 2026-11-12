@@ -17,7 +17,7 @@ create or replace function fiskalo_private.fiskalo_basic_sales_report(
   p_business_id uuid,
   p_from timestamptz,
   p_to timestamptz,
-  p_limit integer default 20000
+  p_limit integer default 5000
 ) returns jsonb
 language plpgsql
 security definer
@@ -33,8 +33,8 @@ begin
   if p_business_id is null or p_from is null or p_to is null or p_to <= p_from then
     raise exception 'A business and valid inclusive date range are required';
   end if;
-  if p_limit is null or p_limit < 1 or p_limit > 20000 then
-    raise exception 'Report limit must be between 1 and 20000';
+  if p_limit is null or p_limit < 1 or p_limit > 5000 then
+    raise exception 'Report limit must be between 1 and 5000';
   end if;
   if not exists (
     select 1
@@ -135,7 +135,7 @@ create or replace function public.fiskalo_basic_sales_report(
   p_business_id uuid,
   p_from timestamptz,
   p_to timestamptz,
-  p_limit integer default 20000
+  p_limit integer default 5000
 ) returns jsonb
 language sql
 security definer
