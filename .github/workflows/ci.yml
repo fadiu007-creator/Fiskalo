@@ -19,6 +19,7 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
+      - run: npm run test:reports
       - run: npm run lint
       - run: npm run build
       - uses: actions/setup-dotnet@v4
