@@ -162,6 +162,10 @@ export default function ReportsPage() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [sales, items, documents, startDate, endDate]);
 
+  if (access === "loading") {
+    return <main className="shell"><header className="topbar"><a className="brand" href="/">fiskalo<span>.</span></a></header><section className="panel"><p className="sub">Duke verifikuar qasjen dhe duke ngarkuar raportin…</p></section></main>;
+  }
+
   if (access === "unconfigured") {
     return <main className="shell"><header className="topbar"><a className="brand" href="/">fiskalo<span>.</span></a></header><section className="panel"><h1>Konfigurimi kërkohet</h1><p className="sub">Supabase nuk është konfiguruar në këtë mjedis.</p></section></main>;
   }
