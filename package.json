@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",
+    "test:reports": "node --experimental-strip-types --test tests/sales-report.test.mjs",
     "lint": "eslint .",
     "cf-build": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
