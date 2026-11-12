@@ -13,7 +13,7 @@ import {
 
 type Business = { id: string; name: string; nui: string };
 type AccessState = "loading" | "owner" | "signed_out" | "forbidden" | "unconfigured";
-const MAX_SALES = 20000;
+const MAX_SALES = 5000;
 
 function dateInputValue(date: Date): string {
   return [
