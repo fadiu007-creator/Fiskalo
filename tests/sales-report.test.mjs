@@ -122,8 +122,8 @@ test("reports split tenders by their actual allocations and falls back for legac
   ]);
 
   const csv = buildSalesReportCsv(sales, [], []);
-  assert.match(csv, /Kartelë €10\\.00 \\+ Cash €2\\.34/);
-  assert.match(csv, /Cash €5\\.00/);
+  assert.match(csv, /Kartelë €10\.00 \+ Cash €2\.34/);
+  assert.match(csv, /Cash €5\.00/);
 });
 
 test("flags inconsistent tender allocations instead of reporting them as the legacy payment method", () => {
