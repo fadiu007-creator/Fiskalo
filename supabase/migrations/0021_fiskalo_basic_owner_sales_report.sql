@@ -49,7 +49,7 @@ begin
       jsonb_agg(
         jsonb_build_object(
           'id', s.id,
-          'coupon_id', s.coupon_id,
+          'coupon_id', s.coupon_id::text,
           'created_at', s.created_at,
           'status', s.status,
           'subtotal', s.subtotal,
