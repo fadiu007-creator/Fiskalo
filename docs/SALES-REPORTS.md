@@ -14,12 +14,15 @@ A sale is counted as ATK-accepted only when its original Sale fiscal document ha
 
 ## Access and data scope
 
-The route requires an authenticated business owner. It first resolves the caller's membership, then filters sales by that business ID. Sale lines and fiscal documents are queried only for those sale IDs and remain subject to their existing RLS policies. Cashiers cannot access the financial report route.
+The route requires an authenticated business owner. It calls the read-only `fiskalo_basic_sales_report` RPC, whose private SECURITY DEFINER helper re-checks `auth.uid()`, the business ID, and the `owner` membership role before reading report rows. The private helper is not executable by `anon` or `authenticated`; only the public wrapper is executable by authenticated users. Coupon and ATK transaction identifiers are returned as text so uint64 values are not rounded by JavaScript JSON number parsing.
 
-Sales are paginated in batches of 500. The report caps a single interval at 20,000 sales and displays a warning when the cap is reached; narrow the date range for a complete export of a larger period. Child rows are also paginated.
+The report caps a single interval at 20,000 sales and returns a truncation flag when more rows exist; narrow the date range for a complete export of a larger period. The RPC is read-only and does not change sales, stock, or fiscal documents. Existing direct table RLS policies are unchanged by this feature; this RPC does not tighten the broader member-read policy on the sales tables.
 
 CSV exports include the current date range and use a UTF-8 BOM for spreadsheet compatibility. Text cells are quoted and formula-prefixed values are neutralized to reduce spreadsheet formula-injection risk.
 
 ## Compliance boundary
 
 This is a management and reconciliation report over Fiskalo's own records. It is **not** an official ATK declaration, Z/X fiscal-device report, sales-book filing, or evidence that ATK accepted any coupon. Official reporting and filing obligations must continue to be completed through the applicable ATK/EDI processes until ATK confirms an approved electronic reporting interface for this software.
+
+
+**Database release gate:** migration `0021_fiskalo_basic_owner_sales_report.sql` is additive and committed in this branch. It has not been applied to any Supabase project. Run `supabase/tests/0021_fiskalo_basic_owner_sales_report.sql` in an approved staging database after migrations 0001–0021 are applied sequentially. The SQL contract test has not yet been executed against PostgreSQL.
