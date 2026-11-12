@@ -78,3 +78,20 @@ test("CSV output neutralizes spreadsheet formulas from stored text", () => {
   assert.match(csv, /'=HYPERLINK/);
   assert.ok(csv.startsWith("\uFEFF"));
 });
+
+test("correction documents do not replace the original sale fiscal status", () => {
+  const sale = {
+    id: "sale-1", coupon_id: 10, created_at: "2026-11-12T00:00:00.000Z",
+    status: "fiscalized", subtotal: "1.00", vat_total: "0.18", total: "1.18",
+    payment_method: "cash",
+  };
+  const documents = [
+    { sale_id: "sale-1", document_type: 1, submission_state: "accepted", atk_transaction_id: "123" },
+    { sale_id: "sale-1", document_type: 2, submission_state: "accepted", atk_transaction_id: "999" },
+  ];
+  const report = buildSalesReport([sale], [], documents);
+  const csv = buildSalesReportCsv([sale], [], documents);
+  assert.equal(report.acceptedCount, 1);
+  assert.match(csv, /"123"/);
+  assert.doesNotMatch(csv, /"999"/);
+});
