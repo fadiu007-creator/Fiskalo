@@ -1,3 +1,16 @@
+-- Keep migration history ordered after the correction and split-tender PRs.
+do $guard$
+begin
+  if pg_catalog.to_regclass('supabase_migrations.schema_migrations') is not null and (
+    not exists (select 1 from supabase_migrations.schema_migrations where version = '0018') or
+    not exists (select 1 from supabase_migrations.schema_migrations where version = '0019') or
+    not exists (select 1 from supabase_migrations.schema_migrations where version = '0020')
+  ) then
+    raise exception 'Apply approved migrations 0018, 0019 and 0020 before migration 0021';
+  end if;
+end
+$guard$;
+
 -- Read-only Basic sales report. The private function returns only the selected
 -- business/date-range rows and is callable only through the owner-checked wrapper.
 create or replace function fiskalo_private.fiskalo_basic_sales_report(
