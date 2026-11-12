@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -163,27 +164,27 @@ export default function ReportsPage() {
   }, [sales, items, documents, startDate, endDate]);
 
   if (access === "loading") {
-    return <main className="shell"><header className="topbar"><a className="brand" href="/">fiskalo<span>.</span></a></header><section className="panel"><p className="sub">Duke verifikuar qasjen dhe duke ngarkuar raportin…</p></section></main>;
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/">fiskalo<span>.</span></Link></header><section className="panel"><p className="sub">Duke verifikuar qasjen dhe duke ngarkuar raportin…</p></section></main>;
   }
 
   if (access === "unconfigured") {
-    return <main className="shell"><header className="topbar"><a className="brand" href="/">fiskalo<span>.</span></a></header><section className="panel"><h1>Konfigurimi kërkohet</h1><p className="sub">Supabase nuk është konfiguruar në këtë mjedis.</p></section></main>;
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/">fiskalo<span>.</span></Link></header><section className="panel"><h1>Konfigurimi kërkohet</h1><p className="sub">Supabase nuk është konfiguruar në këtë mjedis.</p></section></main>;
   }
   if (access === "signed_out") {
-    return <main className="shell"><header className="topbar"><a className="brand" href="/">fiskalo<span>.</span></a></header><section className="panel"><h1>Hyr në llogari</h1><p className="sub">Hyr në panelin e Fiskalo dhe hape përsëri raportin.</p><a className="btn" href="/">Shko te hyrja</a></section></main>;
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/">fiskalo<span>.</span></Link></header><section className="panel"><h1>Hyr në llogari</h1><p className="sub">Hyr në panelin e Fiskalo dhe hape përsëri raportin.</p><Link className="btn" href="/">Shko te hyrja</Link></section></main>;
   }
   if (access === "forbidden") {
-    return <main className="shell"><header className="topbar"><a className="brand" href="/">fiskalo<span>.</span></a></header><section className="panel"><h1>Qasje e kufizuar</h1><p className="sub">Raportet financiare janë të disponueshme vetëm për pronarin e biznesit.</p><a className="btn secondary" href="/">Kthehu në panel</a></section></main>;
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/">fiskalo<span>.</span></Link></header><section className="panel"><h1>Qasje e kufizuar</h1><p className="sub">Raportet financiare janë të disponueshme vetëm për pronarin e biznesit.</p><Link className="btn secondary" href="/">Kthehu në panel</Link></section></main>;
   }
 
   return (
     <main className="shell">
       <header className="topbar">
         <div>
-          <a className="brand" href="/">fiskalo<span>.</span></a>
+          <Link className="brand" href="/">fiskalo<span>.</span></Link>
           {business && <span className="eyebrow">{business.name} · NUI {business.nui}</span>}
         </div>
-        <a className="btn secondary" href="/">Kthehu në panel</a>
+        <Link className="btn secondary" href="/">Kthehu në panel</Link>
       </header>
 
       <div className="eyebrow">RAPORTET E BIZNESIT</div>
