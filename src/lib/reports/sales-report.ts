@@ -23,6 +23,7 @@ export type ReportFiscalDocument = {
   sale_id: string;
   submission_state: string;
   atk_transaction_id: number | string | null;
+  document_type?: number | string;
 };
 
 export type FiscalReportState =
@@ -48,7 +49,7 @@ export type SalesReport = {
   days: Array<{ date: string; count: number; grossCents: number }>;
 };
 
-const MAX_UINT64 = 18446744073709551615n;
+const MAX_UINT64 = BigInt("18446744073709551615");
 
 function toCents(value: number | string | null | undefined): number {
   const amount = Number(value);
@@ -62,7 +63,7 @@ export function hasPositiveUint64(value: unknown): boolean {
   if (!/^[1-9][0-9]{0,19}$/.test(normalized)) return false;
   try {
     const parsed = BigInt(normalized);
-    return parsed > 0n && parsed <= MAX_UINT64;
+    return parsed > BigInt(0) && parsed <= MAX_UINT64;
   } catch {
     return false;
   }
@@ -107,7 +108,7 @@ export function buildSalesReport(
   items: ReportSaleItem[],
   documents: ReportFiscalDocument[],
 ): SalesReport {
-  const documentsBySale = new Map(documents.map(document => [document.sale_id, document]));
+  const documentsBySale = new Map(documents.filter(document => document.document_type == null || Number(document.document_type) === 1).map(document => [document.sale_id, document]));
   const payments = new Map<string, { method: string; label: string; count: number; amountCents: number }>();
   const days = new Map<string, { date: string; count: number; grossCents: number }>();
   const vatGroups = new Map<string, { code: string; rate: number; lineCount: number; netCents: number; vatCents: number; grossCents: number }>();
