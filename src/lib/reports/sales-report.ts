@@ -7,6 +7,7 @@ export type ReportSale = {
   vat_total: number | string;
   total: number | string;
   payment_method: string;
+  payment_allocations?: Array<{ method: string; amount_cents: number | string }> | null;
 };
 
 export type ReportSaleItem = {
@@ -99,8 +100,45 @@ export function paymentMethodLabel(method: string): string {
     case "voucher": return "Kupon";
     case "cheque": return "Çek";
     case "crypto": return "Kriptovalutë";
+    case "invalid_allocation": return "Ndarje e pavlefshme";
     default: return "Tjetër";
   }
+}
+
+const SUPPORTED_PAYMENT_METHODS = new Set(["cash", "card", "bank_transfer", "voucher", "cheque", "crypto"]);
+
+type NormalizedPaymentAllocation = { method: string; amountCents: number };
+
+function resolveSalePaymentAllocations(sale: ReportSale, saleGrossCents: number): NormalizedPaymentAllocation[] {
+  // Old sales pre-date split tender. Preserve their original single-method total.
+  if (sale.payment_allocations == null) {
+    return [{ method: sale.payment_method || "other", amountCents: saleGrossCents }];
+  }
+
+  const allocations = sale.payment_allocations;
+  const invalid = [{ method: "invalid_allocation", amountCents: saleGrossCents }];
+  if (!Array.isArray(allocations) || allocations.length < 1 || allocations.length > 6) return invalid;
+
+  const seen = new Set<string>();
+  const normalized: NormalizedPaymentAllocation[] = [];
+  for (const allocation of allocations) {
+    const method = String(allocation?.method ?? "");
+    const amountCents = Number(allocation?.amount_cents);
+    if (!SUPPORTED_PAYMENT_METHODS.has(method) || seen.has(method) ||
+        !Number.isSafeInteger(amountCents) || amountCents < 0) return invalid;
+    seen.add(method);
+    normalized.push({ method, amountCents });
+  }
+
+  const allocatedTotal = normalized.reduce((sum, allocation) => sum + allocation.amountCents, 0);
+  if (!Number.isSafeInteger(allocatedTotal) || allocatedTotal !== saleGrossCents) return invalid;
+  return normalized.sort((a, b) => a.method.localeCompare(b.method));
+}
+
+function formatSalePaymentAllocations(sale: ReportSale): string {
+  return resolveSalePaymentAllocations(sale, toCents(sale.total))
+    .map(allocation => paymentMethodLabel(allocation.method) + " €" + (allocation.amountCents / 100).toFixed(2))
+    .join(" + ");
 }
 
 export function buildSalesReport(
@@ -130,16 +168,17 @@ export function buildSalesReport(
     vatCents += saleVat;
     grossCents += saleGross;
 
-    const method = sale.payment_method || "other";
-    const payment = payments.get(method) ?? {
-      method,
-      label: paymentMethodLabel(method),
-      count: 0,
-      amountCents: 0,
-    };
-    payment.count += 1;
-    payment.amountCents += saleGross;
-    payments.set(method, payment);
+    for (const allocation of resolveSalePaymentAllocations(sale, saleGross)) {
+      const payment = payments.get(allocation.method) ?? {
+        method: allocation.method,
+        label: paymentMethodLabel(allocation.method),
+        count: 0,
+        amountCents: 0,
+      };
+      payment.count += 1;
+      payment.amountCents += allocation.amountCents;
+      payments.set(allocation.method, payment);
+    }
 
     const date = kosovoDateKey(sale.created_at);
     const day = days.get(date) ?? { date, count: 0, grossCents: 0 };
@@ -210,7 +249,7 @@ export function buildSalesReportCsv(
   for (const item of items) itemCounts.set(item.sale_id, (itemCounts.get(item.sale_id) ?? 0) + 1);
   const documentsBySale = new Map(documents.filter(document => document.document_type == null || Number(document.document_type) === 1).map(document => [document.sale_id, document]));
   const headers = [
-    "Coupon ID", "Date", "Payment status", "Payment method", "Net EUR",
+    "Coupon ID", "Date", "Payment status", "Payment allocations", "Net EUR",
     "VAT EUR", "Gross EUR", "ATK status", "ATK transaction ID", "Item lines",
   ];
   const rows = sales.map(sale => {
@@ -220,7 +259,7 @@ export function buildSalesReportCsv(
       sale.coupon_id,
       sale.created_at,
       sale.status,
-      paymentMethodLabel(sale.payment_method),
+      formatSalePaymentAllocations(sale),
       (toCents(sale.subtotal) / 100).toFixed(2),
       (toCents(sale.vat_total) / 100).toFixed(2),
       (toCents(sale.total) / 100).toFixed(2),

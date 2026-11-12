@@ -95,3 +95,44 @@ test("correction documents do not replace the original sale fiscal status", () =
   assert.match(csv, /"123"/);
   assert.doesNotMatch(csv, /"999"/);
 });
+
+
+test("reports split tenders by their actual allocations and falls back for legacy sales", () => {
+  const sales = [
+    {
+      id: "split-sale", coupon_id: 20, created_at: "2026-11-12T10:00:00.000Z",
+      status: "paid", subtotal: "10.00", vat_total: "2.34", total: "12.34",
+      payment_method: "card",
+      payment_allocations: [
+        { method: "cash", amount_cents: 234 },
+        { method: "card", amount_cents: 1000 },
+      ],
+    },
+    {
+      id: "legacy-sale", coupon_id: 21, created_at: "2026-11-12T11:00:00.000Z",
+      status: "paid", subtotal: "5.00", vat_total: "0.00", total: "5.00",
+      payment_method: "cash", payment_allocations: null,
+    },
+  ];
+
+  const report = buildSalesReport(sales, [], []);
+  assert.deepEqual(report.payments.map(row => [row.method, row.count, row.amountCents]), [
+    ["card", 1, 1000],
+    ["cash", 2, 734],
+  ]);
+
+  const csv = buildSalesReportCsv(sales, [], []);
+  assert.match(csv, /Kartelë €10\\.00 \\+ Cash €2\\.34/);
+  assert.match(csv, /Cash €5\\.00/);
+});
+
+test("flags inconsistent tender allocations instead of reporting them as the legacy payment method", () => {
+  const report = buildSalesReport([{
+    id: "sale-1", coupon_id: 30, created_at: "2026-11-12T12:00:00.000Z",
+    status: "paid", subtotal: "10.00", vat_total: "0.00", total: "10.00",
+    payment_method: "cash", payment_allocations: [{ method: "card", amount_cents: 900 }],
+  }], [], []);
+  assert.deepEqual(report.payments.map(row => [row.method, row.label, row.amountCents]), [
+    ["invalid_allocation", "Ndarje e pavlefshme", 1000],
+  ]);
+});

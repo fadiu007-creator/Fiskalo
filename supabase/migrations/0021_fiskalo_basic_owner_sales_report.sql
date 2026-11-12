@@ -68,7 +68,8 @@ begin
           'subtotal', s.subtotal,
           'vat_total', s.vat_total,
           'total', s.total,
-          'payment_method', s.payment_method
+          'payment_method', s.payment_method,
+          'payment_allocations', s.payment_allocations
         ) order by s.created_at, s.id
       ),
       '[]'::jsonb
