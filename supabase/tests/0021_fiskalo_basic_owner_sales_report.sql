@@ -35,7 +35,7 @@ begin
 
   select pg_get_functiondef(private_oid) into private_definition;
   if position('m.role = ''owner''' in private_definition) = 0 or
-     position('p_limit > 20000' in private_definition) = 0 or
+     position('p_limit > 5000' in private_definition) = 0 or
      position('p_from' in private_definition) = 0 or
      position('p_to' in private_definition) = 0 then
     raise exception 'Private report helper must enforce owner membership, date range and row limit';
