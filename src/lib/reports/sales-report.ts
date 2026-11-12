@@ -208,7 +208,7 @@ export function buildSalesReportCsv(
 ): string {
   const itemCounts = new Map<string, number>();
   for (const item of items) itemCounts.set(item.sale_id, (itemCounts.get(item.sale_id) ?? 0) + 1);
-  const documentsBySale = new Map(documents.map(document => [document.sale_id, document]));
+  const documentsBySale = new Map(documents.filter(document => document.document_type == null || Number(document.document_type) === 1).map(document => [document.sale_id, document]));
   const headers = [
     "Coupon ID", "Date", "Payment status", "Payment method", "Net EUR",
     "VAT EUR", "Gross EUR", "ATK status", "ATK transaction ID", "Item lines",
