@@ -205,7 +205,7 @@ export default function ReportsPage() {
           <button type="button" className="btn secondary" disabled={busy || !sales.length} onClick={exportCsv}>Eksporto CSV</button>
         </form>
         {message && <p className="notice" role="alert" style={{ marginBottom: 0 }}>{message}</p>}
-        {truncated && <p className="notice" role="status" style={{ marginBottom: 0 }}>Ky raport përfshin maksimumi 20,000 shitje. Ngushto periudhën për të marrë një eksport të plotë.</p>}
+        {truncated && <p className="notice" role="status" style={{ marginBottom: 0 }}>Ky raport përfshin maksimumi 5,000 shitje. Ngushto periudhën për të marrë një eksport të plotë.</p>}
       </section>
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", marginTop: 16 }}>
