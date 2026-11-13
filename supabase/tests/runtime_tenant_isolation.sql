@@ -11,10 +11,11 @@ INSERT INTO public.fiskalo_basic_businesses (id,name,nui,created_by) VALUES
   ('30000000-0000-4000-8000-000000000001','Tenant A','111111111','10000000-0000-4000-8000-000000000001'),
   ('30000000-0000-4000-8000-000000000002','Tenant B','222222222','20000000-0000-4000-8000-000000000001');
 
-INSERT INTO public.fiskalo_basic_members (business_id,user_id,role) VALUES
-  ('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','owner'),
-  ('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002','cashier'),
-  ('30000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000001','owner');
+INSERT INTO public.fiskalo_basic_members
+  (business_id,user_id,role,operator_name,operator_identifier) VALUES
+  ('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','owner','Owner A','OA-1'),
+  ('30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002','cashier','Cashier A','CA-1'),
+  ('30000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000001','owner','Owner B','OB-1');
 
 INSERT INTO public.fiskalo_basic_pos
   (id,business_id,label,location,branch_id,pos_id,fiscalization_number,application_id)
