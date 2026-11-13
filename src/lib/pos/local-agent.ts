@@ -56,6 +56,39 @@ export type LocalFiscalQueueItem={
 export async function submitLocalTestCoupon(token:string,idempotencyKey:string,coupon:unknown){
   return call<AtkCouponSubmitResult>("/api/v1/atk/test/coupon",token,{idempotencyKey,coupon});
 }
+
+export type AtkCorrectionSubmitResult = {
+  status:"accepted"|"queued_offline"|"rejected"|"needs_reconciliation";
+  transactionId:string|null;
+  detailsBase64:string;
+  signatureBase64:string;
+  nuiKf:string;
+  dailyNumber:number;
+  citizenQrPayload:string;
+  qrSvgBase64:string;
+  issuedAtUtc:string;
+  offline:boolean;
+  recoveryDeadlineUtc?:string;
+  offlineIssuedAtUtc?:string|null;
+  retryScheduled?:boolean;
+  duplicateRequest?:boolean;
+  lastError?:string;
+  environment:"ATK TEST";
+  productionEnabled?:false;
+  message?:string;
+};
+export async function submitLocalTestCorrection(token:string,input:{
+  idempotencyKey:string;
+  documentType:"Cancel"|"Return";
+  originalCouponId:number;
+  originalTransactionId:string;
+  originalDetailsBase64:string;
+  originalSignatureBase64:string;
+  correctionCouponId:number;
+  dailyNumber:number;
+}){
+  return call<AtkCorrectionSubmitResult>("/api/v1/atk/test/correction",token,input);
+}
 export async function getLocalAgentQueue(token:string){
   return call<{count:number;overdueCount:number;items:LocalFiscalQueueItem[]}>("/api/v1/queue",token);
 }

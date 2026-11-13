@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Atk;
 using Fiskalo.PosAgent.Core.Atk;
 using Xunit;
@@ -110,4 +112,78 @@ public sealed class AtkCorrectionCouponFactoryTests
         Assert.Throws<ArgumentException>(() => AtkCorrectionCouponFactory.CreateFullCancellation(
             OriginalSale(), 43, "CANCELVERIFY1234", new DateTimeOffset(2026, 11, 8, 12, 0, 0, TimeSpan.FromHours(1))));
     }
+
+    [Fact]
+    public void CreateFromSignedOriginal_VerifiesSignatureAndCreatesLinkedCorrection()
+    {
+        using var key = AtkPki.GenerateP256Key();
+        var original = OriginalSale();
+        original.VerificationNo = "1234567890ABCDEF";
+        var signed = AtkCouponSigner.SignPosCoupon(original, key);
+        using var publicKey = ECDsa.Create(key.ExportParameters(false));
+
+        var correction = AtkCorrectionCouponFactory.CreateFromSignedOriginal(
+            signed.DetailsBase64,signed.SignatureBase64,publicKey,
+            original.BusinessId,original.BranchId,original.PosId,original.ApplicationId,
+            original.CouponId,43,"123456","CANCELVERIFY1234",
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000),CouponType.Cancel);
+
+        Assert.Equal(CouponType.Cancel,correction.Type);
+        Assert.Equal(original.CouponId,correction.ReferenceNo);
+        Assert.Equal((ulong)43,correction.CouponId);
+        Assert.Equal("CANCELVERIFY1234",correction.VerificationNo);
+    }
+
+    [Fact]
+    public void CreateFromSignedOriginal_RejectsTamperedSignature()
+    {
+        using var key = AtkPki.GenerateP256Key();
+        var original = OriginalSale();
+        original.VerificationNo = "1234567890ABCDEF";
+        var signed = AtkCouponSigner.SignPosCoupon(original,key);
+        using var publicKey = ECDsa.Create(key.ExportParameters(false));
+        var tampered = Convert.ToBase64String(Encoding.UTF8.GetBytes("tampered"));
+
+        Assert.Throws<CryptographicException>(() => AtkCorrectionCouponFactory.CreateFromSignedOriginal(
+            signed.DetailsBase64,tampered,publicKey,
+            original.BusinessId,original.BranchId,original.PosId,original.ApplicationId,
+            original.CouponId,43,"123456","CANCELVERIFY1234",
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000),CouponType.Cancel));
+    }
+
+    [Fact]
+    public void CreateFromSignedOriginal_RejectsDifferentVerifiedPosIdentity()
+    {
+        using var key = AtkPki.GenerateP256Key();
+        var original = OriginalSale();
+        original.VerificationNo = "1234567890ABCDEF";
+        var signed = AtkCouponSigner.SignPosCoupon(original,key);
+        using var publicKey = ECDsa.Create(key.ExportParameters(false));
+
+        Assert.Throws<ArgumentException>(() => AtkCorrectionCouponFactory.CreateFromSignedOriginal(
+            signed.DetailsBase64,signed.SignatureBase64,publicKey,
+            original.BusinessId,original.BranchId,99,original.ApplicationId,
+            original.CouponId,43,"123456","CANCELVERIFY1234",
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000),CouponType.Cancel));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("0")]
+    [InlineData("not-a-transaction")]
+    public void CreateFromSignedOriginal_RequiresPositiveOriginalTransactionId(string transactionId)
+    {
+        using var key = AtkPki.GenerateP256Key();
+        var original = OriginalSale();
+        original.VerificationNo = "1234567890ABCDEF";
+        var signed = AtkCouponSigner.SignPosCoupon(original,key);
+        using var publicKey = ECDsa.Create(key.ExportParameters(false));
+
+        Assert.Throws<ArgumentException>(() => AtkCorrectionCouponFactory.CreateFromSignedOriginal(
+            signed.DetailsBase64,signed.SignatureBase64,publicKey,
+            original.BusinessId,original.BranchId,original.PosId,original.ApplicationId,
+            original.CouponId,43,transactionId,"CANCELVERIFY1234",
+            DateTimeOffset.FromUnixTimeSeconds(1_800_000_000),CouponType.Cancel));
+    }
+
 }
