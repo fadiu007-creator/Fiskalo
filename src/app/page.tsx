@@ -12,6 +12,7 @@ type CartLine={product:Product;quantity:number};
 type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
+type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
 
 function FiscalLogo(){
   return <div role="img" aria-label="Stema zyrtare e Republikës së Kosovës dhe MFPT" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,margin:"0 auto",height:"12mm"}}>
@@ -37,6 +38,9 @@ export default function Home(){
   const [message,setMessage]=useState("");
   const [business,setBusiness]=useState<Business|null>(null);
   const [memberRole,setMemberRole]=useState<MemberRole|null>(null);
+  const [workers,setWorkers]=useState<WorkerMember[]>([]);
+  const [workerEmail,setWorkerEmail]=useState("");
+  const [workersError,setWorkersError]=useState("");
   const [products,setProducts]=useState<Product[]>([]);
   const [positions,setPositions]=useState<Pos[]>([]);
   const [tab,setTab]=useState<Tab>("pos");
@@ -84,7 +88,7 @@ export default function Home(){
     if(!supabase)return;
     const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name,operator_identifier").eq("user_id",uid).limit(1).maybeSingle();
     if(memberError)throw memberError;
-    if(!member){setBusiness(null);setMemberRole(null);setOperatorName("");setOperatorIdentifier("");setProducts([]);setPositions([]);setSelectedPos("");return;}
+    if(!member){setBusiness(null);setMemberRole(null);setWorkers([]);setWorkersError("");setOperatorName("");setOperatorIdentifier("");setProducts([]);setPositions([]);setSelectedPos("");return;}
     setMemberRole(member.role as MemberRole);
     if(member.role==="cashier")setTab("pos");
     const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui,vat_number").eq("id",member.business_id).single();
@@ -98,6 +102,14 @@ export default function Home(){
     setProducts(prods??[]);setPositions(poses??[]);
     setSelectedPos(current=>poses?.some(p=>p.id===current)?current:(poses?.[0]?.id??""));
   },[supabase]);
+
+  const loadWorkers=useCallback(async()=>{
+    if(!supabase||!business||memberRole!=="owner"){setWorkers([]);setWorkersError("");return;}
+    const {data,error}=await supabase.functions.invoke("fiskalo-basic-workers",{body:{action:"list",businessId:business.id}});
+    if(error)throw error;
+    setWorkers((data?.members??[]) as WorkerMember[]);
+    setWorkersError("");
+  },[supabase,business,memberRole]);
 
   const loadSales=useCallback(async()=>{
     if(!supabase||!business)return;
@@ -227,9 +239,14 @@ export default function Home(){
       if(data.user){try{await loadWorkspace(data.user.id)}catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira.")}}
       setLoading(false);
     });
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{setUser(session?.user??null);if(session?.user){void loadWorkspace(session.user.id).catch(e=>setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira."));}else{setBusiness(null);setMemberRole(null);setProducts([]);setPositions([]);setSelectedPos("");}});
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{setUser(session?.user??null);if(session?.user){void loadWorkspace(session.user.id).catch(e=>setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira."));}else{setBusiness(null);setMemberRole(null);setWorkers([]);setWorkersError("");setProducts([]);setPositions([]);setSelectedPos("");}});
     return()=>subscription.unsubscribe();
   },[supabase,loadWorkspace]);
+
+  useEffect(()=>{
+    if(!business||memberRole!=="owner"){setWorkers([]);setWorkersError("");return;}
+    void loadWorkers().catch(e=>setWorkersError(e instanceof Error?e.message:"Lista e punonjësve nuk u ngarkua."));
+  },[business,memberRole,loadWorkers]);
 
   useEffect(()=>{const token=sessionStorage.getItem("fiskalo.posAgentToken");if(!token)return;setAgentToken(token);void getLocalAgentStatus(token).then(setAgentStatus).catch(()=>{sessionStorage.removeItem("fiskalo.posAgentToken");setAgentToken("");setAgentStatus(null);});},[]);
 
@@ -276,6 +293,29 @@ export default function Home(){
   async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
   async function saveOperatorIdentity(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(error)throw error;setMessage("Emri dhe identifikuesi i operatorit u ruajtën për kuponët e ardhshëm.");}catch(e){setMessage(e instanceof Error?e.message:"Identiteti i operatorit nuk u ruajt.");}finally{setBusy(false);}}
   async function saveTaxProfile(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_update_business_tax_profile",{p_business_id:business.id,p_vat_number:vatNumber.trim()||null});if(error)throw error;setBusiness({...business,vat_number:vatNumber.trim()||null});setMessage("Numri i TVSH-së u ruajt për kuponët e ardhshëm.");}catch(e){setMessage(e instanceof Error?e.message:"Të dhënat tatimore nuk u ruajtën.");}finally{setBusy(false);}}
+  async function inviteWorker(e:React.FormEvent){
+    e.preventDefault();
+    if(!business||memberRole!=="owner"||!supabase)return;
+    const email=workerEmail.trim().toLowerCase();
+    const parts=email.split("@");
+    if(email.length>254||parts.length!==2||!parts[0]||!parts[1]?.includes(".")||parts[1].startsWith(".")||parts[1].endsWith(".")){
+      setWorkersError("Shkruaj një adresë email të vlefshme.");
+      return;
+    }
+    setBusy(true);setMessage("");setWorkersError("");
+    try{
+      const {data,error}=await supabase.functions.invoke("fiskalo-basic-workers",{body:{action:"invite",businessId:business.id,email}});
+      if(error)throw error;
+      setWorkerEmail("");
+      await loadWorkers();
+      if(data?.alreadyMember)setMessage("Ky përdorues është tashmë anëtar i biznesit.");
+      else if(data?.invited)setMessage("Ftesa u dërgua në "+email+". Punonjësi duhet ta pranojë lidhjen e email-it para hyrjes.");
+      else if(data?.delivery==="not_confirmed")setMessage("Llogaria u lidh me biznesin, por dërgimi i email-it nuk u konfirmua. Kontrollo konfigurimin e email-it në Supabase.");
+      else setMessage("Llogaria ekzistuese u shtua si arkëtare. Punonjësi mund të hyjë me llogarinë e vet.");
+    }catch(e){setWorkersError(e instanceof Error?e.message:"Ftesa e punonjësit dështoi.");}
+    finally{setBusy(false);}
+  }
+
   function resetProductForm(){
     setEditingProductId(null);setProductName("");setProductPrice("1.00");setProductStock("0");
     setVatRate("18");setVatCode("E");setUnitCode("");setCategoryCode("");
@@ -506,6 +546,21 @@ export default function Home(){
     <div className="eyebrow">Paneli i biznesit</div><h1>Arka dhe fiskalizimi.</h1><p className="sub">Version i thjeshtuar: produkte, POS dhe shitje. Shitjet e paguara dërgohen në ATK TEST kur POS-i është verifikuar, certifikuar dhe POS Agent është i lidhur. Production mbetet i çaktivizuar.</p>
     <section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Operatori i arkës</h3><p className="sub">Emri dhe identifikuesi i operatorit ruhen në çdo shitje dhe shtypen në kupon. Përdor kodin identifikues të punonjësit, jo ID-në e llogarisë së brendshme.</p><form onSubmit={saveOperatorIdentity}><div className="field"><label>Emri dhe mbiemri i operatorit</label><input required minLength={2} maxLength={100} value={operatorName} onChange={e=>setOperatorName(e.target.value)} placeholder="Emri i operatorit"/></div><div className="field"><label>Numri identifikues i operatorit</label><input required minLength={1} maxLength={32} value={operatorIdentifier} onChange={e=>setOperatorIdentifier(e.target.value)} placeholder="ID e punonjësit"/></div><button className="btn secondary" disabled={busy}>Ruaj identitetin e operatorit</button></form></section>
     {memberRole==="owner"&&<section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Të dhënat në kupon</h3><p className="sub">Numri i TVSH-së shtypet vetëm nëse biznesi është i regjistruar për TVSH. Adresa e kuponit merret nga lokacioni i POS-it.</p><form onSubmit={saveTaxProfile}><div className="field"><label>Numri i TVSH-së (9 shifra, opsional)</label><input inputMode="numeric" pattern="[0-9]{9}" maxLength={9} value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Lëre bosh nëse nuk je i regjistruar"/></div><button className="btn secondary" disabled={busy}>Ruaj të dhënat tatimore</button></form></section>}
+    {memberRole==="owner"&&<section className="panel" style={{marginTop:16,maxWidth:520}}>
+      <h3>Menaxhimi i punonjësve</h3>
+      <p className="sub">Fto punonjësit me email dhe jepu rolin Arkëtar. Nuk kërkohet verifikim ATK/POS për krijimin e llogarisë; punonjësi duhet ta pranojë ftesën e email-it për të hyrë.</p>
+      <form onSubmit={inviteWorker}>
+        <div className="field"><label>Email i punonjësit</label><input type="email" required maxLength={254} autoComplete="email" value={workerEmail} onChange={e=>setWorkerEmail(e.target.value)} placeholder="punonjes@example.com"/></div>
+        <button className="btn" disabled={busy||!workerEmail.trim()}>{busy?"Duke dërguar…":"Fto punonjësin"}</button>
+      </form>
+      {workersError&&<p className="notice" role="alert" style={{marginTop:10}}>{workersError}</p>}
+      <div style={{marginTop:14}}>
+        {workers.length===0?<p className="sub">Nuk u gjetën anëtarë ose lista nuk është ngarkuar ende.</p>:workers.map(worker=><div key={worker.userId} className="row" style={{justifyContent:"space-between",gap:12,padding:"10px 0",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
+          <div><strong>{worker.email||"Llogari pa email"}</strong><div className="sub" style={{fontSize:12}}>{worker.role==="owner"?"Pronari":"Arkëtar"} · {worker.operatorName||"Identiteti i operatorit nuk është vendosur"} · {new Date(worker.createdAt).toLocaleDateString("sq-XK")}</div></div>
+          <span className="status">{worker.role==="owner"?"PRONAR":"PUNONJËS"}</span>
+        </div>)}
+      </div>
+    </section>}
     {queueOverdueCount>0&&<p className="notice" role="alert">KUJDES: {queueOverdueCount} kupon(e) offline kanë kaluar afatin 48-orësh. Radhët nuk fshihen dhe dërgimi vazhdon automatikisht, por kërkohet kontroll i menjëhershëm me ATK.</p>}
     <div className="row" style={{margin:"22px 0"}}><button className={tab==="pos"?"btn":"btn secondary"} onClick={()=>setTab("pos")}>Arka / POS</button>{memberRole==="owner"&&<><button className={tab==="products"?"btn":"btn secondary"} onClick={()=>setTab("products")}>Produktet dhe stoku</button><button className={tab==="purchases"?"btn":"btn secondary"} onClick={()=>setTab("purchases")}>Blerjet &amp; shpenzimet</button><button className={tab==="atk"?"btn":"btn secondary"} onClick={()=>setTab("atk")}>ATK / POS</button><button className={tab==="sales"?"btn":"btn secondary"} onClick={()=>{setTab("sales");void loadSales();}}>Shitjet</button></>}</div>
     {message&&<p className="notice" role="status">{message}</p>}

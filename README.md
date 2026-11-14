@@ -2,7 +2,7 @@
 
 A deliberately small Kosovo fiscalization product focused on ATK POS onboarding, signed fiscal coupons, corrections, offline retention and receipt delivery.
 
-This repository is the clean MVP implementation. It is separate from `Fiskalo1`; no files or deployment settings in `Fiskalo1` are modified.
+This repository is the Basic MVP implementation. It is separate from `Fiskalo1`; no files or deployment settings in `Fiskalo1` are modified. The current `Fiskalo` repository does not contain the former Full application source or a Full/Basic selector. No Full application code has been removed; a selectable Full version remains blocked until its source is located and safely integrated.
 
 ## Scope
 
@@ -26,6 +26,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 
 - [x] Clean Next.js/Cloudflare application foundation
 - [x] Supabase email/password login UI
+- [x] Owner-only worker invitation and team roster source through a Supabase Edge Function; deployment and live email-delivery verification remain release gates.
 - [x] Isolated `fiskalo_basic_*` schema and owner onboarding / atomic paid-sale RPCs
 - [x] Basic product catalogue and ATK field storage (official dropdown catalogue still needs a verified ATK source)
 - [x] POS checkout with stock deduction and payment recording
@@ -40,10 +41,11 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [ ] Apply and verify migrations 0014–0017 on the approved Fiskalo Supabase project; run SQL contract tests 0014–0017 and authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
 - [ ] Complete cancellation/return POS workflow using the existing correction-document factory
+- [ ] Deploy `supabase/functions/fiskalo-basic-workers` to the approved Supabase project and verify owner-only worker invitation/listing with real Auth email delivery
 - [ ] Verify physical POS installation, printer, offline recovery and ATK TEST acceptance
 - [ ] Cloudflare deployment and live smoke tests
 
-The app currently supports a TEST sale submission path only. Cancel/Return UI, official catalogue dropdowns, authority exports, Android support, live deployment and production submission are not complete. Basic inventory, purchases and expenses are implemented in source but remain unavailable until migrations 0016–0017 are applied and verified. The database migrations are applied to `zikos` under the isolated `fiskalo_basic_*` namespace; this does not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
+The app currently supports a TEST sale submission path only. Cancel/Return UI, official catalogue dropdowns, authority exports, Android support, live deployment and production submission are not complete. Basic inventory, purchases and expenses are implemented in source but remain unavailable until migrations 0016–0017 are applied and verified. Migrations 0004–0006 are documented as applied to the existing `zikos` project; migrations 0014–0017 are committed but not executed there. All Basic objects use the isolated `fiskalo_basic_*` namespace and do not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
 
 A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued.
 
