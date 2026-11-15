@@ -69,7 +69,7 @@ export async function submitPaidInvoiceToATK(
   if (posError || !positions?.length) throw new Error("Nuk ka POS TEST aktiv. Përfundo konfigurimin dhe certifikimin një herë.");
   if (linesError || !lines?.length) throw new Error("Fatura nuk ka artikuj të lexueshëm.");
   if (paymentsError || !paymentRows?.length) throw new Error("Nuk u lexua evidenca e pagesave të faturës.");
-  const paymentType: Record<string, number> = { cash: 1, card: 2, bank_transfer: 6 };
+  const paymentType: Record<string, number> = { cash: 1, card: 2, voucher: 3, cheque: 4, crypto: 5, bank_transfer: 6 };
   const paymentTotals = new Map<number, number>();
   for (const payment of paymentRows) {
     const type = paymentType[payment.payment_method];
