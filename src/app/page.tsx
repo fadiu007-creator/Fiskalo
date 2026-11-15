@@ -16,7 +16,7 @@ type AtkVerification={businessName:string;verificationCode:string;environment:"A
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
@@ -146,6 +146,7 @@ export default function Home(){
           idempotency_key:idempotencyKey,
           items:itemsBySale.get(s.id)??[],
           transaction_id:String(doc?.atk_transaction_id??queued?.transactionId??"")||null,
+          verification_no:doc?.verification_no??queued?.verificationNo??null,
           nui_kf:doc?.nui_kf??queued?.nuiKf??null,
           legacy_nui_kf:doc?.legacy_nui_kf??null,
           daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
@@ -481,6 +482,7 @@ export default function Home(){
         group.base+=cents(line.line_net);group.tax+=cents(line.line_vat);grouped.set(line.atk_vat_code,group);
       }
       const paymentType=payment==="cash"?1:payment==="card"?2:6;
+      const verificationNo=generateNuiKf();
       if(!sale.daily_number||Number(sale.daily_number)<=0)throw new Error("Numri ditor i kuponit nuk u caktua nga baza e të dhënave.");
       const taxGroups=Array.from(grouped.values()).map(g=>({taxRate:g.taxRate,totalForTaxCents:g.base,totalTaxCents:g.tax}));
       // ATK's POS verification code is used for certificate issuance. The per-coupon
@@ -519,7 +521,7 @@ export default function Home(){
       await saveFiscalOutboxItem({
         idempotencyKey,businessId:business.id,saleId,posRecordId:pos.id,couponId:Number(sale.coupon_id),documentType:1,
         detailsBase64,signatureBase64,certificatePem,citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
-        citizenQrPayload,nuiKf,dailyNumber:Number(sale.daily_number),qrSvg:qrSvgBase64,
+        citizenQrPayload,nuiKf,verificationNo,dailyNumber:Number(sale.daily_number),qrSvg:qrSvgBase64,
         issuedAtUtc,offlineIssuedAtUtc:offlineNow?issuedAtUtc:null,recoveryDeadlineUtc,
         state:offlineNow?"queued":"prepared",transactionId:null,lastError:null
       });
@@ -549,7 +551,7 @@ export default function Home(){
       const receiptRecord:SaleRecord={
         ...sale,
         items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
-        transaction_id:fiscal.transactionId,nui_kf:nuiKf,daily_number:Number(sale.daily_number),
+        transaction_id:fiscal.transactionId,nui_kf:nuiKf,verification_no:verificationNo,daily_number:Number(sale.daily_number),
         submission_state:"accepted",offline_issued_at:null,recovery_deadline_at:null,
         qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
         unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,unit_name:pos.label,
