@@ -6,7 +6,7 @@
  * profile storage is not equivalent to an OS/hardware keystore and can be
  * lost or exposed by a compromised browser profile or same-origin XSS.
  */
-import { decryptJsonPayload, encryptJsonPayload, type EncryptedBrowserPayload } from "./local-storage-crypto";
+import { decryptJsonPayload, encryptJsonPayload, type EncryptedBrowserPayload } from "./local-storage-crypto.ts";
 
 export type BrowserCsrIdentity = {
   businessName: string;
