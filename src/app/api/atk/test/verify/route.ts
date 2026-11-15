@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     if (!authorization.ok) return Response.json({ error: "organization_not_authorized", detail: authorization.detail }, { status: authorization.status });
   }
 
-  let dataClient;
+  let dataClient: ReturnType<typeof getAtkServiceRoleClient>;
   try { dataClient = getAtkServiceRoleClient(); }
   catch { return Response.json({ error: "admin_backend_not_configured", detail: "The trusted ATK verification backend is not configured." }, { status: 503 }); }
 
