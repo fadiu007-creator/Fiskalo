@@ -218,7 +218,7 @@ test("recovery worker rejects forged or mismatched CitizenCoupon signatures befo
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
     calls.push({ url, method: init.method ?? "GET", body: init.body ? JSON.parse(String(init.body)) : null });
-    if (url.includes("/fiskalo_basic_fiscal_documents?") && init.method === "GET" && url.includes("submission_state=eq.queued")) return response([forged]);
+    if (url.includes("/fiskalo_basic_fiscal_documents?") && (init.method ?? "GET") === "GET" && url.includes("submission_state=eq.queued")) return response([forged]);
     if (url.includes("/fiskalo_basic_fiscal_documents?") && init.method === "PATCH") return response([{ id: doc.id }]);
     if (url.includes("/fiskalo_basic_sales?")) return response([sale]);
     if (url.includes("/fiskalo_basic_pos?")) return response([pos]);
@@ -234,7 +234,7 @@ test("recovery worker rejects forged or mismatched CitizenCoupon signatures befo
       { waitUntil(promise) { scheduledPromise = promise; } });
     await scheduledPromise;
     assert.equal(calls.some(call => call.url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")), false);
-    assert.ok(calls.some(call => call.method === "PATCH" && call.body?.submission_state === "rejected"), JSON.stringify(calls));
+    assert.ok(calls.some(call => call.method === "PATCH" && call.body?.submission_state === "rejected"));
   } finally {
     globalThis.fetch = original;
   }
