@@ -1,3 +1,4 @@
+import { createCitizenQrSvg } from "../src/lib/atk/citizen-qr";
 type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
@@ -26,10 +27,115 @@ type FiscalDoc = {
 };
 type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string };
 type Pos = { id: string; branch_id: number | string; pos_id: number | string; application_id: number | string; certificate_status: string };
+type PosCertificate = { business_id: string; pos_id: string; certificate_pem: string };
+type Business = { id: string; nui: string };
 
 const ATK_TEST_ORIGIN = "https://fiskalizimi-test.atk-ks.org";
 const MAX_BATCH = 25;
 const MAX_BACKOFF_MINUTES = 30;
+
+function readVarint(bytes: Uint8Array, state: { offset: number }): bigint {
+  let value = BigInt(0);
+  let shift = BigInt(0);
+  for (let i = 0; i < 10; i++) {
+    if (state.offset >= bytes.length) throw new Error("Truncated coupon protobuf.");
+    const byte = bytes[state.offset++];
+    value |= BigInt(byte & 0x7f) << shift;
+    if (!(byte & 0x80)) return value;
+    shift += BigInt(7);
+  }
+  throw new Error("Invalid coupon protobuf varint.");
+}
+function parseCouponFields(base64Value: string) {
+  const binary = atob(base64Value);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  const state = { offset: 0 };
+  const values = new Map<number, bigint | string>();
+  while (state.offset < bytes.length) {
+    const tag = Number(readVarint(bytes, state));
+    const field = tag >>> 3;
+    const wire = tag & 7;
+    if (!field) throw new Error("Invalid coupon protobuf field.");
+    if (wire === 0) {
+      if (values.has(field)) throw new Error("Duplicate coupon protobuf field.");
+      values.set(field, readVarint(bytes, state));
+    } else if (wire === 2) {
+      const length = Number(readVarint(bytes, state));
+      if (!Number.isSafeInteger(length) || length < 0 || state.offset + length > bytes.length) throw new Error("Invalid coupon protobuf length.");
+      const value = bytes.slice(state.offset, state.offset + length);
+      state.offset += length;
+      if ([4,5,8].includes(field)) {
+        if (values.has(field)) throw new Error("Duplicate coupon protobuf identity.");
+        values.set(field, new TextDecoder().decode(value));
+      }
+    } else if (wire === 5) state.offset += 4;
+    else if (wire === 1) state.offset += 8;
+    else throw new Error("Unsupported coupon protobuf wire type.");
+    if (state.offset > bytes.length) throw new Error("Truncated coupon protobuf.");
+  }
+  return values;
+}
+function readDer(bytes: Uint8Array, offset: number) {
+  if (offset + 2 > bytes.length) throw new Error("Invalid certificate DER.");
+  const tag = bytes[offset];
+  let cursor = offset + 1;
+  let length = bytes[cursor++];
+  if (length & 0x80) {
+    const count = length & 0x7f;
+    if (!count || count > 4 || cursor + count > bytes.length) throw new Error("Invalid certificate DER length.");
+    length = 0;
+    for (let i = 0; i < count; i++) length = length * 256 + bytes[cursor++];
+  }
+  const end = cursor + length;
+  if (end > bytes.length) throw new Error("Truncated certificate DER.");
+  return { tag, start: offset, contentStart: cursor, end };
+}
+function certSpki(pem: string): Uint8Array {
+  const body = pem.replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s/g, "");
+  const binary = atob(body);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  const cert = readDer(bytes, 0);
+  const tbs = readDer(bytes, cert.contentStart);
+  let cursor = tbs.contentStart;
+  let node = readDer(bytes, cursor);
+  if (node.tag === 0xa0) { cursor = node.end; node = readDer(bytes, cursor); }
+  for (let i = 0; i < 5; i++) { cursor = node.end; node = readDer(bytes, cursor); }
+  if (node.tag !== 0x30) throw new Error("Certificate SubjectPublicKeyInfo missing.");
+  return bytes.slice(node.start, node.end);
+}
+function derSignatureToRaw(signatureBase64: string): Uint8Array {
+  const binary = atob(signatureBase64);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  const seq = readDer(bytes, 0);
+  if (seq.tag !== 0x30 || seq.end !== bytes.length) throw new Error("ECDSA signature is not DER.");
+  const r = readDer(bytes, seq.contentStart);
+  const s = readDer(bytes, r.end);
+  if (r.tag !== 0x02 || s.tag !== 0x02 || s.end !== seq.end) throw new Error("Malformed ECDSA signature.");
+  const normalize = (node: {contentStart:number;end:number}) => {
+    let value = bytes.slice(node.contentStart, node.end);
+    while (value.length > 32 && value[0] === 0) value = value.slice(1);
+    if (value.length > 32) throw new Error("ECDSA integer exceeds P-256.");
+    const out = new Uint8Array(32);
+    out.set(value, 32 - value.length);
+    return out;
+  };
+  const raw = new Uint8Array(64);
+  raw.set(normalize(r), 0);
+  raw.set(normalize(s), 32);
+  return raw;
+}
+async function verifyPayload(certificatePem: string, payload: string, signature: string) {
+  const key = await crypto.subtle.importKey("spki", certSpki(certificatePem),
+    { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  return crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" }, key, derSignatureToRaw(signature), new TextEncoder().encode(payload),
+  );
+}
+function encodeBase64(bytes: Uint8Array) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 
 function headers(env: Env) {
   return {
