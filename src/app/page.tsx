@@ -194,11 +194,11 @@ export default function Home(){
               couponId:item.couponId,idempotencyKey:item.idempotencyKey,
               details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,
               citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
-              dailyNumber:item.dailyNumber,qrSvgBase64:item.qrSvg,
+              dailyNumber:item.dailyNumber,
               offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
             });
             await updateFiscalOutboxItem(item.idempotencyKey,{
-              state:"accepted",transactionId:result.transactionId,lastError:null
+              state:"accepted",transactionId:result.transactionId,lastError:null,qrSvg:result.qrSvgBase64
             });
           }catch(error){
             await updateFiscalOutboxItem(item.idempotencyKey,{
