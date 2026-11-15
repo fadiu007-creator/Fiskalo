@@ -134,6 +134,9 @@ async function existingIdempotencyResult(
     documentType: number;
     details: string;
     signature: string;
+    citizenPayload: string;
+    citizenSignature: string;
+    qrSvg: string;
   },
   origin: string,
 ): Promise<Response | null> {
