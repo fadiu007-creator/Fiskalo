@@ -13,7 +13,6 @@ create table if not exists public.fiskalo_atk_pos_certificates (
   revoked_at timestamptz,
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
-  unique (pos_installation_id, spki_sha256),
   check ((status = 'active' and revoked_at is null) or (status = 'revoked' and revoked_at is not null))
 );
 
