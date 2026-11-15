@@ -88,19 +88,18 @@ export async function POST(request: Request) {
     try { service = getAtkServiceRoleClient(); }
     catch { return Response.json({ error: "trusted_certificate_store_unavailable" }, { status: 503 }); }
     const issuedAt = new Date().toISOString();
-    const { error: revokeError } = await service.from("fiskalo_atk_pos_certificates")
-      .update({ revoked_at: issuedAt, status: "revoked" })
-      .eq("organization_id", organizationId).eq("pos_installation_id", posInstallationId).is("revoked_at", null);
-    if (revokeError) return Response.json({ error: "certificate_registry_update_failed", detail: revokeError.message }, { status: 500 });
-    const { error: registryError } = await service.from("fiskalo_atk_pos_certificates").insert({
-      organization_id: organizationId, pos_installation_id: posInstallationId,
-      certificate_pem: signedCertificate, spki_sha256: fingerprint,
-      issued_at: issuedAt, created_by: user.id, status: "active",
+    const { error: registryError } = await service.rpc("fiskalo_server_register_atk_pos_certificate_v1", {
+      p_organization_id: organizationId,
+      p_pos_installation_id: posInstallationId,
+      p_application_id: applicationId,
+      p_certificate_pem: signedCertificate,
+      p_spki_sha256: fingerprint,
+      p_issued_at: issuedAt,
+      p_created_by: user.id,
     });
-    if (registryError) return Response.json({ error: "certificate_registry_save_failed", detail: registryError.message }, { status: 500 });
-    const { error: activateError } = await service.from("fiskalo_atk_pos_installations")
-      .update({ status: "active" }).eq("id", posInstallationId).eq("organization_id", organizationId).eq("environment", "test");
-    if (activateError) return Response.json({ error: "pos_activation_failed", detail: activateError.message }, { status: 500 });
+    if (registryError) {
+      return Response.json({ error: "certificate_registry_save_failed", detail: registryError.message }, { status: 500 });
+    }
     return Response.json({ signedCertificate, certificateFingerprint: fingerprint, environment: "TEST" }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const timeout = error instanceof Error && error.name === "TimeoutError";
