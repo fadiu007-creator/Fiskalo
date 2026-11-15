@@ -1,5 +1,5 @@
-import { decryptBrowserFiscalData, encryptBrowserFiscalData } from "../atk/browser-key-vault";
-import type { EncryptedBrowserPayload } from "../atk/local-storage-crypto";
+import { decryptBrowserFiscalData, encryptBrowserFiscalData } from "../atk/browser-key-vault.ts";
+import type { EncryptedBrowserPayload } from "../atk/local-storage-crypto.ts";
 
 const DB_NAME = "fiskalo-fiscal-outbox";
 const STORE_NAME = "signed-documents";
