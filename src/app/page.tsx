@@ -16,7 +16,7 @@ type AtkVerification={businessName:string;verificationCode:string;environment:"A
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string;atk_item_category_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;correction_type?:string|null;correction_state?:string|null;correction_transaction_id?:string|null;reference_coupon_id?:number|null;reference_transaction_id?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string;atk_item_category_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;correction_type?:string|null;correction_state?:string|null;correction_transaction_id?:string|null;reference_coupon_id?:number|null;reference_transaction_id?:string|null;correction_coupon_id?:number|null;correction_nui_kf?:string|null;correction_daily_number?:number|null;correction_qr_svg_base64?:string|null;correction_offline_issued_at?:string|null;correction_recovery_deadline_at?:string|null;correction_reference_coupon_id?:number|null;correction_document_type?:number|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
@@ -170,7 +170,15 @@ export default function Home(){
           queue_last_error:saleOutbox?.lastError??null,
           correction_type:correctionDoc?.document_type===2?"ANULIM":correctionDoc?.document_type===3?"KTHIM":correctionOutbox?.documentType===2?"ANULIM":correctionOutbox?.documentType===3?"KTHIM":null,
           correction_state:correctionDoc?.submission_state??correctionOutbox?.state??null,
-          correction_transaction_id:String(correctionDoc?.atk_transaction_id??correctionOutbox?.transactionId??"")||null
+          correction_transaction_id:String(correctionDoc?.atk_transaction_id??correctionOutbox?.transactionId??"")||null,
+          correction_coupon_id:correctionDoc?.coupon_id??correctionOutbox?.couponId??null,
+          correction_nui_kf:correctionDoc?.nui_kf??correctionOutbox?.nuiKf??null,
+          correction_daily_number:correctionDoc?.daily_number??correctionOutbox?.dailyNumber??null,
+          correction_qr_svg_base64:correctionDoc?.qr_svg_base64??correctionOutbox?.qrSvg??null,
+          correction_offline_issued_at:correctionDoc?.offline_issued_at??correctionOutbox?.offlineIssuedAtUtc??null,
+          correction_recovery_deadline_at:correctionDoc?.recovery_deadline_at??correctionOutbox?.recoveryDeadlineUtc??null,
+          correction_reference_coupon_id:correctionDoc?.reference_coupon_id??correctionOutbox?.originalCouponId??null,
+          correction_document_type:correctionDoc?.document_type??correctionOutbox?.documentType??null
         };
       }));
     }catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua historia e shitjeve.");}
