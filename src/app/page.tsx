@@ -408,7 +408,9 @@ export default function Home(){
       return;
     }
     setBusy(true);setMessage("");
-    let idempotencyKey="";
+    const correctionKeyStorage="fiskalo.pendingCorrection."+sale.id+"."+documentType;
+    let idempotencyKey=localStorage.getItem(correctionKeyStorage)||crypto.randomUUID();
+    localStorage.setItem(correctionKeyStorage,idempotencyKey);
     try{
       const identity={businessNui:business.nui,branchId:pos.branch_id,posId:pos.pos_id,businessName:pos.verified_business_name||business.name};
       if(!await hasMatchingPosCertificate(identity))throw new Error("Çelësi privat dhe certifikata ATK nuk përputhen në këtë shfletues.");
@@ -509,6 +511,7 @@ export default function Home(){
         correction_state:queuedOffline?"queued":"accepted",correction_transaction_id:transactionId,
         is_offline:queuedOffline,is_copy:false
       };
+      localStorage.removeItem(correctionKeyStorage);
       setReceipt(receipt);
       setMessage(queuedOffline?label+" u ruajt për dërgim automatik në ATK TEST brenda 48 orëve.":"ATK TEST pranoi "+label.toLowerCase()+". Transaction ID: "+transactionId);
       await loadSales();
@@ -517,6 +520,7 @@ export default function Home(){
         state:error instanceof CloudAtkError&&error.rejected?"rejected":"needs_reconciliation",
         lastError:error instanceof Error?error.message:"Korrigjimi nuk u konfirmua nga ATK."
       }).catch(()=>undefined);
+      if(error instanceof CloudAtkError&&error.rejected)localStorage.removeItem(correctionKeyStorage);
       setMessage(error instanceof Error?error.message:"Korrigjimi ATK dështoi.");
     }finally{setBusy(false);}
   }
