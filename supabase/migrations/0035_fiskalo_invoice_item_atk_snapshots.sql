@@ -74,7 +74,7 @@ begin
   alter table public.fiskalo_invoice_items validate constraint fiskalo_invoice_items_atk_unit_2026_check;
   alter table public.fiskalo_invoice_items validate constraint fiskalo_invoice_items_atk_tax_2026_check;
   alter table public.fiskalo_invoice_items validate constraint fiskalo_invoice_items_atk_category_2026_check;
-end $;
+end $$;
 
 create or replace function fiskalo_private.fiskalo_snapshot_invoice_item_atk_mapping()
 returns trigger
