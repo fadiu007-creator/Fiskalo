@@ -234,7 +234,7 @@ test("recovery worker rejects forged or mismatched CitizenCoupon signatures befo
       { waitUntil(promise) { scheduledPromise = promise; } });
     await scheduledPromise;
     assert.equal(calls.some(call => call.url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")), false);
-    assert.ok(calls.some(call => call.method === "PATCH" && call.body?.submission_state === "rejected"));
+    assert.ok(calls.some(call => call.method === "PATCH" && call.body?.submission_state === "rejected"), JSON.stringify(calls));
   } finally {
     globalThis.fetch = original;
   }
