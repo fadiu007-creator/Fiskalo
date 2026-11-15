@@ -468,6 +468,224 @@ export async function POST(request: Request) {
       }, { headers: { "Cache-Control": "no-store" } });
     }
 
+    if (action === "correction" || action === "queue-correction") {
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!serviceRoleKey) return jsonError("Server-side correction ledger is not configured.", 503);
+      const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
+      const saleId = requiredString(body.saleId, "Original sale ID", 64);
+      const documentType = requiredPositiveInteger(body.documentType, "Correction type");
+      if (documentType !== 2 && documentType !== 3) return jsonError("Correction type must be Cancel (2) or Return (3).", 400);
+      const correctionCouponId = requiredPositiveInteger(body.correctionCouponId, "Correction coupon ID");
+      const originalCouponId = requiredPositiveInteger(body.originalCouponId, "Original coupon ID");
+      const originalTransactionId = requiredString(body.originalTransactionId, "Original ATK transaction ID", 20);
+      if (!/^[1-9][0-9]{0,19}$/.test(originalTransactionId) || BigInt(originalTransactionId) > BigInt("18446744073709551615")) {
+        return jsonError("Original ATK transaction ID is invalid.", 400);
+      }
+      const idempotencyKey = requiredString(body.idempotencyKey, "Correction idempotency key", 256);
+      const nuiKf = requiredString(body.nuiKf, "Correction NUIKF", 16);
+      if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("Correction NUIKF must contain 16 uppercase alphanumeric characters.", 400);
+      const dailyNumber = requiredPositiveInteger(body.dailyNumber, "Correction daily number");
+      const unixTime = requiredPositiveInteger(body.unixTime, "Correction timestamp");
+      if (Math.abs(Math.floor(Date.now() / 1000) - unixTime) > 300) return jsonError("Correction timestamp is outside the allowed five-minute window.", 400);
+      const details = requiredString(body.details, "Signed correction details", 200_000);
+      const signature = requiredString(body.signature, "Correction signature", 256);
+      const citizenPayload = requiredString(body.citizenPayload, "CitizenCoupon payload", 200_000);
+      const citizenSignature = requiredString(body.citizenSignature, "CitizenCoupon signature", 256);
+      const certificatePemFromBrowser = requiredString(body.certificatePem, "POS public certificate", 16_384);
+      const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
+
+      const posQuery = new URLSearchParams({
+        select: "id,branch_id,pos_id,application_id,verification_no,certificate_status",
+        id: "eq." + posRecordId,
+        business_id: "eq." + businessId,
+        limit: "1",
+      });
+      const poses = await supabaseRequest(restOrigin + "fiskalo_basic_pos?" + posQuery.toString(), token, anonKey);
+      if (!Array.isArray(poses) || poses.length !== 1 || !isRecord(poses[0])) return jsonError("POS does not belong to this business.", 403);
+      const pos = poses[0];
+      if (pos.certificate_status !== "certificate_issued") return jsonError("This POS has no issued ATK TEST certificate.", 409);
+
+      const saleQuery = new URLSearchParams({
+        select: "id,coupon_id,pos_id,status,total,subtotal,vat_total,daily_number",
+        id: "eq." + saleId,
+        business_id: "eq." + businessId,
+        pos_id: "eq." + posRecordId,
+        limit: "1",
+      });
+      const sales = await supabaseRequest(restOrigin + "fiskalo_basic_sales?" + saleQuery.toString(), token, anonKey);
+      if (!Array.isArray(sales) || sales.length !== 1 || !isRecord(sales[0]) ||
+          String(sales[0].coupon_id) !== String(originalCouponId) || sales[0].status !== "fiscalized") {
+        return jsonError("Only the accepted original sale can be cancelled or returned.", 409);
+      }
+
+      const adminHeaders = { apikey: serviceRoleKey, Authorization: "Bearer " + serviceRoleKey, Accept: "application/json" };
+      const originalQuery = new URLSearchParams({
+        select: "id,coupon_id,atk_transaction_id,submission_state,document_type",
+        business_id: "eq." + businessId,
+        sale_id: "eq." + saleId,
+        coupon_id: "eq." + originalCouponId,
+        document_type: "eq.1",
+        submission_state: "eq.accepted",
+        limit: "1",
+      });
+      const originalResponse = await fetch(restOrigin + "fiskalo_basic_fiscal_documents?" + originalQuery.toString(), {
+        headers: adminHeaders, cache: "no-store",
+      });
+      if (!originalResponse.ok) return jsonError("Could not verify the original accepted ATK document.", 502);
+      const originals: unknown = await originalResponse.json();
+      if (!Array.isArray(originals) || originals.length !== 1 || !isRecord(originals[0]) ||
+          String(originals[0].atk_transaction_id) !== originalTransactionId) {
+        return jsonError("Original ATK transaction does not match the accepted sale.", 409);
+      }
+      const reservationQuery = new URLSearchParams({
+        select: "business_id,sale_id,pos_id,document_type,original_coupon_id,original_transaction_id,correction_coupon_id,daily_number,idempotency_key,created_by,status",
+        business_id: "eq." + businessId,
+        sale_id: "eq." + saleId,
+        idempotency_key: "eq." + idempotencyKey,
+        limit: "1",
+      });
+      const reservationResponse = await fetch(restOrigin + "fiskalo_basic_correction_reservations?" + reservationQuery.toString(), {
+        headers: adminHeaders, cache: "no-store",
+      });
+      if (!reservationResponse.ok) return jsonError("Could not verify the correction reservation.", 502);
+      const reservations: unknown = await reservationResponse.json();
+      if (!Array.isArray(reservations) || reservations.length !== 1 || !isRecord(reservations[0])) return jsonError("Correction reservation was not found.", 409);
+      const reservation = reservations[0];
+      if (reservation.created_by !== user.id || String(reservation.pos_id) !== posRecordId ||
+          Number(reservation.document_type) !== documentType ||
+          String(reservation.original_coupon_id) !== String(originalCouponId) ||
+          String(reservation.original_transaction_id) !== originalTransactionId ||
+          String(reservation.correction_coupon_id) !== String(correctionCouponId) ||
+          Number(reservation.daily_number) !== dailyNumber ||
+          !["reserved","submitting","queued"].includes(String(reservation.status))) {
+        return jsonError("Correction reservation does not match the authenticated user or signed coupon.", 409);
+      }
+
+      const certResponse = await fetch(restOrigin + "fiskalo_basic_pos_certificates?" + new URLSearchParams({
+        select: "certificate_pem",
+        business_id: "eq." + businessId,
+        pos_id: "eq." + posRecordId,
+        limit: "1",
+      }).toString(), { headers: adminHeaders, cache: "no-store" });
+      if (!certResponse.ok) return jsonError("Could not load the server-registered ATK certificate.", 502);
+      const certRows: unknown = await certResponse.json();
+      if (!Array.isArray(certRows) || certRows.length !== 1 || !isRecord(certRows[0])) return jsonError("No ATK certificate is registered for this POS.", 409);
+      const certificatePem = requiredString(certRows[0].certificate_pem, "ATK-issued POS certificate", 16_384);
+      if (certificatePemFromBrowser.trim() !== certificatePem.trim()) return jsonError("Browser certificate does not match the server-registered ATK certificate.", 409);
+
+      const couponIdentity = readCouponIdentity(details);
+      const expectedUnixTime = BigInt(unixTime);
+      const expectedPos: Array<[number,bigint]> = [
+        [1,BigInt(business.nui as string)],[2,BigInt(correctionCouponId)],
+        [3,BigInt(requiredPositiveInteger(pos.branch_id,"Branch ID"))],
+        [6,BigInt(requiredPositiveInteger(pos.pos_id,"POS ID"))],
+        [7,BigInt(requiredPositiveInteger(pos.application_id,"Application ID"))],
+        [9,BigInt(documentType)],[10,expectedUnixTime],
+        [13,BigInt(Math.round(Number(sales[0].total)*100))],
+        [15,BigInt(Math.round(Number(sales[0].vat_total)*100))],
+        [16,BigInt(Math.round(Number(sales[0].subtotal)*100))],
+        [17,BigInt(originalCouponId)],[18,BigInt(originalTransactionId)],
+      ];
+      for (const [field,value] of expectedPos) if (couponIdentity.get(field)!==value) return jsonError("Signed correction coupon identifiers, reference or totals do not match the original sale.", 409);
+      if (couponIdentity.get(8)!==nuiKf) return jsonError("Correction NUIKF / VerificationNo mismatch.", 409);
+      const citizenIdentity = readCouponIdentity(citizenPayload);
+      const expectedCitizen: Array<[number,bigint]> = [
+        [1,BigInt(business.nui as string)],[2,BigInt(correctionCouponId)],
+        [3,BigInt(requiredPositiveInteger(pos.branch_id,"Branch ID"))],
+        [4,BigInt(requiredPositiveInteger(pos.pos_id,"POS ID"))],
+        [6,BigInt(documentType)],[7,expectedUnixTime],
+        [8,BigInt(Math.round(Number(sales[0].total)*100))],
+        [10,BigInt(Math.round(Number(sales[0].vat_total)*100))],
+        [11,BigInt(Math.round(Number(sales[0].subtotal)*100))],
+      ];
+      for (const [field,value] of expectedCitizen) if (citizenIdentity.get(field)!==value) return jsonError("CitizenCoupon correction identifiers or totals do not match.", 409);
+      if (citizenIdentity.get(5)!==nuiKf) return jsonError("CitizenCoupon NUIKF / VerificationNo mismatch.", 409);
+      const [posSignatureValid,citizenSignatureValid]=await Promise.all([
+        verifySignedBase64Payload(certificatePem,details,signature),
+        verifySignedBase64Payload(certificatePem,citizenPayload,citizenSignature),
+      ]);
+      if (!posSignatureValid || !citizenSignatureValid) return jsonError("Correction POS or CitizenCoupon signature is invalid.", 400);
+      const qrSvg = await createCitizenQrSvg(citizenPayload + "|" + citizenSignature);
+      const qrSvgBase64 = encodeAtkBase64(new TextEncoder().encode(qrSvg));
+
+      const beginResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_begin_atk_correction_v1", {
+        method: "POST",
+        headers: { apikey: serviceRoleKey, Authorization: "Bearer " + serviceRoleKey, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          p_actor_id: user.id,p_business_id: businessId,p_sale_id: saleId,p_pos_record_id: posRecordId,
+          p_original_coupon_id: originalCouponId,p_correction_coupon_id: correctionCouponId,p_document_type: documentType,
+          p_idempotency_key: idempotencyKey,p_signed_payload: details,p_signature: signature,p_nui_kf: nuiKf,
+          p_verification_no: nuiKf,p_citizen_payload: citizenPayload,p_citizen_signature: citizenSignature,
+          p_daily_number: dailyNumber,p_qr_svg_base64: qrSvgBase64,
+        }),
+        cache: "no-store",
+      });
+      if (!beginResponse.ok) return jsonError("Correction could not be reserved in the trusted fiscal journal.", 409);
+
+      if (action === "queue-correction") {
+        if (!offlineIssuedAt) return jsonError("Offline correction timestamp is required.", 400);
+        const queueResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_queue_atk_correction_v1", {
+          method: "POST",
+          headers: { apikey: serviceRoleKey, Authorization: "Bearer " + serviceRoleKey, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            p_actor_id: user.id,p_business_id: businessId,p_sale_id: saleId,p_pos_record_id: posRecordId,
+            p_original_coupon_id: originalCouponId,p_correction_coupon_id: correctionCouponId,p_document_type: documentType,
+            p_idempotency_key: idempotencyKey,p_signed_payload: details,p_signature: signature,p_nui_kf: nuiKf,
+            p_verification_no: nuiKf,p_citizen_payload: citizenPayload,p_citizen_signature: citizenSignature,
+            p_daily_number: dailyNumber,p_offline_issued_at: offlineIssuedAt,p_qr_svg_base64: qrSvgBase64,
+          }),
+          cache: "no-store",
+        });
+        if (!queueResponse.ok) return jsonError("Signed correction could not be stored in the ATK recovery queue.", 502);
+        return NextResponse.json({ status: "queued", recoveryDeadlineAt: new Date(Date.parse(offlineIssuedAt)+48*60*60*1000).toISOString(), environment: "ATK TEST", productionEnabled: false }, {
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+
+      let result: JsonRecord;
+      try {
+        result = await atkPost<JsonRecord>("/pos/coupon", { details, signature });
+      } catch (error) {
+        if (error instanceof AtkRejected) {
+          await setTrustedCorrectionState(restOrigin, serviceRoleKey, idempotencyKey, "rejected", error.message);
+          return NextResponse.json({ error: error.message, status: "rejected", environment: "ATK TEST" }, { status: 422, headers: { "Cache-Control": "no-store" } });
+        }
+        if (error instanceof AtkTransportFailure && error.delivery === "not_delivered") {
+          return NextResponse.json({ error: error.message, notDelivered: true, environment: "ATK TEST" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+        }
+        if (error instanceof AtkTransportFailure) {
+          await setTrustedCorrectionState(restOrigin, serviceRoleKey, idempotencyKey, "needs_reconciliation", error.message);
+          return NextResponse.json({ error: error.message, status: "needs_reconciliation", environment: "ATK TEST" }, { status: 502, headers: { "Cache-Control": "no-store" } });
+        }
+        throw error;
+      }
+      const rawTransactionId = result.transaction_id;
+      const transactionId = typeof rawTransactionId === "string" ? rawTransactionId :
+        typeof rawTransactionId === "number" && Number.isSafeInteger(rawTransactionId) ? String(rawTransactionId) : "";
+      if (!/^[1-9][0-9]{0,19}$/.test(transactionId) || BigInt(transactionId)>BigInt("18446744073709551615")) {
+        await setTrustedCorrectionState(restOrigin, serviceRoleKey, idempotencyKey, "needs_reconciliation", "ATK returned no valid correction transaction_id.");
+        return jsonError("ATK returned no valid correction transaction_id; do not resubmit.", 502);
+      }
+      const trustedResponse={status:"accepted",transactionId,message:typeof result.message==="string"?result.message:"",environment:"ATK TEST"};
+      const recordResponse=await fetch(restOrigin+"rpc/fiskalo_basic_server_record_atk_correction_v2",{
+        method:"POST",
+        headers:{apikey:serviceRoleKey,Authorization:"Bearer "+serviceRoleKey,"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify({
+          p_actor_id:user.id,p_business_id:businessId,p_sale_id:saleId,p_original_coupon_id:originalCouponId,
+          p_correction_coupon_id:correctionCouponId,p_document_type:documentType,p_idempotency_key:idempotencyKey,
+          p_signed_payload:details,p_signature:signature,p_atk_transaction_id:transactionId,p_atk_response:trustedResponse,
+          p_nui_kf:nuiKf,p_verification_no:nuiKf,p_citizen_payload:citizenPayload,p_citizen_signature:citizenSignature,
+          p_daily_number:dailyNumber,p_qr_svg_base64:qrSvgBase64,
+        }),
+        cache:"no-store",
+      });
+      if (!recordResponse.ok) {
+        await setTrustedCorrectionState(restOrigin, serviceRoleKey, idempotencyKey, "needs_reconciliation", "ATK accepted correction transaction "+transactionId+" but trusted persistence failed.");
+        return NextResponse.json({ error:"ATK accepted the correction (transaction "+transactionId+") but the trusted ledger update failed. Do not resubmit.",status:"accepted_not_persisted",transactionId,environment:"ATK TEST" },{status:502,headers:{"Cache-Control":"no-store"}});
+      }
+      return NextResponse.json({ status:"accepted",transactionId,message:trustedResponse.message,persisted:true,qrSvgBase64,environment:"ATK TEST",productionEnabled:false },{headers:{"Cache-Control":"no-store"}});
+    }
+
     if (action === "coupon" || action === "queue-coupon") {
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
       if (!serviceRoleKey) return jsonError("Server-side fiscal ledger is not configured. Coupon submission is disabled until SUPABASE_SERVICE_ROLE_KEY is set as a Cloudflare secret.", 503);
