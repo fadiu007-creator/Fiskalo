@@ -141,7 +141,7 @@ async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at, selec
     if (url.includes("/fiskalo_basic_pos?")) return response([pos]);
     if (url.includes("/fiskalo_basic_businesses?")) return response([business]);
     if (url.includes("/fiskalo_basic_pos_certificates?")) return response([cert]);
-    if (url.includes("/rpc/fiskalo_basic_server_record_atk_receipt_v2")) return response("document-id");
+    if (url.includes("/rpc/fiskalo_basic_server_record_atk_receipt_v2") || url.includes("/rpc/fiskalo_basic_server_record_atk_correction_v2")) return response("document-id");
     if (url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")) return atkBehavior();
     throw new Error("Unexpected fetch: " + method + " " + url);
   };
