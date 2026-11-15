@@ -527,7 +527,7 @@ export default function Home(){
             await updateFiscalOutboxItem(idempotencyKey,{state:"cloud_queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:outageDeadline,lastError:error.message});
           }catch(queueError){
             queuedOffline=true;
-            await updateFiscalOutboxItem(idempotencyKey,{state:"queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:new Date(Date.parse(offlineIssuedAt)+48*60*60*1000).toISOString(),lastError:queueError instanceof Error?queueError.message:error.message});
+            await updateFiscalOutboxItem(idempotencyKey,{state:"queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:outageDeadline,lastError:queueError instanceof Error?queueError.message:error.message});
           }
         }
       }
