@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     } catch {
       return Response.json({ error: "invalid_atk_certificate", detail: "The ATK certificate could not be parsed or bound to the submitted CSR." }, { status: 502 });
     }
-    let service;
+    let service: ReturnType<typeof getAtkServiceRoleClient>;
     try { service = getAtkServiceRoleClient(); }
     catch { return Response.json({ error: "trusted_certificate_store_unavailable" }, { status: 503 }); }
     const issuedAt = new Date().toISOString();
