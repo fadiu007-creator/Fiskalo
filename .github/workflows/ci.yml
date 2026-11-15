@@ -12,8 +12,30 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - name: Apply migrations and run SQL security contracts
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: bash scripts/test-supabase-sql.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -24,6 +46,9 @@ jobs:
       - run: deno check supabase/functions/fiskalo-basic-workers/index.ts
       - run: deno test --check supabase/functions/fiskalo-basic-workers/handler_test.ts
       - run: deno lint supabase/functions/fiskalo-basic-workers
+      - run: deno check supabase/functions/fiskalo-basic-atk-correction/index.ts
+      - run: deno test supabase/functions/fiskalo-basic-atk-correction/index_test.ts
+      - run: deno lint supabase/functions/fiskalo-basic-atk-correction
       - run: npm run typecheck
       - run: npm run test:products
       - run: npm run lint
