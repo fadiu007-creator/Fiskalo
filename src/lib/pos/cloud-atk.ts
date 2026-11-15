@@ -132,3 +132,52 @@ export function queueCloudTestCoupon(
 ) {
   return callGateway<CloudAtkQueueResult>(supabase, { action: "queue-coupon", ...input });
 }
+
+export type CloudCorrectionReservation = {
+  correctionCouponId: number | string;
+  dailyNumber: number | string;
+  originalCouponId: number | string;
+  originalTransactionId: string;
+  documentType: 2 | 3;
+  idempotencyKey: string;
+  status: string;
+};
+
+export function reserveCloudCorrection(
+  supabase: SupabaseClient,
+  input: { businessId: string; saleId: string; documentType: 2 | 3; idempotencyKey: string },
+) {
+  return callGateway<CloudCorrectionReservation>(supabase, { action: "reserve-correction", ...input });
+}
+
+export type CloudCorrectionInput = {
+  businessId: string;
+  posRecordId: string;
+  saleId: string;
+  correctionCouponId: number;
+  originalCouponId: number;
+  originalTransactionId: string;
+  documentType: 2 | 3;
+  idempotencyKey: string;
+  details: string;
+  signature: string;
+  certificatePem: string;
+  nuiKf: string;
+  dailyNumber: number;
+  unixTime: number;
+  citizenPayload: string;
+  citizenSignature: string;
+  offlineIssuedAt: string | null;
+};
+
+export function submitCloudCorrection(supabase: SupabaseClient, input: CloudCorrectionInput) {
+  return callGateway<CloudAtkSubmission & { qrSvgBase64: string; persisted: true }>(supabase, {
+    action: "correction", ...input,
+  });
+}
+
+export function queueCloudCorrection(supabase: SupabaseClient, input: CloudCorrectionInput & { offlineIssuedAt: string }) {
+  return callGateway<{ status: "queued"; recoveryDeadlineAt: string; environment: "ATK TEST"; productionEnabled: false }>(
+    supabase, { action: "queue-correction", ...input },
+  );
+}
