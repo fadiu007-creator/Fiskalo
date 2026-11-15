@@ -50,7 +50,8 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Owner-only sales/VAT reports with Kosovo timezone/DST-safe date filters and CSV export; read-only report RPC is migration 0032.
 - [x] Article 26(4) authority-requested untransmitted-coupon export: owner-only, request-reference gated, audited, with signed POS/CitizenCoupon evidence in CSV and print-to-PDF; migration 0033.
 - [x] POS-wide connectivity outage clock persisted in IndexedDB; subsequent queued coupons share the first observed outage timestamp and 48-hour deadline.
-- [x] Apply Basic catalogue constraints (0030), split-tender RPC (0031), owner sales report (0032), authority export (0033), trigger-only RPC hardening (0034) and Full invoice-line ATK snapshot controls (`supabase/full-migrations/fiskalo_full_invoice_item_atk_snapshots.sql`).
+- [x] Apply Basic migrations 0030–0036: official catalogue constraints, split tender, owner reports, authority export, trigger-only RPC hardening and Application-ID-bound certificate history.
+- [x] Apply Full migrations in `supabase/full-migrations/`: server-trusted fiscal writes, invoice-line ATK snapshots (including VAT refresh), Application-ID-bound certificate history and signed CitizenCoupon QR storage.
 - [ ] Complete genuinely local-first disconnected checkout. The current checkout still calls Supabase before the offline branch, so it cannot create a new sale when internet/Supabase is unavailable.
 - [ ] Implement the Article 44 notification/evidence path and operational deadline escalation; the outage clock is implemented, but full offline sale issuance and ATK recovery evidence are not.
 - [x] Document Article 45 approved pre-numbered paper-booklet fallback; operational workflow remains to be built.
