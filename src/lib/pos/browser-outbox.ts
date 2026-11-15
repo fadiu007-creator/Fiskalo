@@ -21,7 +21,7 @@ export type BrowserFiscalOutboxItem = {
   issuedAtUtc: string;
   offlineIssuedAtUtc: string | null;
   recoveryDeadlineUtc: string;
-  state: "prepared" | "accepted" | "queued" | "needs_reconciliation" | "rejected";
+  state: "prepared" | "accepted" | "queued" | "cloud_queued" | "needs_reconciliation" | "rejected";
   transactionId: string | null;
   lastError: string | null;
 };
