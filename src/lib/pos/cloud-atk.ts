@@ -17,11 +17,13 @@ export type CloudAtkSubmission = GatewayBase & {
 export class CloudAtkError extends Error {
   readonly transactionId: string | null;
   readonly acceptedButNotPersisted: boolean;
-  constructor(message: string, transactionId: string | null = null, acceptedButNotPersisted = false) {
+  readonly notDelivered: boolean;
+  constructor(message: string, transactionId: string | null = null, acceptedButNotPersisted = false, notDelivered = false) {
     super(message);
     this.name = "CloudAtkError";
     this.transactionId = transactionId;
     this.acceptedButNotPersisted = acceptedButNotPersisted;
+    this.notDelivered = notDelivered;
   }
 }
 
@@ -51,6 +53,7 @@ async function callGateway<T>(
       message,
       typeof record.transactionId === "string" ? record.transactionId : null,
       record.status === "accepted_not_persisted",
+      record.notDelivered === true,
     );
   }
   return payload as T;
@@ -87,7 +90,6 @@ export function submitCloudTestCoupon(
     details: string;
     signature: string;
     nuiKf: string;
-    verificationNo: string;
     citizenPayload: string;
     citizenSignature: string;
     dailyNumber: number;
