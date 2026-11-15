@@ -504,44 +504,6 @@ export async function POST(request: Request) {
         }, { headers: { "Cache-Control": "no-store" } });
       }
 
-      if (action === "queue-coupon") {
-        if (!offlineIssuedAt) return jsonError("Offline issue timestamp is required for the recovery queue.", 400);
-        const queueResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_queue_atk_receipt_v2", {
-          method: "POST",
-          headers: {
-            apikey: serviceRoleKey,
-            Authorization: "Bearer " + serviceRoleKey,
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            p_actor_id: user.id,
-            p_business_id: businessId,
-            p_sale_id: saleId,
-            p_pos_record_id: posRecordId,
-            p_coupon_id: couponId,
-            p_idempotency_key: idempotencyKey,
-            p_signed_payload: details,
-            p_signature: signature,
-            p_nui_kf: nuiKf,
-            p_verification_no: verificationNo,
-            p_citizen_payload: citizenPayload,
-            p_citizen_signature: citizenSignature,
-            p_daily_number: dailyNumber,
-            p_offline_issued_at: offlineIssuedAt,
-            p_qr_svg_base64: qrSvgBase64,
-          }),
-          cache: "no-store",
-        });
-        if (!queueResponse.ok) return jsonError("Signed offline coupon could not be saved to the trusted ATK recovery queue.", 502);
-        return NextResponse.json({
-          status: "queued",
-          recoveryDeadlineAt: new Date(Date.parse(offlineIssuedAt) + 48 * 60 * 60 * 1000).toISOString(),
-          environment: "ATK TEST",
-          productionEnabled: false,
-        }, { headers: { "Cache-Control": "no-store" } });
-      }
-
       const existingQuery = new URLSearchParams({
         select: "submission_state,atk_transaction_id",
         idempotency_key: "eq." + idempotencyKey,
