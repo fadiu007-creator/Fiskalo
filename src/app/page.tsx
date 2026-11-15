@@ -447,7 +447,8 @@ export default function Home(){
       setMessage("Ky shfletues nuk ka çelësin privat dhe certifikatën që përputhen për këtë POS. Kryej onboarding-un në këtë pajisje.");
       return;
     }
-    const certificatePem=await getPosCertificatePem(identity);
+    let certificatePem:string;
+    try{certificatePem=await getPosCertificatePem(identity)}catch(error){setMessage(error instanceof Error?error.message:"Certifikata e POS-it nuk u lexua.");return;}
     const checkoutIdempotencyKey=checkoutKey||crypto.randomUUID();
     setCheckoutKey(checkoutIdempotencyKey);setCheckoutAttempted(true);
     try{
@@ -505,7 +506,7 @@ export default function Home(){
       const signatureBase64=await signAtkBase64Payload(identity,detailsBase64);
       const citizenPayload=encodeAtkBase64(encodeAtkCitizenCoupon({
         businessId:business.nui,couponId:sale.coupon_id,branchId:pos.branch_id,posId:pos.pos_id,
-        verificationNo:pos.verification_no,type:1,unixTime:coupon.unixTime,
+        verificationNo:nuiKf,type:1,unixTime:coupon.unixTime,
         totalCents:coupon.totalCents,taxGroups,totalTaxCents:coupon.totalTaxCents,totalNoTaxCents:coupon.totalNoTaxCents
       }));
       const citizenSignature=await signAtkBase64Payload(identity,citizenPayload);
@@ -519,13 +520,30 @@ export default function Home(){
         idempotencyKey,businessId:business.id,saleId,posRecordId:pos.id,couponId:Number(sale.coupon_id),documentType:1,
         detailsBase64,signatureBase64,certificatePem,citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
         citizenQrPayload,nuiKf,dailyNumber:Number(sale.daily_number),qrSvg:qrSvgBase64,
-        issuedAtUtc,recoveryDeadlineUtc,state:"prepared",transactionId:null,lastError:null
+        issuedAtUtc,offlineIssuedAtUtc:offlineNow?issuedAtUtc:null,recoveryDeadlineUtc,
+        state:offlineNow?"queued":"prepared",transactionId:null,lastError:null
       });
-      const certificatePem=await getPosCertificatePem(identity);
+      if(offlineNow){
+        const offlineReceipt:SaleRecord={
+          ...sale,
+          items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
+          transaction_id:null,nui_kf:nuiKf,daily_number:Number(sale.daily_number),submission_state:"queued",
+          offline_issued_at:issuedAtUtc,recovery_deadline_at:recoveryDeadlineUtc,qr_svg_base64:qrSvgBase64,
+          pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+          unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,unit_name:pos.label,
+          business_address:pos.location,operator_name:sale.operator_name??operatorName.trim(),
+          operator_identifier:sale.operator_identifier??null,document_type:"SHITJE",is_offline:true
+        };
+        setReceipt(offlineReceipt);
+        setMessage("Shitja u ruajt. Pajisja është pa internet; kuponi i nënshkruar është në radhën lokale dhe do të dërgohet kur lidhja të rikthehet, brenda 48 orëve.");
+        setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+        return;
+      }
       const fiscal=await submitCloudTestCoupon(supabase,{
         businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
         details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,citizenPayload,citizenSignature,
-        dailyNumber:Number(sale.daily_number),certificatePem,offlineIssuedAt:null
+        dailyNumber:Number(sale.daily_number),offlineIssuedAt:null
       });
       await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null,qrSvg:fiscal.qrSvgBase64});
       const receiptRecord:SaleRecord={
