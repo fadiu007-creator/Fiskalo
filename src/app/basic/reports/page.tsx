@@ -212,7 +212,7 @@ export default function ReportsPage() {
 
   function downloadUntransmittedCsv() {
     if (!untransmittedDocuments.length || !exportMeta) return;
-    const csv = buildUntransmittedExportCsv(untransmittedDocuments);
+    const csv = buildUntransmittedExportCsv(untransmittedDocuments, exportMeta.reference);
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
