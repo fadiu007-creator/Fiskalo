@@ -164,14 +164,45 @@ async function supabaseRequest(path: string, token: string, anonKey: string) {
   return payload;
 }
 
+class AtkTransportFailure extends Error {
+  readonly delivery: "not_delivered" | "unknown";
+  constructor(delivery: "not_delivered" | "unknown", message: string) {
+    super(message);
+    this.name = "AtkTransportFailure";
+    this.delivery = delivery;
+  }
+}
+
+function transportFailureCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+  const value = error as { code?: unknown; cause?: unknown; message?: unknown };
+  if (typeof value.code === "string") return value.code.toUpperCase();
+  const cause = value.cause && typeof value.cause === "object" ? value.cause as { code?: unknown; message?: unknown } : null;
+  if (cause && typeof cause.code === "string") return cause.code.toUpperCase();
+  const message = [cause?.message, value.message].filter(v => typeof v === "string").join(" ");
+  const match = message.match(/\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ERR_TLS_CERT_ALTNAME_INVALID|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY_LEAF_SIGNATURE)\b/i);
+  return match ? match[1].toUpperCase() : "";
+}
+
 async function atkPost<T extends JsonRecord>(path: string, body: JsonRecord): Promise<T> {
-  const response = await fetch(ATK_TEST_ORIGIN + path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-    signal: AbortSignal.timeout(20_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(ATK_TEST_ORIGIN + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (error) {
+    const code = transportFailureCode(error);
+    const safeBeforeDelivery = ["ENOTFOUND","EAI_AGAIN","ECONNREFUSED","EHOSTUNREACH","ENETUNREACH",
+      "ERR_TLS_CERT_ALTNAME_INVALID","CERT_HAS_EXPIRED","UNABLE_TO_VERIFY_LEAF_SIGNATURE"].includes(code);
+    if (safeBeforeDelivery) {
+      throw new AtkTransportFailure("not_delivered", "ATK TEST could not be reached before request delivery (" + code + "). The signed coupon may be safely queued for recovery.");
+    }
+    throw new AtkTransportFailure("unknown", "ATK TEST delivery outcome is unknown. Do not resubmit until reconciled.");
+  }
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     // Do not reflect ATK response bodies: they may contain identifiers or certificate data.
