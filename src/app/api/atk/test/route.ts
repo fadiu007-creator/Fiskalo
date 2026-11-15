@@ -329,6 +329,29 @@ export async function POST(request: Request) {
       return jsonError("Business record was not found.", 404);
     }
     const business = businesses[0];
+    if (action === "reserve-correction") {
+      const saleId = requiredString(body.saleId, "Original sale ID", 64);
+      const documentType = requiredPositiveInteger(body.documentType, "Correction document type");
+      if (documentType !== 2 && documentType !== 3) return jsonError("Correction type must be Cancel (2) or Return (3).", 400);
+      const idempotencyKey = requiredString(body.idempotencyKey, "Correction idempotency key", 256);
+      const reserveResponse = await fetch(restOrigin + "rpc/fiskalo_basic_reserve_atk_correction", {
+        method: "POST",
+        headers: { apikey: anonKey, Authorization: "Bearer " + token, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          p_business_id: businessId,
+          p_sale_id: saleId,
+          p_document_type: documentType,
+          p_idempotency_key: idempotencyKey,
+        }),
+        cache: "no-store",
+      });
+      const reservation: unknown = await reserveResponse.json().catch(() => null);
+      if (!reserveResponse.ok || !isRecord(reservation)) return jsonError("ATK correction could not reserve a unique coupon and daily number.", 409);
+      return NextResponse.json({ ...reservation, environment: "ATK TEST", productionEnabled: false }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
     if (action === "verify") {
       const nui = requiredPositiveInteger(business.nui, "Business NUI");
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
