@@ -457,7 +457,7 @@ export default function Home(){
       await saveFiscalOutboxItem({
         businessId:business.id,posRecordId:pos.id,saleId:sale.id,couponId:correctionCouponId,
         originalCouponId,originalTransactionId,idempotencyKey,detailsBase64,signatureBase64,
-        certificatePem,nuiKf,verificationNo:nuiKf,citizenPayloadBase64,citizenSignatureBase64,
+        certificatePem,nuiKf,verificationNo:nuiKf,citizenPayloadBase64,citizenSignatureBase64,citizenQrPayload:citizenPayloadBase64+"|"+citizenSignatureBase64,
         dailyNumber,issuedAtUtc,offlineIssuedAtUtc:null,recoveryDeadlineUtc,
         documentType,state:"prepared",qrSvg:qrSvgBase64
       });
