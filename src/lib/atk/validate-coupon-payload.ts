@@ -1,4 +1,6 @@
 type ProtoValue = bigint | Uint8Array;
+import { isAtkUnitCode } from "@/lib/atk/product-units";
+import { isAtkItemCategoryCode } from "@/lib/atk/product-categories";
 type ProtoField = { number: number; wire: number; value: ProtoValue };
 
 function readVarint(bytes: Uint8Array, start: number): { value: bigint; next: number } {
@@ -95,7 +97,7 @@ function cents(value: number): bigint {
 }
 
 function paymentType(method: string): number {
-  const values: Record<string, number> = { cash: 1, card: 2, bank_transfer: 6 };
+  const values: Record<string, number> = { cash: 1, card: 2, voucher: 3, cheque: 4, crypto: 5, bank_transfer: 6 };
   const result = values[method];
   if (!result) throw new Error("Unsupported invoice payment method.");
   return result;
@@ -200,7 +202,7 @@ export function validateAtkCouponPayload(details: string, context: CouponValidat
     const expectedItems = context.lines.map((line) => {
       if (!line.product_id) throw new Error("An invoice line has no linked Fiskalo product.");
       const product = productMap.get(line.product_id);
-      if (!product?.atk_unit_code || !product.atk_tax_code || !product.atk_item_category_code) {
+      if (!product?.atk_unit_code || !isAtkUnitCode(product.atk_unit_code) || !product.atk_tax_code || !product.atk_item_category_code || !isAtkItemCategoryCode(product.atk_item_category_code)) {
         throw new Error("An invoice product is missing its required ATK catalogue mapping.");
       }
       const vat = Number(line.vat_rate);
@@ -246,7 +248,7 @@ export function validateAtkCouponPayload(details: string, context: CouponValidat
       const nested = parseFields(payload);
       const type = Number(asUint(nested, 1));
       const amount = asUint(nested, 2);
-      if (![1, 2, 6].includes(type) || amount <= BigInt(0) || actualPayments.has(type)) {
+      if (![1, 2, 3, 4, 5, 6].includes(type) || amount <= BigInt(0) || actualPayments.has(type)) {
         throw new Error("Coupon payment allocations are invalid or duplicated.");
       }
       actualPayments.set(type, amount);
