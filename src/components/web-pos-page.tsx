@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { submitPaidInvoiceToATK } from "@/lib/atk/submit-paid-invoice";
+import { paymentMethodLabel } from "@/lib/atk/payment-allocation";
 import { FiscalQrCode } from "@/components/fiscal-qr-code";
 import { ThermalPrinterSettings } from "@/components/thermal-printer-settings";
 import { printWithAgent, readPrinterSettings } from "@/lib/printing/thermal-printer-client";
@@ -427,7 +428,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
             phone: business?.phone ?? null,
             invoiceNumber: String(invoiceNumber ?? ""),
             issuedAt: new Date().toLocaleString("sq-XK"),
-            paymentMethod: paymentMethod === "cash" ? "PARA NE DORE" : paymentMethod === "card" ? "KARTELE" : "TRANSFER BANKAR",
+            paymentMethod: paymentMethod === "credit" ? "ME AFAT" : paymentMethodLabel(paymentMethod),
             items: receiptLines,
             subtotal: receiptSubtotal,
             vatTotal: receiptVatTotal,
@@ -489,7 +490,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
       </div>
       <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
         {offlineDrafts.map((draft) => <div key={draft.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-          <div><strong>{draft.cart.length} artikuj</strong><div style={{ color: "var(--muted)", fontSize: 11 }}>{new Date(draft.createdAt).toLocaleString("sq-XK")} · {draft.paymentMethod === "credit" ? "Me afat" : draft.paymentMethod === "cash" ? "Para në dorë" : draft.paymentMethod}</div></div>
+          <div><strong>{draft.cart.length} artikuj</strong><div style={{ color: "var(--muted)", fontSize: 11 }}>{new Date(draft.createdAt).toLocaleString("sq-XK")} · {draft.paymentMethod === "credit" ? "Me afat" : paymentMethodLabel(draft.paymentMethod)}</div></div>
           <div style={{ display: "flex", gap: 7 }}><button type="button" style={secondary} onClick={() => restoreOrderDraft(draft)}>Rikthe në shportë</button><button type="button" style={{ ...secondary, color: "#982d25" }} onClick={() => void removeOrderDraft(draft.id)}>Fshije</button></div>
         </div>)}
       </div>
@@ -557,7 +558,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
           </label>
           <label style={{ display: "grid", gap: 5, fontSize: 12, fontWeight: 650 }}>Mënyra e pagesës
             <select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value); setConfirmedPayment(false); }} style={field}>
-              <option value="cash">Para në dorë</option><option value="card">Kartelë (e pranuar manualisht)</option><option value="bank_transfer">Transfer bankar (i konfirmuar)</option><option value="credit">Me afat — pa pagesë</option>
+              <option value="cash">Para në dorë</option><option value="card">Kartelë (e pranuar manualisht)</option><option value="bank_transfer">Transfer bankar / tjetër</option><option value="voucher">Vauçer</option><option value="cheque">Çek</option><option value="crypto">Kriptovalutë</option><option value="credit">Me afat — pa pagesë</option>
             </select>
           </label>
           
