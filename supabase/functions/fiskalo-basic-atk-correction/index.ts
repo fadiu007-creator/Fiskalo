@@ -29,6 +29,7 @@ const baseHeaders = {
 };
 
 type JsonObject = Record<string, unknown>;
+type SupabaseAdminClient = ReturnType<typeof createClient<any>>;
 type SubmissionState = "accepted" | "rejected" | "needs_reconciliation";
 
 function json(status: number, body: JsonObject, origin = ""): Response {
@@ -110,12 +111,13 @@ function sameCorrection(existing: JsonObject, expected: {
 }
 
 async function existingIdempotencyResult(
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseAdminClient,
   idempotencyKey: string,
   expected: {
     businessId: string;
     saleId: string;
     originalCouponId: string;
+    originalDocumentId: string;
     correctionCouponId: string;
     documentType: number;
     details: string;
@@ -245,17 +247,6 @@ Deno.serve(async (request) => {
     return json(400, { error: "invalid_correction_payload" }, origin);
   }
 
-  const expectedCorrection = {
-    businessId,
-    saleId,
-    originalCouponId,
-    originalDocumentId: original.id,
-    correctionCouponId,
-    documentType,
-    details,
-    signature,
-  };
-
   const { data: member, error: memberError } = await admin.from("fiskalo_basic_members")
     .select("role")
     .eq("business_id", businessId)
@@ -275,6 +266,17 @@ Deno.serve(async (request) => {
     .maybeSingle();
   if (originalError) return json(500, { error: "original_coupon_lookup_failed" }, origin);
   if (!original) return json(409, { error: "original_sale_not_confirmed_by_atk" }, origin);
+
+  const expectedCorrection = {
+    businessId,
+    saleId,
+    originalCouponId,
+    originalDocumentId: original.id,
+    correctionCouponId,
+    documentType,
+    details,
+    signature,
+  };
 
   const { data: sale, error: saleError } = await admin.from("fiskalo_basic_sales")
     .select("id,status,pos_id")
