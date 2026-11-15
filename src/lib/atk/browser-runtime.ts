@@ -216,7 +216,7 @@ export async function hasMatchingPosCertificate(identity: BrowserPosIdentity): P
   catch { return false; }
 }
 
-/** Signs SHA-256(UTF8(Base64(Protobuf))) using P-256 ECDSA (WebCrypto P1363 output). */
+/** Signs SHA-256(UTF8(Base64(Protobuf))) and converts WebCrypto P1363 to the DER sequence ATK expects. */
 export async function signAtkBase64Payload(identity: BrowserPosIdentity, detailsBase64: string): Promise<string> {
   const stored = await getStoredKey(posKeyId(identity));
   if (!stored?.certificatePem || !await hasMatchingPosCertificate(identity)) {
@@ -225,7 +225,7 @@ export async function signAtkBase64Payload(identity: BrowserPosIdentity, details
   const signature = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" }, stored.privateKey, encoder.encode(detailsBase64),
   );
-  return base64(new Uint8Array(signature));
+  return base64(rawEcdsaToDer(new Uint8Array(signature)));
 }
 export function generateNuiKf(): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
