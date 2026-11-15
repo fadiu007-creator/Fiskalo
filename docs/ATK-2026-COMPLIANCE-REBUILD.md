@@ -49,7 +49,7 @@ The May 2026 requirements are supplemented by the ATK amendment signed 22 June 2
 ## Implemented database controls (15 November 2026)
 
 - Live Supabase project `zikos` now has validated ATK unit/category/VAT constraints for Basic products and sale-line snapshots, plus Full product master and invoice-line snapshots.
-- Full product master and invoice lines now have validated ATK unit/category/tax-class constraints; Full browser roles have no write privileges on fiscal acceptance/events and no access to the server-only POS certificate table. The Full snapshot migration is stored separately under `supabase/full-migrations/` because the repository does not include the entire historical Full schema baseline.
+- Full product master and invoice lines now have validated ATK unit/category/tax-class constraints; Full browser roles have no write privileges on fiscal acceptance/events and no access to the server-only POS certificate table. Full correction routes verify saved snapshots against the accepted original coupon and can recover legacy mappings only through strict, unambiguous Protobuf item matching. The Full snapshot migration is stored separately under `supabase/full-migrations/` because the repository does not include the entire historical Full schema baseline.
 - Invoice-line trigger snapshots the product's official ATK codes at insert/update; coupon submission and corrections use those snapshots rather than mutable product-master values.
 - Exact observed legacy aliases `cope` and `Tjera` were normalized to `CP` and `TT`; no fuzzy or broad automatic remapping was applied.
 - Live trigger smoke test updated one draft line inside a transaction, verified the three ATK snapshots, and rolled the transaction back.
