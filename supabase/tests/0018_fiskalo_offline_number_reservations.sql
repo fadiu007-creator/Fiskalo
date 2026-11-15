@@ -31,6 +31,8 @@ begin
   if position('fiskalo_private.fiskalo_basic_reserve_offline_coupon_ids' in def)=0 then
     raise exception 'Public coupon reservation RPC must delegate to private implementation';
   end if;
+  select pg_get_functiondef('fiskalo_private.fiskalo_basic_reserve_offline_coupon_ids(uuid,uuid,integer)'::regprocedure) into def;
+  if position('role=''owner''' in def)=0 then raise exception 'Coupon ID reservations must be owner-only'; end if;
 
   fn:=to_regprocedure('public.fiskalo_basic_reserve_offline_daily_numbers(uuid,uuid,date,integer)');
   if fn is null or not has_function_privilege('authenticated',fn,'EXECUTE')
@@ -38,8 +40,8 @@ begin
     raise exception 'Daily number reservation RPC must be authenticated-only';
   end if;
   select pg_get_functiondef('fiskalo_private.fiskalo_basic_reserve_offline_daily_numbers(uuid,uuid,date,integer)'::regprocedure) into def;
-  if position('Europe/Belgrade' in def)=0 then
-    raise exception 'Private daily reservation must enforce Kosovo business date';
+  if position('Europe/Belgrade' in def)=0 or position('role=''owner''' in def)=0 then
+    raise exception 'Daily reservation must enforce Kosovo date and owner authorization';
   end if;
 
   fn:=to_regprocedure('public.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid)');
