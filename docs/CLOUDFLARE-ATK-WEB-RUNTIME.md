@@ -13,8 +13,9 @@ This branch replaces the Fiskalo web checkout's localhost dependency with a same
 - Direct online submission calls the fixed ATK TEST endpoint. A positive ATK `transaction_id` is required before the trusted server-side fiscal ledger marks the document accepted.
 - A response known to be not delivered can be placed into the durable Supabase queue. An ambiguous timeout is never blindly retried.
 - A browser-local IndexedDB outbox preserves signed documents if connectivity drops after the paid sale is committed. On reconnect it uploads only never-sent documents to the trusted server queue.
-- `workers/atk-recovery.ts` is a separate Cloudflare Worker scheduled every five minutes. It processes only `queued` Sale documents, only before their 48-hour deadline, and retries only network failures positively classified as not delivered. Ambiguous results move to `needs_reconciliation`; HTTP 4xx moves to `rejected`; ATK acceptance is recorded using the service-role-only RPC.
-- The old browser-callable acceptance RPC is revoked. Accepted status is written only through the trusted server-side function after ATK returns a valid uint64 transaction ID.
+- `workers/atk-recovery.ts` is a separate Cloudflare Worker scheduled every five minutes. It processes `queued` Sale, Cancel and full Return documents, only before their 48-hour deadline, and retries only network failures positively classified as not delivered. Ambiguous results move to `needs_reconciliation`; HTTP 4xx moves to `rejected`; ATK acceptance is recorded using the service-role-only RPC.
+- The old browser-callable acceptance and correction RPCs are revoked. Accepted status is written only through trusted server-side functions after ATK returns a valid uint64 transaction ID.
+- Full Cancel and full Return flows reserve unique correction coupon/daily numbers, reference the accepted original coupon using ATK \`ReferenceNo\`, and persist correction documents in the trusted fiscal journal. Partial returns are not yet supported.
 
 ## Cloudflare configuration
 
@@ -52,7 +53,7 @@ A successful CI build is not ATK acceptance. The following still require deploym
 
 1. Deploy the main app changes and the scheduled recovery Worker to Cloudflare.
 2. Run real ATK TEST onboarding on a browser/POS, verify the issued certificate and public-key match.
-3. Submit real Sale, Cancel and Return documents and confirm ATK responses. The current Basic web checkout implements Sale; correction workflows still need the same browser-signing and trusted-ledger integration.
+3. Submit real Sale, Cancel and full Return documents and confirm ATK responses, transaction IDs, ReferenceNo values and fiscal journal records.
 4. Exercise the 48-hour queue against real ATK TEST transport failures and inspect Cloudflare cron logs plus Supabase fiscal journal rows.
 5. Confirm that the official ATK test environment accepts the exact CSR subject and signature/protobuf format produced by the browser implementation.
 
