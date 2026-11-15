@@ -90,6 +90,7 @@ export function submitCloudTestCoupon(
     citizenSignature: string;
     dailyNumber: number;
     qrSvgBase64: string;
+    certificatePem: string;
     offlineIssuedAt: string | null;
   },
 ) {
