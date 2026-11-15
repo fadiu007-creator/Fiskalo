@@ -105,3 +105,5 @@ grant execute on function public.fiskalo_server_register_atk_pos_certificate_v1(
 
 comment on column public.fiskalo_atk_pos_certificates.application_id is
   'ATK TEST Application ID bound to this issued certificate; corrections must select the certificate matching the original accepted coupon.';
+
+notify pgrst, 'reload schema';
