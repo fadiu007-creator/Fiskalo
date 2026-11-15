@@ -67,6 +67,15 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+function strictTransaction(db: IDBDatabase, storeName: string): IDBTransaction {
+  try {
+    return db.transaction(storeName, "readwrite", { durability: "strict" });
+  } catch {
+    // Safari and older embedded browsers may not implement IDB durability options.
+    return db.transaction(storeName, "readwrite");
+  }
+}
+
 function isEncryptedRecord(value: unknown): value is EncryptedRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<EncryptedRecord>;
@@ -92,7 +101,7 @@ async function writeOutboxRecordIfRevision(
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite", { durability: "strict" });
+      const tx = strictTransaction(db, STORE_NAME);
       const store = tx.objectStore(STORE_NAME);
       let conflict = false;
       let missing = false;
@@ -237,7 +246,7 @@ async function writeOutageRecordIfRevision(
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(OUTAGE_STORE_NAME, "readwrite", { durability: "strict" });
+      const tx = strictTransaction(db, OUTAGE_STORE_NAME);
       const store = tx.objectStore(OUTAGE_STORE_NAME);
       let conflict = false;
       let missing = false;
