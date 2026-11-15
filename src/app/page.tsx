@@ -481,7 +481,6 @@ export default function Home(){
         group.base+=cents(line.line_net);group.tax+=cents(line.line_vat);grouped.set(line.atk_vat_code,group);
       }
       const paymentType=payment==="cash"?1:payment==="card"?2:6;
-      const verificationNo=generateNuiKf();
       if(!sale.daily_number||Number(sale.daily_number)<=0)throw new Error("Numri ditor i kuponit nuk u caktua nga baza e të dhënave.");
       const taxGroups=Array.from(grouped.values()).map(g=>({taxRate:g.taxRate,totalForTaxCents:g.base,totalTaxCents:g.tax}));
       // ATK's POS verification code is used for certificate issuance. The per-coupon
@@ -516,41 +515,62 @@ export default function Home(){
       const qrSvgBase64=encodeAtkBase64(new TextEncoder().encode(qrSvg));
       const issuedAtUtc=new Date().toISOString();
       const recoveryDeadlineUtc=new Date(Date.parse(issuedAtUtc)+48*60*60*1000).toISOString();
-      const offlineNow=!navigator.onLine;
       await saveFiscalOutboxItem({
         idempotencyKey,businessId:business.id,saleId,posRecordId:pos.id,couponId:Number(sale.coupon_id),documentType:1,
         detailsBase64,signatureBase64,certificatePem,citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
-        citizenQrPayload,nuiKf,verificationNo,dailyNumber:Number(sale.daily_number),qrSvg:qrSvgBase64,
-        issuedAtUtc,offlineIssuedAtUtc:offlineNow?issuedAtUtc:null,recoveryDeadlineUtc,
-        state:offlineNow?"queued":"prepared",transactionId:null,lastError:null
+        citizenQrPayload,nuiKf,verificationNo:nuiKf,dailyNumber:Number(sale.daily_number),qrSvg:qrSvgBase64,
+        issuedAtUtc,offlineIssuedAtUtc:null,recoveryDeadlineUtc,
+        state:"prepared",transactionId:null,lastError:null
       });
-      if(offlineNow){
-        const offlineReceipt:SaleRecord={
-          ...sale,
-          items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
-          transaction_id:null,nui_kf:nuiKf,daily_number:Number(sale.daily_number),submission_state:"queued",
-          offline_issued_at:issuedAtUtc,recovery_deadline_at:recoveryDeadlineUtc,qr_svg_base64:qrSvgBase64,
-          pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
-          unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,unit_name:pos.label,
-          business_address:pos.location,operator_name:sale.operator_name??operatorName.trim(),
-          operator_identifier:sale.operator_identifier??null,document_type:"SHITJE",is_offline:true
-        };
-        setReceipt(offlineReceipt);
-        setMessage("Shitja u ruajt. Pajisja është pa internet; kuponi i nënshkruar është në radhën lokale dhe do të dërgohet kur lidhja të rikthehet, brenda 48 orëve.");
-        setCart({});setCheckoutKey("");setCheckoutAttempted(false);
-        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
-        return;
+      let fiscal;
+      try {
+        fiscal=await submitCloudTestCoupon(supabase,{
+          businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
+          details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,citizenPayload,citizenSignature,
+          dailyNumber:Number(sale.daily_number),offlineIssuedAt:null
+        });
+      } catch (submitError) {
+        if (submitError instanceof CloudAtkError && submitError.notDelivered) {
+          const offlineIssuedAtUtc=new Date().toISOString();
+          const offlineDeadline=new Date(Date.parse(offlineIssuedAtUtc)+48*60*60*1000).toISOString();
+          const {error:queueError}=await supabase.rpc("fiskalo_basic_store_offline_receipt_v2",{
+            p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,p_idempotency_key:idempotencyKey,
+            p_signed_payload:detailsBase64,p_signature:signatureBase64,p_nui_kf:nuiKf,
+            p_citizen_payload:citizenPayload,p_citizen_signature:citizenSignature,
+            p_daily_number:Number(sale.daily_number),p_offline_issued_at:offlineIssuedAtUtc,p_qr_svg_base64:qrSvgBase64
+          });
+          if(queueError)throw new Error("ATK could not be reached before delivery, but the signed coupon could not be saved to the cloud recovery queue: "+queueError.message);
+          await updateFiscalOutboxItem(idempotencyKey,{
+            state:"queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,lastError:submitError.message
+          });
+          const offlineReceipt:SaleRecord={
+            ...sale,
+            items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
+            transaction_id:null,nui_kf:nuiKf,verification_no:nuiKf,daily_number:Number(sale.daily_number),
+            submission_state:"queued",offline_issued_at:offlineIssuedAtUtc,recovery_deadline_at:offlineDeadline,
+            qr_svg_base64:qrSvgBase64,pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+            unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,unit_name:pos.label,
+            business_address:pos.location,operator_name:sale.operator_name??operatorName.trim(),
+            operator_identifier:sale.operator_identifier??null,document_type:"SHITJE",is_offline:true
+          };
+          setReceipt(offlineReceipt);
+          setMessage("ATK TEST nuk u arrit dhe kërkesa nuk u dërgua. Kuponi i nënshkruar u ruajt në radhën cloud; Cloudflare do ta provojë sërish brenda afatit 48-orësh.");
+          setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+          sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+          await loadWorkspace(user!.id);
+          return;
+        }
+        throw submitError;
       }
-      const fiscal=await submitCloudTestCoupon(supabase,{
         businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
-        details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,verificationNo:nuiKf,citizenPayload,citizenSignature,
+        details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,citizenPayload,citizenSignature,
         dailyNumber:Number(sale.daily_number),offlineIssuedAt:null
       });
       await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null,qrSvg:fiscal.qrSvgBase64});
       const receiptRecord:SaleRecord={
         ...sale,
         items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
-        transaction_id:fiscal.transactionId,nui_kf:nuiKf,verification_no:verificationNo,daily_number:Number(sale.daily_number),
+        transaction_id:fiscal.transactionId,nui_kf:nuiKf,verification_no:nuiKf,daily_number:Number(sale.daily_number),
         submission_state:"accepted",offline_issued_at:null,recovery_deadline_at:null,
         qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
         unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,unit_name:pos.label,
