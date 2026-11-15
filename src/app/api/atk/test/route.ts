@@ -822,15 +822,22 @@ export async function POST(request: Request) {
       const dailyNumber = requiredPositiveInteger(body.dailyNumber, "Daily coupon number");
       if (dailyNumber !== requiredPositiveInteger(sales[0].daily_number, "Saved daily coupon number")) return jsonError("Daily coupon number does not match the saved sale.", 409);
       const certResponse = await fetch(restOrigin + "fiskalo_basic_pos_certificates?" + new URLSearchParams({
-        select: "certificate_pem,business_id,pos_id",
+        select: "certificate_pem,business_id,pos_id,application_id,spki_sha256",
         business_id: "eq." + businessId,
         pos_id: "eq." + posRecordId,
+        application_id: "eq." + requiredPositiveInteger(pos.application_id, "Application ID"),
+        status: "eq.active",
+        revoked_at: "is.null",
         limit: "1",
       }).toString(), { headers: { apikey: serviceRoleKey, Authorization: "Bearer " + serviceRoleKey }, cache: "no-store" });
       if (!certResponse.ok) return jsonError("Could not load the server-registered ATK certificate for this POS.", 502);
       const certRows: unknown = await certResponse.json();
-      if (!Array.isArray(certRows) || certRows.length !== 1 || !isRecord(certRows[0])) return jsonError("No ATK-issued public certificate is registered for this POS.", 409);
+      if (!Array.isArray(certRows) || certRows.length !== 1 || !isRecord(certRows[0])) return jsonError("No active ATK certificate is registered for the current POS Application ID.", 409);
       const certificatePem = requiredString(certRows[0].certificate_pem, "ATK-issued POS public certificate", 16_384);
+      if (Number(certRows[0].application_id) !== requiredPositiveInteger(pos.application_id, "Application ID") ||
+          await sha256Hex(getCertificateSpki(certificatePem)) !== certRows[0].spki_sha256) {
+        return jsonError("The active ATK certificate is not bound to this POS Application ID or its SPKI fingerprint is invalid.", 409);
+      }
       if (String(body.certificatePem).trim() !== certificatePem.trim()) return jsonError("Browser certificate does not match the server-registered ATK certificate for this POS.", 409);
       const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
       const citizenIdentity = readCouponIdentity(citizenPayload);
