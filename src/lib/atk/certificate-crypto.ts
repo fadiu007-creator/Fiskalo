@@ -102,7 +102,10 @@ export async function verifySignedBase64Payload(
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  // Copy into an owned ArrayBuffer; TS 5.9 models Uint8Array input as ArrayBufferLike,
+  // while WebCrypto BufferSource requires an ArrayBuffer-backed view.
+  const input = new Uint8Array(bytes);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input.buffer));
   return Array.from(digest, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
