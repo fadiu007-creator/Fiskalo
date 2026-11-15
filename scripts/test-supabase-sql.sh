@@ -53,6 +53,7 @@ migrations=(
   "0031_fiskalo_basic_split_tender.sql"
   "0032_fiskalo_basic_owner_sales_report.sql"
   "0033_fiskalo_basic_authority_export.sql"
+  "0034_fiskalo_restrict_trigger_rpc_surface.sql"
 )
 
 for migration in "${migrations[@]}"; do
@@ -73,6 +74,7 @@ for migration in "${migrations[@]}"; do
     0031_fiskalo_basic_split_tender.sql) run_test "0031_fiskalo_basic_split_tender.sql" ;;
     0032_fiskalo_basic_owner_sales_report.sql) run_test "0032_fiskalo_basic_owner_sales_report.sql" ;;
     0033_fiskalo_basic_authority_export.sql) run_test "0033_fiskalo_basic_authority_export.sql" ;;
+    0034_fiskalo_restrict_trigger_rpc_surface.sql) run_test "0034_fiskalo_restrict_trigger_rpc_surface.sql" ;;
   esac
 done
 
