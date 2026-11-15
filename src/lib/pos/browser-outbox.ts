@@ -102,6 +102,12 @@ export type PosConnectivityOutage = {
   startedAt: string;
 };
 
+/** Preserve the first outage time until a successful recovery sync clears it. */
+export function resolvePosOutageStart(existingStart: string | null | undefined, detectedAt: string): string {
+  if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
+  return existingStart && Number.isFinite(Date.parse(existingStart)) ? existingStart : detectedAt;
+}
+
 /** Use the first observed connectivity-loss time for every coupon in one POS outage. */
 export function outageRecoveryDeadline(startedAt: string): string {
   const timestamp = Date.parse(startedAt);
@@ -130,12 +136,14 @@ export async function getOrStartPosConnectivityOutage(
       const request = store.get(id);
       request.onsuccess = () => {
         const existing = request.result as PosConnectivityOutage | undefined;
-        if (existing && existing.businessId === businessId && existing.posRecordId === posRecordId &&
-            Number.isFinite(Date.parse(existing.startedAt))) {
-          result = existing;
-        } else {
-          store.put(result);
-        }
+        const startedAt = resolvePosOutageStart(
+          existing && existing.businessId === businessId && existing.posRecordId === posRecordId
+            ? existing.startedAt : null,
+          detectedAt,
+        );
+        result = { id, businessId, posRecordId, startedAt };
+        if (!existing || existing.startedAt !== startedAt || existing.businessId !== businessId ||
+            existing.posRecordId !== posRecordId) store.put(result);
       };
       request.onerror = () => reject(request.error ?? new Error("Could not read the POS connectivity outage."));
       tx.oncomplete = () => resolve(result);
