@@ -100,7 +100,6 @@ Deno.test("ATK correction identity must match the reserved original sale and POS
     branchId: "1",
     posId: "2",
     applicationId: "300",
-    verificationNo: "NUIKF12345678901",
     type: 2,
     referenceNo: "8999",
   }));
