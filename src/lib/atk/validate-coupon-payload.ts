@@ -249,10 +249,10 @@ export function validateAtkCouponPayload(details: string, context: CouponValidat
       const nested = parseFields(payload);
       const type = Number(asUint(nested, 1));
       const amount = asUint(nested, 2);
-      if (![1, 2, 3, 4, 5, 6].includes(type) || amount <= BigInt(0) || actualPayments.has(type)) {
-        throw new Error("Coupon payment allocations are invalid or duplicated.");
+      if (![1, 2, 3, 4, 5, 6].includes(type) || amount <= BigInt(0)) {
+        throw new Error("Coupon payment allocations are invalid.");
       }
-      actualPayments.set(type, amount);
+      actualPayments.set(type, (actualPayments.get(type) ?? BigInt(0)) + amount);
     }
     if (actualPayments.size !== expectedPayments.size) throw new Error("Coupon payment methods do not match the payment ledger.");
     for (const [type, amount] of expectedPayments) {
