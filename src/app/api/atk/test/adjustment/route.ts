@@ -143,7 +143,7 @@ export async function POST(request: Request) {
     return rejectBeforeSubmission("original_test_pos_required", "Përdor të njëjtin POS TEST aktiv që e ka dërguar shitjen origjinale. Korrigjimi nuk u dërgua në ATK.");
   }
   const { data: verification, error: verificationError } = await supabase.from("fiskalo_atk_pos_verifications")
-    .select("nui,atk_branch_id,pos_id,application_id")
+    .select("nui,atk_branch_id,pos_id")
     .eq("organization_id", organizationId).eq("pos_installation_id", posInstallationId).maybeSingle();
   if (verificationError || !verification || verification.nui !== nui ||
       Number(verification.atk_branch_id) !== Number(pos.atk_branch_id) ||
@@ -151,21 +151,31 @@ export async function POST(request: Request) {
     return rejectBeforeSubmission("pos_verification_missing", "POS-i origjinal nuk ka verifikim ATK TEST të sinkronizuar në Fiskalo. Korrigjimi nuk u dërgua në ATK.");
   }
 
-  const { data: registeredCertificate, error: certificateError } = await service.from("fiskalo_atk_pos_certificates")
-    .select("certificate_pem,spki_sha256").eq("organization_id", organizationId)
-    .eq("pos_installation_id", posInstallationId).eq("status", "active").is("revoked_at", null)
-    .order("issued_at", { ascending: false }).limit(1).maybeSingle();
-  if (certificateError || !registeredCertificate?.certificate_pem || !registeredCertificate.spki_sha256) {
-    return rejectBeforeSubmission("pos_certificate_not_registered", "Nuk ka certifikatë aktive të regjistruar në server për këtë POS.");
+  const { data: certificateCandidates, error: certificateError } = await service.from("fiskalo_atk_pos_certificates")
+    .select("certificate_pem,spki_sha256,application_id").eq("organization_id", organizationId)
+    .eq("pos_installation_id", posInstallationId).eq("application_id", applicationId)
+    .in("status", ["active", "superseded"]).is("revoked_at", null)
+    .order("issued_at", { ascending: false });
+  if (certificateError || !certificateCandidates?.length) {
+    return rejectBeforeSubmission("original_application_certificate_missing",
+      "Nuk ekziston certifikatë e ruajtur për Application ID të kuponit origjinal. Përdor pajisjen me certifikatën origjinale ose përfundo regjistrimin e certifikatës për këtë Application ID.");
   }
-  try {
-    const fingerprint = await certificateSpkiFingerprint(registeredCertificate.certificate_pem);
-    if (fingerprint !== registeredCertificate.spki_sha256 ||
-        !(await verifySignedBase64Payload(registeredCertificate.certificate_pem, details, signature))) {
-      return rejectBeforeSubmission("pos_signature_invalid", "Nënshkrimi i korrigjimit nuk përputhet me certifikatën e regjistruar për këtë POS.", 403);
+  let originalCertificateMatched = false;
+  for (const candidate of certificateCandidates) {
+    try {
+      const fingerprint = await certificateSpkiFingerprint(candidate.certificate_pem);
+      if (fingerprint === candidate.spki_sha256 &&
+          await verifySignedBase64Payload(candidate.certificate_pem, details, signature)) {
+        originalCertificateMatched = true;
+        break;
+      }
+    } catch {
+      // Try the next retained certificate for this original application ID.
     }
-  } catch {
-    return rejectBeforeSubmission("pos_signature_invalid", "Certifikata ose nënshkrimi i korrigjimit është i pavlefshëm.", 403);
+  }
+  if (!originalCertificateMatched) {
+    return rejectBeforeSubmission("pos_signature_invalid",
+      "Nënshkrimi i korrigjimit nuk përputhet me asnjë certifikatë të vlefshme për Application ID origjinal.", 403);
   }
 
   const [{ data: adjustmentItems, error: adjustmentItemsError }, { data: invoiceItems, error: invoiceItemsError }, { data: organization, error: organizationError }] = await Promise.all([
