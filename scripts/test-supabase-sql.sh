@@ -54,7 +54,7 @@ for migration in "${migrations[@]}"; do
       run_test "0014_fiskalo_basic_checkout_idempotency.sql"
       ;;
     0015_fiskalo_basic_atk_corrections.sql) run_test "0015_fiskalo_basic_atk_corrections.sql" ;;
-    0016_fiskalo_business_operations.sql) run_test "0016_fiskalo_business_operations.sql" ;;
+    0017_fiskalo_atomic_purchase_rpc.sql) run_test "0016_fiskalo_business_operations.sql" ;;
     0022_fiskalo_atk_server_side_correction_acceptance.sql) run_test "0022_fiskalo_atk_server_side_correction_acceptance.sql" ;;
   esac
 done
