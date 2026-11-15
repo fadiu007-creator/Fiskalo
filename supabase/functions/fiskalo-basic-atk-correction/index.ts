@@ -103,6 +103,9 @@ function sameCorrection(existing: JsonObject, expected: {
   documentType: number;
   details: string;
   signature: string;
+  citizenPayload: string;
+  citizenSignature: string;
+  qrSvg: string;
 }): boolean {
   return existing.business_id === expected.businessId &&
     existing.sale_id === expected.saleId &&
@@ -112,7 +115,10 @@ function sameCorrection(existing: JsonObject, expected: {
     existing.parent_document_id === expected.originalDocumentId &&
     existing.nui_kf === expected.nuiKf &&
     existing.signed_payload === expected.details &&
-    existing.signature === expected.signature;
+    existing.signature === expected.signature &&
+    existing.citizen_payload === expected.citizenPayload &&
+    existing.citizen_signature === expected.citizenSignature &&
+    existing.qr_svg_base64 === expected.qrSvg;
 }
 
 async function existingIdempotencyResult(
@@ -132,7 +138,7 @@ async function existingIdempotencyResult(
   origin: string,
 ): Promise<Response | null> {
   const { data, error } = await admin.from("fiskalo_basic_fiscal_documents")
-    .select("id,business_id,sale_id,coupon_id,document_type,reference_coupon_id,parent_document_id,nui_kf,signed_payload,signature,submission_state,atk_response")
+    .select("id,business_id,sale_id,coupon_id,document_type,reference_coupon_id,parent_document_id,nui_kf,signed_payload,signature,citizen_payload,citizen_signature,qr_svg_base64,submission_state,atk_response")
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
   if (error) return json(500, { error: "idempotency_lookup_failed" }, origin);
@@ -151,6 +157,8 @@ async function existingIdempotencyResult(
         accepted: true,
         transactionId,
         documentId: data.id,
+        nuiKf: data.nui_kf,
+        qrSvgBase64: data.qr_svg_base64,
         replay: true,
         environment: "ATK TEST",
         verificationMethod: "direct-server-to-server-https",
@@ -242,6 +250,9 @@ Deno.serve(async (request) => {
   const idempotencyKey = body.idempotencyKey;
   const details = body.detailsBase64;
   const signature = body.signatureBase64;
+  const citizenPayload = body.citizenPayloadBase64;
+  const citizenSignature = body.citizenSignatureBase64;
+  const qrSvg = body.qrSvgBase64;
 
   if (!isUuid(businessId) || !isUuid(saleId) ||
       !isUint64String(originalCouponId) || !isUint64String(correctionCouponId) ||
@@ -249,7 +260,9 @@ Deno.serve(async (request) => {
       (documentType !== 2 && documentType !== 3) ||
       typeof idempotencyKey !== "string" || idempotencyKey.trim().length < 8 ||
       idempotencyKey.length > 200 ||
-      !isBase64(details) || !isBase64(signature, 4096)) {
+      !isBase64(details) || !isBase64(signature, 4096) ||
+      !isBase64(citizenPayload) || !isBase64(citizenSignature, 4096) ||
+      typeof qrSvg !== "string" || qrSvg.length < 100 || qrSvg.length > 500_000) {
     return json(400, { error: "invalid_correction_payload" }, origin);
   }
 
@@ -334,6 +347,9 @@ Deno.serve(async (request) => {
     documentType,
     details,
     signature,
+    citizenPayload,
+    citizenSignature,
+    qrSvg,
   };
 
   const replay = await existingIdempotencyResult(admin, idempotencyKey, expectedCorrection, origin);
@@ -353,6 +369,9 @@ Deno.serve(async (request) => {
       nui_kf: couponIdentity.verificationNo,
       signed_payload: details,
       signature,
+      citizen_payload: citizenPayload,
+      citizen_signature: citizenSignature,
+      qr_svg_base64: qrSvg,
       submission_state: "submitted",
       atk_response: {
         status: "submitted",
@@ -505,5 +524,7 @@ Deno.serve(async (request) => {
     documentId: reservation.id,
     environment: "ATK TEST",
     verificationMethod: "direct-server-to-server-https",
+    nuiKf: couponIdentity.verificationNo,
+    qrSvgBase64: qrSvg,
   }, origin);
 });
