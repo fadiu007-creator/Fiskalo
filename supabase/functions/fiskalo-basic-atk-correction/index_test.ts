@@ -17,7 +17,6 @@ function correctionPayload(overrides: Record<string, unknown> = {}) {
     operatorId: "Operator 1",
     posId: "2",
     applicationId: "300",
-    verificationNo: "VERIFY123",
     type: 2,
     unixTime: 1794729600,
     referenceNo: "9000",
@@ -61,7 +60,6 @@ Deno.test("ATK correction identity must match the reserved original sale and POS
     branchId: "1",
     posId: "2",
     applicationId: "300",
-    verificationNo: "VERIFY123",
     type: 3,
     referenceNo: "9000",
   }));
