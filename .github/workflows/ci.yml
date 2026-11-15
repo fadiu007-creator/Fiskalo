@@ -56,6 +56,7 @@ jobs:
       - run: npm run test:pos-outage
       - run: npm run test:reports
       - run: npm run test:untransmitted-export
+      - run: npm run test:local-storage-crypto
       - run: npm run test:atk-browser
       - run: npm run test:atk-recovery
       - run: npm run test:atk-certificates
