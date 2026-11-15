@@ -381,7 +381,7 @@ export default function ReportsPage() {
                 <strong>POS signature (Base64)</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.signature}</pre>
                 {document.citizen_payload && <><strong>Citizen payload (Base64)</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.citizen_payload}</pre></>}
                 {document.citizen_signature && <><strong>Citizen signature (Base64)</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.citizen_signature}</pre></>}
-                {document.atk_response && <><strong>ATK response</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{String(typeof document.atk_response === "string" ? document.atk_response : JSON.stringify(document.atk_response))}</pre></>}
+                {document.atk_response != null && <><strong>ATK response</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{String(typeof document.atk_response === "string" ? document.atk_response : JSON.stringify(document.atk_response))}</pre></>}
               </div>
             </article>)}
         </div>}
