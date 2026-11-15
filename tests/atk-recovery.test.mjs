@@ -147,9 +147,11 @@ test("recovery worker never submits after the 48-hour deadline", async () => {
 
 test("recovery worker rejects forged or mismatched CitizenCoupon signatures before ATK", async () => {
   const original = globalThis.fetch;
+  const calls = [];
   const forged = { ...doc, citizen_signature: "MAYCAQ==" };
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
+    calls.push({ url, method: init.method ?? "GET", body: init.body ? JSON.parse(String(init.body)) : null });
     if (url.includes("/fiskalo_basic_fiscal_documents?") && init.method === "GET" && url.includes("submission_state=eq.queued")) return response([forged]);
     if (url.includes("/fiskalo_basic_fiscal_documents?") && init.method === "PATCH") return response([{ id: doc.id }]);
     if (url.includes("/fiskalo_basic_sales?")) return response([sale]);
@@ -165,7 +167,8 @@ test("recovery worker rejects forged or mismatched CitizenCoupon signatures befo
       { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role" },
       { waitUntil(promise) { scheduledPromise = promise; } });
     await scheduledPromise;
-    assert.equal(true, true);
+    assert.equal(calls.some(call => call.url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")), false);
+    assert.ok(calls.some(call => call.method === "PATCH" && call.body?.submission_state === "rejected"));
   } finally {
     globalThis.fetch = original;
   }
