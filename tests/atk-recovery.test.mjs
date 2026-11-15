@@ -141,6 +141,10 @@ async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at, selec
     if (url.includes("/fiskalo_basic_pos?")) return response([pos]);
     if (url.includes("/fiskalo_basic_businesses?")) return response([business]);
     if (url.includes("/fiskalo_basic_pos_certificates?")) return response([cert]);
+    if (url.includes("/fiskalo_basic_correction_reservations?")) return response([{
+      business_id: "business-1", sale_id: "sale-1", document_type: 2,
+      original_coupon_id: "100", correction_coupon_id: "101", created_by: "owner-1", status: "queued",
+    }]);
     if (url.includes("/rpc/fiskalo_basic_server_record_atk_receipt_v2") || url.includes("/rpc/fiskalo_basic_server_record_atk_correction_v2")) return response("document-id");
     if (url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")) return atkBehavior();
     throw new Error("Unexpected fetch: " + method + " " + url);
@@ -174,6 +178,7 @@ test("recovery worker validates and records a queued ATK Cancel", async () => {
   const rpc = calls.find(call => call.url.includes("server_record_atk_correction_v2"));
   assert.ok(rpc);
   assert.equal(rpc.body.p_document_type, 2);
+  assert.equal(rpc.body.p_actor_id, "owner-1");
   assert.equal(rpc.body.p_original_coupon_id, "100");
   assert.equal(rpc.body.p_correction_coupon_id, "101");
 });
