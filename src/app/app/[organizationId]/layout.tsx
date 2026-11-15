@@ -1,4 +1,3 @@
-import "@/app/full-workspace.css";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import BusinessWorkspaceNav from "@/components/business-workspace-nav";
