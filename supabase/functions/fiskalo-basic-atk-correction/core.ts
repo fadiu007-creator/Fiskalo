@@ -160,9 +160,14 @@ export function decodeAtkCorrectionIdentity(detailsBase64: string): AtkCorrectio
   } as AtkCorrectionIdentity;
 }
 
+export type ExpectedAtkCorrectionIdentity = Pick<
+  AtkCorrectionIdentity,
+  "businessId" | "couponId" | "branchId" | "posId" | "applicationId" | "type" | "referenceNo"
+>;
+
 export function assertAtkCorrectionIdentity(
   actual: AtkCorrectionIdentity,
-  expected: AtkCorrectionIdentity,
+  expected: ExpectedAtkCorrectionIdentity,
 ): void {
   const fields: (keyof AtkCorrectionIdentity)[] = [
     "businessId", "couponId", "branchId", "posId", "applicationId",
