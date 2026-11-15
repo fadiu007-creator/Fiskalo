@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
-import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, signAtkBase64Payload, generateNuiKf } from "@/lib/atk/browser-runtime";
+import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, getPosCertificatePem, signAtkBase64Payload, generateNuiKf } from "@/lib/atk/browser-runtime";
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
 import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
@@ -470,10 +470,11 @@ export default function Home(){
         citizenQrPayload,nuiKf,dailyNumber:Number(sale.daily_number),qrSvg:qrSvgBase64,
         issuedAtUtc,recoveryDeadlineUtc,state:"prepared",transactionId:null,lastError:null
       });
+      const certificatePem=await getPosCertificatePem(identity);
       const fiscal=await submitCloudTestCoupon(supabase,{
         businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
         details:detailsBase64,signature:signatureBase64,nuiKf,citizenPayload,citizenSignature,
-        dailyNumber:Number(sale.daily_number),qrSvgBase64,offlineIssuedAt:null
+        dailyNumber:Number(sale.daily_number),qrSvgBase64,certificatePem,offlineIssuedAt:null
       });
       await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null});
       const receiptRecord:SaleRecord={
