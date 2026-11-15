@@ -20,6 +20,7 @@ const string QueueReconcilePath = "/api/v1/queue/reconcile";
 const string AtkVerifyPath = "/api/v1/atk/test/verify";
 const string AtkSignCsrPath = "/api/v1/atk/test/sign-csr";
 const string AtkCouponPath = "/api/v1/atk/test/coupon";
+const string AtkCorrectionPreparePath = "/api/v1/atk/test/correction/prepare";
 const string PrintersPath = "/api/v1/printers";
 const string PrinterPrintPath = "/api/v1/printers/print";
 const string PrinterTestPath = "/api/v1/printers/test";
@@ -439,6 +440,64 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         return Results.Problem("Local test certificate or signing key could not be validated.", statusCode: StatusCodes.Status500InternalServerError);
     }
 });
+app.MapPost(AtkCorrectionPreparePath, async (AtkCorrectionPrepareRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("ATK TEST correction signing currently requires the Windows POS Agent.", statusCode: StatusCodes.Status501NotImplemented);
+    if (string.IsNullOrWhiteSpace(request.OriginalIdempotencyKey) || request.CorrectionCouponId == 0 ||
+        request.DocumentType is not (2 or 3))
+        return Results.BadRequest(new { error = "originalIdempotencyKey, correctionCouponId and documentType 2 or 3 are required." });
+    if (!File.Exists(certificatePath) || !File.Exists(keyPath))
+        return Results.Conflict(new { error = "test_certificate_and_local_key_required" });
+    try
+    {
+        var installation = installationStore.Load();
+        using var key = keyStore.LoadOrCreate(keyPath);
+        using var certificate = X509Certificate2.CreateFromPem(await File.ReadAllTextAsync(certificatePath, cancellationToken));
+        using var certificateKey = certificate.GetECDsaPublicKey();
+        if (certificateKey is null || !SamePublicKey(key, certificateKey) ||
+            installation is null || string.IsNullOrWhiteSpace(installation.CertificateThumbprint) ||
+            !string.Equals(installation.CertificateThumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+        if (DateTime.UtcNow < certificate.NotBefore.ToUniversalTime() || DateTime.UtcNow > certificate.NotAfter.ToUniversalTime())
+            return Results.Conflict(new { error = "test_certificate_not_current" });
+
+        var original = (await queueStore.GetAllAsync(cancellationToken))
+            .SingleOrDefault(x => x.IdempotencyKey == request.OriginalIdempotencyKey);
+        if (original is null || original.Status != FiscalQueueStatus.Accepted ||
+            string.IsNullOrWhiteSpace(original.AtkTransactionId))
+            return Results.Conflict(new { error = "original_coupon_not_confirmed_accepted_by_atk" });
+
+        var acceptedSale = PosCoupon.Parser.ParseFrom(Convert.FromBase64String(original.PayloadBase64));
+        if (acceptedSale.Type != CouponType.Sale ||
+            acceptedSale.BusinessId != installation.Nui || acceptedSale.BranchId != installation.BranchId ||
+            acceptedSale.PosId != installation.PosId || acceptedSale.ApplicationId != installation.ApplicationId)
+            return Results.Conflict(new { error = "original_coupon_does_not_match_verified_test_pos" });
+        if (request.CorrectionCouponId == acceptedSale.CouponId)
+            return Results.BadRequest(new { error = "correction_coupon_id_must_differ_from_original" });
+
+        var nuiKf = FiscalReceiptIdentity.CreateNuiKf();
+        var issuedAt = DateTimeOffset.UtcNow;
+        var correction = request.DocumentType == 2
+            ? AtkCorrectionCouponFactory.CreateFullCancellation(acceptedSale, request.CorrectionCouponId, nuiKf, issuedAt)
+            : AtkCorrectionCouponFactory.CreateFullReturn(acceptedSale, request.CorrectionCouponId, nuiKf, issuedAt);
+        var signed = AtkCouponSigner.SignPosCoupon(correction, key);
+        return Results.Ok(new {
+            detailsBase64 = signed.DetailsBase64,
+            signatureBase64 = signed.SignatureBase64,
+            nuiKf,
+            originalCouponId = acceptedSale.CouponId.ToString(),
+            correctionCouponId = request.CorrectionCouponId.ToString(),
+            documentType = request.DocumentType,
+            environment = "ATK TEST",
+            productionEnabled = false
+        });
+    }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+    catch (CryptographicException) { return Results.Problem("Local ATK TEST signing key could not be validated.", statusCode: StatusCodes.Status500InternalServerError); }
+});
+
 app.MapGet(PrintersPath, (HttpContext context) =>
 {
     if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
@@ -617,7 +676,7 @@ internal sealed record AtkSignCsrRequest(
     [property: JsonPropertyName("posId")] ulong PosId,
     [property: JsonPropertyName("applicationId")] ulong ApplicationId);
 
-internal sealed record AtkCouponRequest(
+internal sealed record AtkCorrectionPrepareRequest(\n    [property: JsonPropertyName("originalIdempotencyKey")] string OriginalIdempotencyKey,\n    [property: JsonPropertyName("correctionCouponId")] ulong CorrectionCouponId,\n    [property: JsonPropertyName("documentType")] int DocumentType);\n\ninternal sealed record AtkCouponRequest(
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
     [property: JsonPropertyName("coupon")] PosCouponInput Coupon);
 
