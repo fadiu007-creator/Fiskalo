@@ -638,6 +638,10 @@ export default function Home(){
   }
   async function completeSale(){
     if(!business||!selectedPos||!cartLines.length||!supabase)return;
+    if(!navigator.onLine){
+      setMessage("Nuk ka lidhje interneti. Fiskalo ende nuk mund të krijojë shitje të reja plotësisht offline për këtë POS. Mos e finalizo pagesën në aplikacion derisa lidhja të rikthehet; përdor vetëm procedurën e autorizuar të ATK-së për ndërprerje.");
+      return;
+    }
     if(operatorName.trim().length<2||operatorIdentifier.trim().length<1){setMessage("Vendos emrin dhe numrin identifikues të operatorit para lëshimit të kuponit fiskal.");return;}
     const pos=positions.find(p=>p.id===selectedPos);
     if(!pos)return;
