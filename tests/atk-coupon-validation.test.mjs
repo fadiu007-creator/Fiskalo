@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { encodeAtkBase64, encodeAtkPosCoupon } from "../src/lib/atk/protobuf.ts";
-import { validateAtkCouponPayload } from "../src/lib/atk/validate-coupon-payload.ts";
+import { recoverAtkMappingsFromOriginalCoupon, validateAtkCouponPayload } from "../src/lib/atk/validate-coupon-payload.ts";
 
 function makePayload(overrides = {}) {
   const input = {
@@ -76,4 +76,18 @@ test("Full coupon validation rejects VAT code and rate mismatches", () => {
   const result = validateAtkCouponPayload(makePayload(), invalid);
   assert.equal(result.ok, false);
   assert.match(result.detail, /VAT rate/);
+});
+
+test("legacy correction mapping is recovered from the accepted original ATK coupon", () => {
+  assert.deepEqual(
+    recoverAtkMappingsFromOriginalCoupon(makePayload(), context.lines),
+    [{ id: "product-1", atk_unit_code: "CP", atk_tax_code: "E", atk_item_category_code: "TT" }],
+  );
+});
+
+test("legacy correction mapping fails closed when original coupon items do not match the invoice", () => {
+  assert.throws(
+    () => recoverAtkMappingsFromOriginalCoupon(makePayload(), [{ ...context.lines[0], description: "Different item" }]),
+    /cannot be matched/,
+  );
 });
