@@ -13,7 +13,7 @@ drop policy if exists fiskalo_basic_fiscal_insert on public.fiskalo_basic_fiscal
 revoke insert, update, delete on public.fiskalo_basic_fiscal_documents from public, anon, authenticated;
 
 -- A full cancellation or full return is a single correction document for an original sale. Reserve it
--- before the external request so concurrent requests cannot submit two cancellations.
+-- before the external request so concurrent requests cannot submit duplicate full corrections.
 do $$
 begin
   if exists (
