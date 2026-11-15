@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import recovery from "../workers/atk-recovery.ts";
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "../src/lib/atk/protobuf.ts";
 
-globalThis.crypto = webcrypto;
+Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 
 function openssl(args) {
   const result = spawnSync("openssl", args, { encoding: "utf8" });
