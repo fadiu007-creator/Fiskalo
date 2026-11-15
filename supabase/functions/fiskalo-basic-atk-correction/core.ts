@@ -195,7 +195,7 @@ export function assertAtkCorrectionIdentity(
 
 function topLevelFieldSegments(detailsBase64: string): Uint8Array[] {
   const bytes = decodeBase64(detailsBase64);
-  const mutableCorrectionFields = new Set([2, 8, 9, 10, 17, 18]);
+  const mutableCorrectionFields = new Set([2, 8, 9, 10, 17]);
   const stable: Uint8Array[] = [];
   let offset = 0;
   while (offset < bytes.length) {
