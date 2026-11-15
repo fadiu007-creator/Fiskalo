@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
 import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, getPosCertificatePem, signAtkBase64Payload, generateNuiKf } from "@/lib/atk/browser-runtime";
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
-import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, CloudAtkError } from "@/lib/pos/cloud-atk";
+import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, reserveCloudCorrection, submitCloudCorrection, queueCloudCorrection, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
 import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem } from "@/lib/pos/browser-outbox";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
