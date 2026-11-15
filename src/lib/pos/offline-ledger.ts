@@ -99,8 +99,8 @@ export class OfflineCheckoutJournal {
     transactionId: string; environment: "ATK TEST"; status: "accepted";
   }): Promise<OfflineSaleRecord> {
     if (evidence.status !== "accepted" || evidence.environment !== "ATK TEST" ||
-        !/^\d+$/.test(evidence.transactionId) || BigInt(evidence.transactionId) <= 0n ||
-        BigInt(evidence.transactionId) > 18446744073709551615n)
+        !/^\d+$/.test(evidence.transactionId) || BigInt(evidence.transactionId) <= BigInt("0") ||
+        BigInt(evidence.transactionId) > BigInt("18446744073709551615"))
       throw new Error("A valid accepted ATK TEST transaction response is required.");
     return this.mutate(key, r => {
       if (r.fiscalState !== "queued" && r.fiscalState !== "accepted")
