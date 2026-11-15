@@ -23,6 +23,8 @@ test("validates exact ATK unit codes and preserves their official labels", () =>
   assert.equal(isAtkUnitCode("EA"), true);
   assert.equal(isAtkUnitCode("cope"), false);
   assert.equal(isAtkUnitCode("XX"), false);
+  assert.equal(isAtkUnitCode(null), false);
+  assert.equal(isAtkUnitCode(undefined), false);
   assert.equal(getAtkUnitLabel("CP"), "Copë");
   assert.equal(getAtkUnitLabel("EA"), "Një (njësi)");
   assert.equal(getAtkUnitLabel("cope"), null);
