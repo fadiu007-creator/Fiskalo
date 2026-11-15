@@ -88,7 +88,7 @@ export async function POST(request: Request) {
   const authorization = await authorizeAtkOrganization(supabase, user.id, organizationId, nui, ["owner", "administrator", "manager", "accountant"]);
   if (!authorization.ok) return Response.json({ error: "organization_not_authorized", detail: authorization.detail }, { status: authorization.status });
 
-  let service;
+  let service: ReturnType<typeof getAtkServiceRoleClient>;
   try { service = getAtkServiceRoleClient(); }
   catch { return Response.json({ error: "trusted_atk_backend_unavailable" }, { status: 503 }); }
 
