@@ -107,6 +107,8 @@ export function paymentMethodLabel(method: string): string {
       return "KRIPTOVALUTË";
     case "bank_transfer":
       return "TRANSFER BANKAR / TJETËR";
+    case "mixed":
+      return "PAGESË E PËRZIER";
     default:
       return "TJETËR";
   }
