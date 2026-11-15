@@ -240,3 +240,12 @@ export function generateNuiKf(): string {
   }
   return output.join("");
 }
+
+/** Returns the public ATK certificate; private key material is never returned. */
+export async function getPosCertificatePem(identity: BrowserPosIdentity): Promise<string> {
+  const stored = await getStoredKey(posKeyId(identity));
+  if (!stored?.certificatePem || !await hasMatchingPosCertificate(identity)) {
+    throw new Error("This browser does not have a matching ATK TEST certificate for the selected POS.");
+  }
+  return stored.certificatePem;
+}
