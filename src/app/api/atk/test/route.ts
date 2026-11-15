@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 const ATK_TEST_ORIGIN = "https://fiskalizimi-test.atk-ks.org";
