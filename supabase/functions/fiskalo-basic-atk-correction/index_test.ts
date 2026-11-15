@@ -164,5 +164,6 @@ Deno.test("server-side correction endpoint reserves before ATK and never trusts 
   assertEquals(source.includes('submission_state: "submitted"'), true);
   assertEquals(source.indexOf('.insert({') < source.indexOf("fetch(ATK_TEST_COUPON_URL)"), true);
   assertEquals(source.includes('https://fiskalizimi-test.atk-ks.org/pos/coupon'), true);
+  assertEquals(source.includes('redirect: "error"'), true);
   assertEquals(source.includes("extractAtkTransactionId(responseText)"), true);
 });
