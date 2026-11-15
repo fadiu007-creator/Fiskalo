@@ -15,6 +15,7 @@ export type BrowserFiscalOutboxItem = {
   citizenSignatureBase64: string;
   citizenQrPayload: string;
   nuiKf: string;
+  verificationNo: string;
   dailyNumber: number;
   qrSvg: string;
   issuedAtUtc: string;
