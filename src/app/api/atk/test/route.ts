@@ -73,6 +73,12 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const input = new Uint8Array(bytes);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input.buffer));
+  return Array.from(digest, value => value.toString(16).padStart(2, "0")).join("");
+}
+
 function derSignatureToP1363(signatureBase64: string): Uint8Array {
   const binary = atob(signatureBase64);
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
@@ -456,7 +462,9 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           p_business_id: businessId,
           p_pos_record_id: posRecordId,
+          p_application_id: applicationId,
           p_certificate_pem: result.signed_certificate,
+          p_spki_sha256: await sha256Hex(getCertificateSpki(result.signed_certificate)),
           p_verified_business_name: String(pos.verified_business_name || business.name || ""),
         }),
         cache: "no-store",
