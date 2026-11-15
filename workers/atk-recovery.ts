@@ -277,7 +277,8 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     const posTimestamp=posFields.get(10);
     if (typeof posTimestamp!=="bigint" || (doc.document_type===1 ? posTimestamp!==unixTime : (posTimestamp>unixTime+BigInt(300)||posTimestamp<unixTime-BigInt(300)))) throw new Error("POS coupon timestamp does not match its issue record.");
     if (posFields.get(8)!==doc.nui_kf || doc.verification_no!==doc.nui_kf) throw new Error("POS coupon NUIKF/VerificationNo mismatch.");
-    if (doc.document_type !== 1 && (posFields.get(17)!==BigInt(doc.reference_coupon_id!) || posFields.get(18)!==BigInt(original!.atk_transaction_id))) throw new Error("Correction reference coupon or original ATK transaction does not match.");
+    if (doc.document_type !== 1 && (posFields.get(17)!==BigInt(doc.reference_coupon_id!) ||
+      (posFields.get(18)!==undefined && posFields.get(18)!==BigInt(0)))) throw new Error("Correction ReferenceNo does not match the original sale coupon.");
     const expectedCitizen: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
       [4,BigInt(pos.pos_id)],[6,BigInt(doc.document_type)],
