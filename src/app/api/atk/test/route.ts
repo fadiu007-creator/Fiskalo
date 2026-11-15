@@ -75,12 +75,12 @@ function derSignatureToP1363(signatureBase64: string): Uint8Array {
 async function verifySignedBase64Payload(certificatePem: string, payloadBase64: string, signatureBase64: string) {
   const spki = getCertificateSpki(certificatePem);
   const publicKey = await crypto.subtle.importKey(
-    "spki", spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
+    "spki", Uint8Array.from(spki).buffer, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
   );
   return crypto.subtle.verify(
     { name: "ECDSA", hash: "SHA-256" },
     publicKey,
-    derSignatureToP1363(signatureBase64),
+    Uint8Array.from(derSignatureToP1363(signatureBase64)).buffer,
     new TextEncoder().encode(payloadBase64),
   );
 }
@@ -342,7 +342,7 @@ export async function POST(request: Request) {
       if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("NUIKF must be 16 uppercase alphanumeric characters.", 400);
       const couponIdentity = readCouponIdentity(details);
       const verificationNo = requiredString(body.verificationNo, "Per-coupon verification number", 16);
-      if (!/^[A-Z0-9]{16}$/.test(verificationNo)) return jsonError("Per-coupon verification number must be 16 uppercase alphanumeric characters.", 400);
+      if (!/^[A-Z0-9]{16}$/.test(verificationNo) || verificationNo !== nuiKf) return jsonError("Per-coupon VerificationNo must equal the 16-character NUIKF.", 400);
       const expected: Array<[number, bigint]> = [
         [1, BigInt(business.nui as string)],
         [3, BigInt(requiredPositiveInteger(pos.branch_id, "Branch ID"))],
