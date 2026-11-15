@@ -48,5 +48,35 @@ begin
      or not has_table_privilege('service_role','public.fiskalo_atk_pos_certificates','INSERT') then
     raise exception 'Cloudflare service role is missing trusted fiscal write access';
   end if;
+
+  select organization_id,id,created_by into test_org,test_pos,test_user
+  from public.fiskalo_atk_pos_installations
+  where environment='test' and created_by is not null
+  order by id limit 1;
+  if test_org is null or test_pos is null or test_user is null then
+    raise exception 'A test POS fixture is required to verify certificate rotation';
+  end if;
+
+  first_certificate := public.fiskalo_server_register_atk_pos_certificate_v1(
+    test_org,test_pos,111111,
+    '-----BEGIN CERTIFICATE-----\nTEST-OLD-CERTIFICATE\n-----END CERTIFICATE-----',
+    repeat('a',64),now(),test_user
+  );
+  second_certificate := public.fiskalo_server_register_atk_pos_certificate_v1(
+    test_org,test_pos,222222,
+    '-----BEGIN CERTIFICATE-----\nTEST-NEW-CERTIFICATE\n-----END CERTIFICATE-----',
+    repeat('b',64),now(),test_user
+  );
+  select status,revoked_at into old_status,old_revoked_at
+  from public.fiskalo_atk_pos_certificates where id=first_certificate;
+  select status into new_status
+  from public.fiskalo_atk_pos_certificates where id=second_certificate;
+  if old_status <> 'superseded' or old_revoked_at is not null or new_status <> 'active' then
+    raise exception 'Certificate rotation did not preserve the historical application certificate';
+  end if;
+  if (select application_id from public.fiskalo_atk_pos_certificates where id=first_certificate) <> 111111
+     or (select application_id from public.fiskalo_atk_pos_certificates where id=second_certificate) <> 222222 then
+    raise exception 'Certificate application ID binding was not preserved';
+  end if;
 end $$;
 rollback;
