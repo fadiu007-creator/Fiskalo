@@ -167,4 +167,8 @@ Deno.test("server-side correction endpoint reserves before ATK and never trusts 
   assertEquals(source.includes('https://fiskalizimi-test.atk-ks.org/pos/coupon'), true);
   assertEquals(source.includes('redirect: "error"'), true);
   assertEquals(source.includes("extractAtkTransactionId(responseText)"), true);
+  assertEquals(source.includes("citizen_payload: citizenPayload"), true);
+  assertEquals(source.includes("citizen_signature: citizenSignature"), true);
+  assertEquals(source.includes("qr_svg_base64: qrSvg"), true);
+  assertEquals(source.includes("verificationMethod: \"direct-server-to-server-https\""), true);
 });
