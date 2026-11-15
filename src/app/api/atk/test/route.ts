@@ -15,6 +15,54 @@ function jsonError(message: string, status: number) {
   });
 }
 
+function readProtoVarint(bytes: Uint8Array, state: { offset: number }): bigint {
+  let value = BigInt(0);
+  let shift = BigInt(0);
+  for (let count = 0; count < 10; count++) {
+    if (state.offset >= bytes.length) throw new Error("Signed ATK coupon protobuf is truncated.");
+    const byte = bytes[state.offset++];
+    value |= BigInt(byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) return value;
+    shift += BigInt(7);
+  }
+  throw new Error("Signed ATK coupon protobuf contains an invalid varint.");
+}
+
+function readCouponIdentity(detailsBase64: string) {
+  let binary: string;
+  try { binary = atob(detailsBase64); } catch { throw new Error("Signed coupon details are not valid base64."); }
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  const state = { offset: 0 };
+  const values = new Map<number, bigint | string>();
+  while (state.offset < bytes.length) {
+    const tag = Number(readProtoVarint(bytes, state));
+    const field = tag >>> 3;
+    const wire = tag & 7;
+    if (!field) throw new Error("Signed coupon protobuf contains an invalid field.");
+    if (wire === 0) {
+      if (values.has(field)) throw new Error("Signed coupon protobuf contains duplicate identity fields.");
+      values.set(field, readProtoVarint(bytes, state));
+    } else if (wire === 2) {
+      const length = Number(readProtoVarint(bytes, state));
+      if (!Number.isSafeInteger(length) || length < 0 || state.offset + length > bytes.length) throw new Error("Signed coupon protobuf has an invalid length.");
+      const value = bytes.slice(state.offset, state.offset + length);
+      state.offset += length;
+      if ([4, 5, 8].includes(field)) {
+        if (values.has(field)) throw new Error("Signed coupon protobuf contains duplicate identity fields.");
+        values.set(field, new TextDecoder().decode(value));
+      }
+    } else if (wire === 5) {
+      state.offset += 4;
+    } else if (wire === 1) {
+      state.offset += 8;
+    } else {
+      throw new Error("Signed coupon protobuf uses an unsupported wire type.");
+    }
+    if (state.offset > bytes.length) throw new Error("Signed coupon protobuf is truncated.");
+  }
+  return values;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -124,7 +172,7 @@ export async function POST(request: Request) {
       const nui = requiredPositiveInteger(business.nui, "Business NUI");
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
       const posQuery = new URLSearchParams({
-        select: "id,branch_id,pos_id",
+        select: "id,branch_id,pos_id,application_id,verification_no,fiscalization_number",
         id: "eq." + posRecordId,
         business_id: "eq." + businessId,
         limit: "1",
@@ -132,8 +180,9 @@ export async function POST(request: Request) {
       const poses = await supabaseRequest(restOrigin + "fiskalo_basic_pos?" + posQuery.toString(), token, anonKey);
       if (!Array.isArray(poses) || poses.length !== 1 || !isRecord(poses[0])) return jsonError("POS does not belong to this business.", 403);
       const pos = poses[0];
-      const fiscalizationNo = requiredString(body.fiscalizationNumber, "ATK fiscalization number", 128);
-      const applicationId = requiredPositiveInteger(body.applicationId, "Application ID");
+      const fiscalizationNo = requiredString(pos.fiscalization_number, "ATK fiscalization number", 128);
+      const applicationId = requiredPositiveInteger(pos.application_id, "Application ID");
+      if (String(body.applicationId) !== String(pos.application_id)) return jsonError("Application ID does not match the saved POS configuration.", 409);
       const result = await atkPost<JsonRecord>("/ca/verify/" + nui, {
         fiscalization_no: fiscalizationNo,
         pos_id: requiredPositiveInteger(pos.pos_id, "POS ID"),
@@ -155,7 +204,7 @@ export async function POST(request: Request) {
     if (action === "sign-csr") {
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
       const posQuery = new URLSearchParams({
-        select: "id,branch_id,pos_id",
+        select: "id,branch_id,pos_id,application_id,verification_no,fiscalization_number",
         id: "eq." + posRecordId,
         business_id: "eq." + businessId,
         limit: "1",
@@ -167,7 +216,7 @@ export async function POST(request: Request) {
         business_name: requiredString(business.name, "Business name", 256),
         business_id: requiredPositiveInteger(business.nui, "Business NUI"),
         branch_id: requiredPositiveInteger(pos.branch_id, "Branch ID"),
-        verification_no: requiredPositiveInteger(body.verificationCode, "ATK verification code"),
+        verification_no: requiredPositiveInteger(pos.verification_no, "ATK verification code"),
         pos_id: requiredPositiveInteger(pos.pos_id, "POS ID"),
         application_id: requiredPositiveInteger(body.applicationId, "Application ID"),
         csr: requiredString(body.csrPem, "Browser-generated CSR", 32_000),
@@ -184,7 +233,29 @@ export async function POST(request: Request) {
 
     if (action === "coupon") {
       const details = requiredString(body.details, "Signed coupon details", 200_000);
-      const signature = requiredString(body.signature, "Coupon signature", 16_384);
+      const signature = requiredString(body.signature, "Coupon signature", 256);
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) return jsonError("Coupon signature is not valid base64.", 400);
+      const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
+      const posQuery = new URLSearchParams({
+        select: "id,branch_id,pos_id,application_id,verification_no",
+        id: "eq." + posRecordId,
+        business_id: "eq." + businessId,
+        limit: "1",
+      });
+      const poses = await supabaseRequest(restOrigin + "fiskalo_basic_pos?" + posQuery.toString(), token, anonKey);
+      if (!Array.isArray(poses) || poses.length !== 1 || !isRecord(poses[0])) return jsonError("POS does not belong to this business.", 403);
+      const pos = poses[0];
+      const couponIdentity = readCouponIdentity(details);
+      const expected: Array<[number, bigint]> = [
+        [1, BigInt(business.nui as string)],
+        [3, BigInt(requiredPositiveInteger(pos.branch_id, "Branch ID"))],
+        [6, BigInt(requiredPositiveInteger(pos.pos_id, "POS ID"))],
+        [7, BigInt(requiredPositiveInteger(pos.application_id, "Application ID"))],
+      ];
+      for (const [field, value] of expected) {
+        if (couponIdentity.get(field) !== value) return jsonError("Signed coupon identifiers do not match the selected business and POS.", 409);
+      }
+      if (couponIdentity.get(8) !== String(pos.verification_no)) return jsonError("Signed coupon verification number does not match the saved POS.", 409);
       // ATK is the authority for acceptance. A browser-supplied status or transaction ID is never used.
       const result = await atkPost<JsonRecord>("/pos/coupon", { details, signature });
       const transactionId = result.transaction_id;
