@@ -61,7 +61,7 @@ export async function submitPaidInvoiceToATK(
     supabase.from("fiskalo_atk_pos_installations").select("id,atk_branch_id,pos_id,label,location,environment,status")
       .eq("organization_id", organizationId).eq("environment", "test").eq("status", "active")
       .order("created_at", { ascending: false }),
-    supabase.from("fiskalo_invoice_items").select("id,product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate,discount_percent")
+    supabase.from("fiskalo_invoice_items").select("id,product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate,discount_percent,atk_unit_code,atk_tax_code,atk_item_category_code")
       .eq("invoice_id", invoiceId),
     supabase.from("fiskalo_invoice_payments").select("amount,payment_method").eq("invoice_id", invoiceId).order("created_at"),
   ]);
@@ -101,26 +101,20 @@ export async function submitPaidInvoiceToATK(
     throw new Error("Nuk u gjet POS TEST me verifikim të ruajtur dhe certifikatë në këtë pajisje. Hyr në pajisjen ku u instalua certifikata ose përfundo konfigurimin fillestar një herë.");
   }
 
-  const productIds = Array.from(new Set(lines.map((line) => line.product_id).filter((id): id is string => Boolean(id))));
-  const { data: products, error: productsError } = productIds.length
-    ? await supabase.from("fiskalo_products").select("id,atk_unit_code,atk_tax_code,atk_item_category_code")
-      .eq("organization_id", organizationId).in("id", productIds)
-    : { data: [], error: null };
-  if (productsError) throw new Error("Kodet ATK të produkteve nuk u lexuan: " + productsError.message);
-  const productMap = new Map<string, { id: string; atk_unit_code: string | null; atk_tax_code: string | null; atk_item_category_code: string | null }>((products ?? []).map((product) => [product.id, product] as const));
+  // Use immutable invoice-line snapshots, never the current product master.
+  // A later catalogue edit must not rewrite the ATK classification of a past sale.
   const itemRows = lines.map((line) => {
-    const product = line.product_id ? productMap.get(line.product_id) : null;
-    const unit = product?.atk_unit_code?.trim() ?? "";
-    const tax = product?.atk_tax_code?.trim() ?? "";
-    const itemType = product?.atk_item_category_code?.trim() ?? "";
+    const unit = line.atk_unit_code?.trim() ?? "";
+    const tax = line.atk_tax_code?.trim() ?? "";
+    const itemType = line.atk_item_category_code?.trim() ?? "";
     const vatRate = Number(line.vat_rate);
     const taxMatchesVat = vatRate === 8 ? tax === "D"
       : vatRate === 18 ? tax === "E"
       : vatRate === 0 ? tax === "A" || tax === "C"
       : false;
-    if (!unit || !/^[A-Z]$/.test(tax) || !taxMatchesVat || !itemType) {
-      throw new Error("Kodet ATK të produktit " + line.description +
-        " mungojnë ose nuk përputhen me TVSH-në. Përdor A/C për 0%, D për 8% dhe E për 18%, sipas trajtimit tatimor.");
+    if (!line.product_id || !unit || !["A","C","D","E"].includes(tax) || !taxMatchesVat || !itemType) {
+      throw new Error("Kodet ATK të ruajtura në faturën " + line.description +
+        " mungojnë ose nuk përputhen me TVSH-në. Kontrollo produktin dhe krijo faturë të re pasi të plotësosh kodet fiskale.");
     }
     return { line, unit, tax, itemType };
   });
