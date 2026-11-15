@@ -192,7 +192,7 @@ export default function Home(){
             const result=await submitCloudTestCoupon(supabase,{
               businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
               couponId:item.couponId,idempotencyKey:item.idempotencyKey,
-              details:item.detailsBase64,signature:item.signatureBase64,nuiKf:item.nuiKf,
+              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,
               citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
               dailyNumber:item.dailyNumber,qrSvgBase64:item.qrSvg,
               offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
@@ -447,6 +447,7 @@ export default function Home(){
       setMessage("Ky shfletues nuk ka çelësin privat dhe certifikatën që përputhen për këtë POS. Kryej onboarding-un në këtë pajisje.");
       return;
     }
+    const certificatePem=await getPosCertificatePem(identity);
     const checkoutIdempotencyKey=checkoutKey||crypto.randomUUID();
     setCheckoutKey(checkoutIdempotencyKey);setCheckoutAttempted(true);
     try{
@@ -516,14 +517,14 @@ export default function Home(){
       const offlineNow=!navigator.onLine;
       await saveFiscalOutboxItem({
         idempotencyKey,businessId:business.id,saleId,posRecordId:pos.id,couponId:Number(sale.coupon_id),documentType:1,
-        detailsBase64,signatureBase64,citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
+        detailsBase64,signatureBase64,certificatePem,citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
         citizenQrPayload,nuiKf,dailyNumber:Number(sale.daily_number),qrSvg:qrSvgBase64,
         issuedAtUtc,recoveryDeadlineUtc,state:"prepared",transactionId:null,lastError:null
       });
       const certificatePem=await getPosCertificatePem(identity);
       const fiscal=await submitCloudTestCoupon(supabase,{
         businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
-        details:detailsBase64,signature:signatureBase64,nuiKf,citizenPayload,citizenSignature,
+        details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,citizenPayload,citizenSignature,
         dailyNumber:Number(sale.daily_number),certificatePem,offlineIssuedAt:null
       });
       await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null,qrSvg:fiscal.qrSvgBase64});
