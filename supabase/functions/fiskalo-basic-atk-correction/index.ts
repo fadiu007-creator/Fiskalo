@@ -96,6 +96,7 @@ function sameCorrection(existing: JsonObject, expected: {
   originalCouponId: string;
   originalDocumentId: string;
   correctionCouponId: string;
+  nuiKf: string;
   documentType: number;
   details: string;
   signature: string;
@@ -106,6 +107,7 @@ function sameCorrection(existing: JsonObject, expected: {
     Number(existing.document_type) === expected.documentType &&
     String(existing.reference_coupon_id) === expected.originalCouponId &&
     existing.parent_document_id === expected.originalDocumentId &&
+    existing.nui_kf === expected.nuiKf &&
     existing.signed_payload === expected.details &&
     existing.signature === expected.signature;
 }
@@ -126,7 +128,7 @@ async function existingIdempotencyResult(
   origin: string,
 ): Promise<Response | null> {
   const { data, error } = await admin.from("fiskalo_basic_fiscal_documents")
-    .select("id,business_id,sale_id,coupon_id,document_type,reference_coupon_id,parent_document_id,signed_payload,signature,submission_state,atk_response")
+    .select("id,business_id,sale_id,coupon_id,document_type,reference_coupon_id,parent_document_id,nui_kf,signed_payload,signature,submission_state,atk_response")
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
   if (error) return json(500, { error: "idempotency_lookup_failed" }, origin);
@@ -273,6 +275,7 @@ Deno.serve(async (request) => {
     originalCouponId,
     originalDocumentId: original.id,
     correctionCouponId,
+    nuiKf: couponIdentity.verificationNo,
     documentType,
     details,
     signature,
@@ -342,6 +345,7 @@ Deno.serve(async (request) => {
       document_type: documentType,
       reference_coupon_id: originalCouponId,
       parent_document_id: original.id,
+      nui_kf: couponIdentity.verificationNo,
       signed_payload: details,
       signature,
       submission_state: "submitted",
