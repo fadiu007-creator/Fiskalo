@@ -11,6 +11,12 @@ globalThis.crypto = webcrypto;
 globalThis.window = globalThis;
 
 const {
+  encodeAtkPosCoupon,
+  encodeAtkCitizenCoupon,
+  encodeAtkBase64,
+} = await import("../src/lib/atk/protobuf.ts");
+
+const {
   createOrLoadPosCsr,
   installPosCertificate,
   hasMatchingPosCertificate,
@@ -23,6 +29,39 @@ function openssl(args) {
   assert.equal(result.status, 0, result.stderr || result.stdout || "OpenSSL command failed");
   return result.stdout;
 }
+
+
+test("POS Coupon and CitizenCoupon bytes match the official ATK C# ModelBuilder sample", () => {
+  const taxGroups = [
+    { taxRate: "C", totalForTaxCents: 450, totalTaxCents: 0 },
+    { taxRate: "D", totalForTaxCents: 296, totalTaxCents: 24 },
+    { taxRate: "E", totalForTaxCents: 889, totalTaxCents: 161 },
+  ];
+  const pos = encodeAtkBase64(encodeAtkPosCoupon({
+    businessId: 60100, couponId: 10, branchId: 1, location: "Prishtine",
+    operatorId: "Kushtrimi", posId: 1, applicationId: 1234,
+    verificationNo: "1234567890123456", type: 1, unixTime: 1727796620,
+    items: [
+      { name: "uje rugove", unitPriceEuro: 1.5, unit: "cope", quantity: 3, lineTotalCents: 450, taxRate: "C", itemType: "TT" },
+      { name: "sendviq", unitPriceEuro: 3, unit: "cope", quantity: 2, lineTotalCents: 600, taxRate: "E", itemType: "TT" },
+      { name: "buke", unitPriceEuro: 0.8, unit: "cope", quantity: 4, lineTotalCents: 320, taxRate: "D", itemType: "TT" },
+      { name: "machiato e madhe", unitPriceEuro: 1.5, unit: "cope", quantity: 3, lineTotalCents: 450, taxRate: "E", itemType: "TT" },
+    ],
+    payments: [
+      { type: 1, amountCents: 500 },
+      { type: 2, amountCents: 1000 },
+      { type: 3, amountCents: 320 },
+    ],
+    totalCents: 1820, taxGroups, totalTaxCents: 185, totalNoTaxCents: 1635, totalDiscountCents: 0,
+  }));
+  const citizen = encodeAtkBase64(encodeAtkCitizenCoupon({
+    businessId: 60100, couponId: 10, branchId: 1, posId: 1,
+    verificationNo: "1234567890123456", type: 1, unixTime: 1727796620,
+    totalCents: 1820, taxGroups, totalTaxCents: 185, totalNoTaxCents: 1635,
+  }));
+  assert.equal(pos, "CMTVAxAKGAEiCVByaXNodGluZSoJS3VzaHRyaW1pMAE40glCEDEyMzQ1Njc4OTAxMjM0NTZIAVCMq/C3BlokCgp1amUgcnVnb3ZlEJh1GgRjb3BlJQAAQEAowgMyAUM6AlRUWiIKB3NlbmR2aXEQsOoBGgRjb3BlJQAAAEAo2AQyAUU6AlRUWh4KBGJ1a2UQwD4aBGNvcGUlAACAQCjAAjIBRDoCVFRaKgoQbWFjaGlhdG8gZSBtYWRoZRCYdRoEY29wZSUAAEBAKMIDMgFFOgJUVGIFCAEQ9ANiBQgCEOgHYgUIAxDAAmicDnIGCgFDEMIDcggKAUQQqAIYGHIJCgFFEPkGGKEBeLkBgAHjDA==");
+  assert.equal(citizen, "CMTVAxAKGAEgASoQMTIzNDU2Nzg5MDEyMzQ1NjABOIyr8LcGQJwOSgYKAUMQwgNKCAoBRBCoAhgYSgkKAUUQ+QYYoQFQuQFY4ww=");
+});
 
 test("browser POS key stays non-exportable, CSR verifies, certificate matches, and signatures verify", async () => {
   const identity = {
