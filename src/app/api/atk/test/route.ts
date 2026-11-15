@@ -175,6 +175,31 @@ function requiredPositiveInteger(value: unknown, label: string): number {
   return parsed;
 }
 
+async function setTrustedSubmissionState(
+  restOrigin: string,
+  serviceRoleKey: string,
+  idempotencyKey: string,
+  state: "rejected" | "needs_reconciliation",
+  reason: string,
+): Promise<boolean> {
+  const response = await fetch(restOrigin + "rpc/fiskalo_basic_server_set_atk_submission_state_v2", {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: "Bearer " + serviceRoleKey,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      p_idempotency_key: idempotencyKey,
+      p_submission_state: state,
+      p_last_error: reason.slice(0, 500),
+    }),
+    cache: "no-store",
+  });
+  return response.ok;
+}
+
 async function supabaseRequest(path: string, token: string, anonKey: string) {
   const response = await fetch(path, {
     headers: {
