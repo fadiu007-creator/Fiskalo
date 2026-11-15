@@ -1,4 +1,5 @@
-import { getAtkRequestContext, positiveInteger } from "@/lib/atk/server-auth";
+import { getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
+import { certificateSpkiFingerprint, equalBytes, getCertificateSpki, getCsrSpki } from "@/lib/atk/certificate-crypto";
 
 export async function POST(request: Request) {
   let body: Record<string, unknown>;
@@ -68,9 +69,39 @@ export async function POST(request: Request) {
       const detail = String(result.message ?? result.error ?? result.detail ?? "ATK rejected the CSR request.").slice(0, 800);
       return Response.json({ error: "atk_certificate_rejected", detail, atkStatus: response.status }, { status: 502, headers: { "Cache-Control": "no-store" } });
     }
-    const signedCertificate = typeof result.signed_certificate === "string" ? result.signed_certificate : "";
-    if (!signedCertificate) return Response.json({ error: "atk_unexpected_certificate_response" }, { status: 502 });
-    return Response.json({ signedCertificate, environment: "TEST" }, { headers: { "Cache-Control": "no-store" } });
+    const signedCertificate = typeof result.signed_certificate === "string" ? result.signed_certificate.trim() : "";
+    if (!signedCertificate || signedCertificate.length > 20000 ||
+        !signedCertificate.startsWith("-----BEGIN CERTIFICATE-----") ||
+        !signedCertificate.includes("-----END CERTIFICATE-----")) {
+      return Response.json({ error: "atk_unexpected_certificate_response", detail: "ATK did not return a valid PEM certificate." }, { status: 502 });
+    }
+    let fingerprint: string;
+    try {
+      if (!equalBytes(getCsrSpki(csrPem), getCertificateSpki(signedCertificate))) {
+        return Response.json({ error: "certificate_key_mismatch", detail: "ATK certificate public key does not match this POS private key." }, { status: 502 });
+      }
+      fingerprint = await certificateSpkiFingerprint(signedCertificate);
+    } catch {
+      return Response.json({ error: "invalid_atk_certificate", detail: "The ATK certificate could not be parsed or bound to the submitted CSR." }, { status: 502 });
+    }
+    let service;
+    try { service = getAtkServiceRoleClient(); }
+    catch { return Response.json({ error: "trusted_certificate_store_unavailable" }, { status: 503 }); }
+    const issuedAt = new Date().toISOString();
+    const { error: revokeError } = await service.from("fiskalo_atk_pos_certificates")
+      .update({ revoked_at: issuedAt, status: "revoked" })
+      .eq("organization_id", organizationId).eq("pos_installation_id", posInstallationId).is("revoked_at", null);
+    if (revokeError) return Response.json({ error: "certificate_registry_update_failed", detail: revokeError.message }, { status: 500 });
+    const { error: registryError } = await service.from("fiskalo_atk_pos_certificates").insert({
+      organization_id: organizationId, pos_installation_id: posInstallationId,
+      certificate_pem: signedCertificate, spki_sha256: fingerprint,
+      issued_at: issuedAt, created_by: user.id, status: "active",
+    });
+    if (registryError) return Response.json({ error: "certificate_registry_save_failed", detail: registryError.message }, { status: 500 });
+    const { error: activateError } = await service.from("fiskalo_atk_pos_installations")
+      .update({ status: "active" }).eq("id", posInstallationId).eq("organization_id", organizationId).eq("environment", "test");
+    if (activateError) return Response.json({ error: "pos_activation_failed", detail: activateError.message }, { status: 500 });
+    return Response.json({ signedCertificate, certificateFingerprint: fingerprint, environment: "TEST" }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const timeout = error instanceof Error && error.name === "TimeoutError";
     return Response.json({ error: timeout ? "atk_timeout" : "atk_unreachable", detail: timeout ? "ATK test certificate request timed out." : "Could not reach ATK test service." }, { status: 502 });
