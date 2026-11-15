@@ -192,7 +192,7 @@ export default function Home(){
             const result=await queueCloudTestCoupon(supabase,{
               businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
               couponId:item.couponId,idempotencyKey:item.idempotencyKey,
-              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,verificationNo:item.nuiKf,verificationNo:item.nuiKf,
+              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,
               citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
               dailyNumber:item.dailyNumber,verificationNo:item.nuiKf,
               offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
@@ -522,6 +522,29 @@ export default function Home(){
         issuedAtUtc,offlineIssuedAtUtc:null,recoveryDeadlineUtc,
         state:"prepared",transactionId:null,lastError:null
       });
+      if(!navigator.onLine){
+        const offlineIssuedAtUtc=new Date().toISOString();
+        const offlineDeadline=new Date(Date.parse(offlineIssuedAtUtc)+48*60*60*1000).toISOString();
+        await updateFiscalOutboxItem(idempotencyKey,{
+          state:"queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,
+          lastError:"Shfletuesi ishte pa lidhje përpara dërgimit në ATK."
+        });
+        const offlineReceipt:SaleRecord={
+          ...sale,
+          items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
+          transaction_id:null,nui_kf:nuiKf,verification_no:nuiKf,daily_number:Number(sale.daily_number),
+          submission_state:"queued",offline_issued_at:offlineIssuedAtUtc,recovery_deadline_at:offlineDeadline,
+          qr_svg_base64:qrSvgBase64,pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+          unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,unit_name:pos.label,
+          business_address:pos.location,operator_name:sale.operator_name??operatorName.trim(),
+          operator_identifier:sale.operator_identifier??null,document_type:"SHITJE",is_offline:true
+        };
+        setReceipt(offlineReceipt);
+        setMessage("Shitja u ruajt. Pajisja ishte pa lidhje; kuponi i nënshkruar mbetet në outbox dhe do të ngarkohet në radhën cloud kur interneti të rikthehet, brenda 48 orëve.");
+        setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+        return;
+      }
       let fiscal;
       try {
         fiscal=await submitCloudTestCoupon(supabase,{
@@ -539,9 +562,9 @@ export default function Home(){
             p_citizen_payload:citizenPayload,p_citizen_signature:citizenSignature,
             p_daily_number:Number(sale.daily_number),p_offline_issued_at:offlineIssuedAtUtc,p_qr_svg_base64:qrSvgBase64
           });
-          if(queueError)throw new Error("ATK could not be reached before delivery, but the signed coupon could not be saved to the cloud recovery queue: "+queueError.message);
           await updateFiscalOutboxItem(idempotencyKey,{
-            state:"queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,lastError:submitError.message
+            state:queueError?"queued":"cloud_queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,
+            lastError:queueError?queueError.message:submitError.message
           });
           const offlineReceipt:SaleRecord={
             ...sale,
