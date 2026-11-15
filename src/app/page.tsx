@@ -910,7 +910,7 @@ export default function Home(){
           {categoryOptions.map((code,index)=>{
             const categoryProducts=products.filter(product=>product.atk_item_category_code===code);
             const glyphs=["🍔","🥤","🍟","🥪","🍰","🥗","🍗","☕"];
-            return <button type="button" key={code} className={selectedCategory===code?"pos-reference-category selected":"pos-reference-category"} onClick={()=>setSelectedCategory(code)}><span className="pos-reference-category-art">{glyphs[index%glyphs.length]}</span><strong>Kategoria {code}</strong><small>{categoryProducts.length} artikuj</small></button>;
+            return <button type="button" key={code} className={selectedCategory===code?"pos-reference-category selected":"pos-reference-category"} onClick={()=>setSelectedCategory(code)}><span className="pos-reference-category-art">{glyphs[index%glyphs.length]}</span><strong>{getAtkItemCategoryLabel(code)||code}</strong><small>{categoryProducts.length} artikuj</small></button>;
           })}
         </div>
         <div className="pos-reference-products-heading"><h2>{productSearch?"Rezultatet":"Produktet"}</h2><span>{filteredProducts.length} artikuj</span></div>
