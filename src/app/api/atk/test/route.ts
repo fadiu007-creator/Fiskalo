@@ -308,7 +308,7 @@ export async function POST(request: Request) {
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) return jsonError("Coupon signature is not valid base64.", 400);
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
       const posQuery = new URLSearchParams({
-        select: "id,branch_id,pos_id,application_id,verification_no",
+        select: "id,branch_id,pos_id,application_id,verification_no,certificate_status",
         id: "eq." + posRecordId,
         business_id: "eq." + businessId,
         limit: "1",
@@ -316,11 +316,12 @@ export async function POST(request: Request) {
       const poses = await supabaseRequest(restOrigin + "fiskalo_basic_pos?" + posQuery.toString(), token, anonKey);
       if (!Array.isArray(poses) || poses.length !== 1 || !isRecord(poses[0])) return jsonError("POS does not belong to this business.", 403);
       const pos = poses[0];
+      if (pos.certificate_status !== "certificate_issued") return jsonError("This POS does not have an issued ATK TEST certificate.", 409);
 
       const saleId = requiredString(body.saleId, "Sale ID", 64);
       const couponId = requiredPositiveInteger(body.couponId, "Coupon ID");
       const saleQuery = new URLSearchParams({
-        select: "id,coupon_id,pos_id,status",
+        select: "id,coupon_id,pos_id,status,created_at,total,subtotal,vat_total",
         id: "eq." + saleId,
         business_id: "eq." + businessId,
         pos_id: "eq." + posRecordId,
@@ -343,7 +344,7 @@ export async function POST(request: Request) {
         if (couponIdentity.get(field) !== value) return jsonError("Signed coupon identifiers do not match the selected business and POS.", 409);
       }
       if (couponIdentity.get(2) !== BigInt(couponId)) return jsonError("Signed coupon number does not match the paid sale.", 409);
-      if (couponIdentity.get(8) !== String(body.nuiKf)) return jsonError("Signed coupon VerificationNo must match the per-coupon NUIKF.", 409);
+      if (couponIdentity.get(8) !== String(pos.verification_no)) return jsonError("Signed coupon verification number does not match the saved POS.", 409);
 
       const idempotencyKey = requiredString(body.idempotencyKey, "Fiscal idempotency key", 256);
       const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
