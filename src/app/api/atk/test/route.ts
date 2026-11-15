@@ -338,6 +338,8 @@ export async function POST(request: Request) {
         return jsonError("Sale does not belong to the selected business and POS, or is not payable.", 409);
       }
 
+      const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
+      if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("NUIKF must be 16 uppercase alphanumeric characters.", 400);
       const couponIdentity = readCouponIdentity(details);
       const expected: Array<[number, bigint]> = [
         [1, BigInt(business.nui as string)],
@@ -359,13 +361,11 @@ export async function POST(request: Request) {
       }
 
       const idempotencyKey = requiredString(body.idempotencyKey, "Fiscal idempotency key", 256);
-      const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
       const citizenPayload = requiredString(body.citizenPayload, "Signed CitizenCoupon payload", 200_000);
       const citizenSignature = requiredString(body.citizenSignature, "CitizenCoupon signature", 256);
       const dailyNumber = requiredPositiveInteger(body.dailyNumber, "Daily coupon number");
       const certificatePem = requiredString(body.certificatePem, "POS public certificate", 16_384);
       const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
-      if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("NUIKF must be 16 uppercase alphanumeric characters.", 400);
       const citizenIdentity = readCouponIdentity(citizenPayload);
       const citizenExpected: Array<[number, bigint]> = [
         [1, BigInt(business.nui as string)],
