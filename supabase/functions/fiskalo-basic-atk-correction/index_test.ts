@@ -18,6 +18,7 @@ function correctionPayload(overrides: Record<string, unknown> = {}) {
     operatorId: "Operator 1",
     posId: "2",
     applicationId: "300",
+    verificationNo: "NUIKF12345678901",
     type: 2,
     unixTime: 1794729600,
     referenceNo: "9000",
