@@ -1,3 +1,4 @@
+// deno-lint-ignore no-import-prefix -- Pin the Deno standard-library assertion version used in CI.
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { encodeAtkBase64, encodeAtkPosCoupon } from "../../../src/lib/atk/protobuf.ts";
 import {
