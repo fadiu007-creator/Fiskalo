@@ -228,7 +228,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
   }
 
   const sales = await dbGet<Sale>(env, "fiskalo_basic_sales",
-    postgrestQuery({ select: "id,operator_id,pos_id,coupon_id", id: "eq." + doc.sale_id, business_id: "eq." + doc.business_id, limit: "1" }));
+    postgrestQuery({ select: "id,operator_id,pos_id,coupon_id,created_at,total,subtotal,vat_total", id: "eq." + doc.sale_id, business_id: "eq." + doc.business_id, limit: "1" }));
   if (sales.length !== 1 || !sales[0].operator_id || String(sales[0].coupon_id) !== String(doc.coupon_id)) {
     await markNeedsReconciliation(env, doc, "Sale identity could not be verified for automatic ATK recovery.");
     return "reconciliation";
@@ -240,6 +240,52 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     await markNeedsReconciliation(env, doc, "The original POS certificate or POS identity is no longer available.");
     return "reconciliation";
   }
+  const pos = poses[0];
+  const businesses = await dbGet<Business>(env, "fiskalo_basic_businesses",
+    postgrestQuery({ select: "id,nui", id: "eq." + doc.business_id, limit: "1" }));
+  const certificates = await dbGet<PosCertificate>(env, "fiskalo_basic_pos_certificates",
+    postgrestQuery({ select: "business_id,pos_id,certificate_pem", business_id: "eq." + doc.business_id, pos_id: "eq." + pos.id, limit: "1" }));
+  if (businesses.length !== 1 || certificates.length !== 1) {
+    await markNeedsReconciliation(env, doc, "Business identity or server-registered ATK certificate is missing.");
+    return "reconciliation";
+  }
+  const business = businesses[0];
+  const certificatePem = certificates[0].certificate_pem;
+  try {
+    const posFields = parseCouponFields(doc.signed_payload);
+    const citizenFields = parseCouponFields(doc.citizen_payload);
+    const unixTime = BigInt(Math.floor(new Date(sale.created_at).getTime() / 1000));
+    const expectedPos: Array<[number,bigint]> = [
+      [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
+      [6,BigInt(pos.pos_id)],[7,BigInt(pos.application_id)],[9,BigInt(1)],[10,unixTime],
+      [13,BigInt(Math.round(Number(sale.total)*100))],[15,BigInt(Math.round(Number(sale.vat_total)*100))],
+      [16,BigInt(Math.round(Number(sale.subtotal)*100))],
+    ];
+    for (const [field,value] of expectedPos) if (posFields.get(field)!==value) throw new Error("POS coupon identity or totals mismatch.");
+    if (posFields.get(8)!==doc.nui_kf || doc.verification_no!==doc.nui_kf) throw new Error("POS coupon NUIKF/VerificationNo mismatch.");
+    const expectedCitizen: Array<[number,bigint]> = [
+      [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
+      [4,BigInt(pos.pos_id)],[6,BigInt(1)],[7,unixTime],
+      [8,BigInt(Math.round(Number(sale.total)*100))],
+      [10,BigInt(Math.round(Number(sale.vat_total)*100))],
+      [11,BigInt(Math.round(Number(sale.subtotal)*100))],
+    ];
+    for (const [field,value] of expectedCitizen) if (citizenFields.get(field)!==value) throw new Error("CitizenCoupon identity or totals mismatch.");
+    if (citizenFields.get(5)!==doc.nui_kf) throw new Error("CitizenCoupon NUIKF mismatch.");
+    const [posValid,citizenValid]=await Promise.all([
+      verifyPayload(certificatePem,doc.signed_payload,doc.signature),
+      verifyPayload(certificatePem,doc.citizen_payload,doc.citizen_signature),
+    ]);
+    if (!posValid || !citizenValid) throw new Error("POS or CitizenCoupon signature does not verify against the server-registered ATK certificate.");
+  } catch (error) {
+    await dbPatch(env, "fiskalo_basic_fiscal_documents",
+      postgrestQuery({ id: "eq." + doc.id, submission_state: "eq.submitting" }),
+      { submission_state: "rejected", next_attempt_at: null, last_error: error instanceof Error ? error.message.slice(0,500) : "Queued fiscal document validation failed." },
+    );
+    return "rejected";
+  }
+  const qrSvg = await createCitizenQrSvg(doc.citizen_payload + "|" + doc.citizen_signature);
+  const qrSvgBase64 = encodeBase64(new TextEncoder().encode(qrSvg));
 
   let response: Response;
   try {
@@ -319,12 +365,12 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
       p_atk_transaction_id: transactionId,
       p_atk_response: trustedResponse,
       p_nui_kf: doc.nui_kf,
-      p_verification_no: doc.verification_no || doc.nui_kf,
+      p_verification_no: doc.nui_kf,
       p_citizen_payload: doc.citizen_payload,
       p_citizen_signature: doc.citizen_signature,
       p_daily_number: doc.daily_number,
       p_offline_issued_at: doc.offline_issued_at,
-      p_qr_svg_base64: doc.qr_svg_base64,
+      p_qr_svg_base64: qrSvgBase64,
     });
     return "accepted";
   } catch {
