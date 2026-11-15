@@ -584,9 +584,10 @@ export async function POST(request: Request) {
         [13,BigInt(Math.round(Number(sales[0].total)*100))],
         [15,BigInt(Math.round(Number(sales[0].vat_total)*100))],
         [16,BigInt(Math.round(Number(sales[0].subtotal)*100))],
-        [17,BigInt(originalCouponId)],[18,BigInt(originalTransactionId)],
+        [17,BigInt(originalCouponId)],
       ];
       for (const [field,value] of expectedPos) if (couponIdentity.get(field)!==value) return jsonError("Signed correction coupon identifiers, reference or totals do not match the original sale.", 409);
+      if (couponIdentity.get(18)!==undefined && couponIdentity.get(18)!==BigInt(0)) return jsonError("Correction payload must reference the original coupon using ReferenceNo only.", 409);
       if (couponIdentity.get(8)!==nuiKf) return jsonError("Correction NUIKF / VerificationNo mismatch.", 409);
       const citizenIdentity = readCouponIdentity(citizenPayload);
       const expectedCitizen: Array<[number,bigint]> = [
