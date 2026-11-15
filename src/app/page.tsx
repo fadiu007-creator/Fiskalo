@@ -755,7 +755,7 @@ export default function Home(){
           };
           setReceipt(offlineReceipt);
           setMessage("ATK TEST nuk u arrit dhe kërkesa nuk u dërgua. Kuponi i nënshkruar u ruajt në outbox dhe do të ngarkohet në radhën cloud; Cloudflare do ta provojë sërish brenda afatit 48-orësh.");
-          setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+          setCart({});setCheckoutKey("");setCheckoutAttempted(false);setAdditionalPayments([]);
           sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
           void loadWorkspace(user!.id).catch(()=>undefined);
           return;
@@ -882,7 +882,7 @@ export default function Home(){
           {Object.entries(receipt.items.reduce<Record<string,{base:number;tax:number;rate:number}>>((acc,item)=>{const key=item.atk_vat_code||"A";const group=acc[key]??{base:0,tax:0,rate:Number(item.vat_rate??0)};group.base+=Number(item.line_net??0);group.tax+=Number(item.line_vat??0);acc[key]=group;return acc;},{})).sort(([a],[b])=>a.localeCompare(b)).map(([code,g])=><div key={code} style={{display:"flex",justifyContent:"space-between"}}><span>TVSH {code} {g.rate}%</span><span>€{g.tax.toFixed(2)}</span></div>)}
           <div style={{display:"flex",justifyContent:"space-between"}}><span>TOTALI PA TVSH</span><strong>€{Number(receipt.subtotal).toFixed(2)}</strong></div>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:800,marginTop:6}}><span>TOTALI PËR PAGESË</span><span>€{Number(receipt.total).toFixed(2)}</span></div>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}><span>PAGUAR</span><strong>€{Number(receipt.total).toFixed(2)}</strong></div><div style={{display:"flex",justifyContent:"space-between"}}><span>MËNYRA E PAGESËS</span><strong>{formatPaymentAllocations(receipt.payment_allocations??[{method:receipt.payment_method,amount_cents:Math.round(Number(receipt.total)*100)}])}</strong></div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}><span>PAGUAR</span><strong>€{Number(receipt.total).toFixed(2)}</strong></div>{(receipt.payment_allocations?.length?receipt.payment_allocations:[{method:receipt.payment_method,amount_cents:Math.round(Number(receipt.total)*100)}]).map((allocation,index)=><div key={allocation.method+"-"+index} style={{display:"flex",justifyContent:"space-between"}}><span>{paymentMethodLabel(allocation.method)}</span><strong>€{(Number(allocation.amount_cents)/100).toFixed(2)}</strong></div>)}
         </div>
         <div style={{textAlign:"center",padding:"8px 0",borderBottom:"1px dashed #888"}}>
           <div style={{fontWeight:700}}>NUIKF</div>
