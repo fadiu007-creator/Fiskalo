@@ -9,6 +9,7 @@ import "fake-indexeddb/auto";
 
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 globalThis.window = globalThis;
+globalThis.isSecureContext = true;
 
 const {
   encodeAtkPosCoupon,
@@ -82,7 +83,7 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     writeFileSync(csrPath, first.csrPem);
     openssl(["req", "-in", csrPath, "-noout", "-verify"]);
 
-    const dbRequest = indexedDB.open("fiskalo-atk-pos-keys", 1);
+    const dbRequest = indexedDB.open("fiskalo-atk-pos-keys", 2);
     const db = await new Promise((resolve, reject) => {
       dbRequest.onsuccess = () => resolve(dbRequest.result);
       dbRequest.onerror = () => reject(dbRequest.error);
