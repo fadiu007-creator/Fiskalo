@@ -1,120 +1,77 @@
-# Fiskalo Basic ATK MVP
+# Fiskalo Basic ATK TEST MVP — Web Runtime
 
-## Goal
-Deliver the smallest maintainable product that can complete ATK's required onboarding and fiscal coupon test scenarios, while retaining mandatory record integrity and offline protections.
+## Scope
 
-## Included
-- One responsive web application and one primary local POS runtime for the first certification track.
-- Owner/Cashier access; one business workspace.
-- Minimal product catalogue: name, price, stock and ATK unit/category/VAT mappings.
-- POS sale, payment capture and receipt.
-- ATK onboarding per POS: identifiers, local key generation, CSR, certificate matching.
-- Signed ATK Sale, Cancel and Return documents linked to original sales.
-- Durable encrypted offline fiscal journal, safe automatic recovery and ambiguous-submission reconciliation.
-- Restricted authority-request CSV/PDF export of untransmitted fiscal records.
-- Basic sales, VAT and fiscal transmission status.
+The current Basic MVP is a browser-based Fiskalo web application hosted on Cloudflare. It does not require a Windows POS Agent or a localhost service. The runtime is ATK TEST only; production fiscalization remains disabled.
 
-## Explicitly deferred
-- Advanced inventory valuation and supplier payment reconciliation.
-- Supplier purchases, basic stock movements and operating expenses are now included in the owner workspace (migrations 0016–0017); they remain gated until those migrations are applied and tested.
-- Subscription plans, billing and product limits.
-- ARBK registry lookup.
-- Advanced shift/cash reconciliation and internal X/Z reporting.
-- Multi-client feature parity (independent Web, Android and Windows fiscal engines).
-- Advanced audit exports beyond the required fiscal journal and authority workflow.
+## Web-only architecture
 
-## Non-negotiable safeguards
-- Private keys never leave the POS device and are never stored in Supabase or Cloudflare secrets.
-- Each POS has its own key/certificate and stable identifiers.
-- Original fiscal records are immutable; corrections append linked documents.
-- An uncertain submission is reconciled before retry; no blind duplicate submission.
-- A coupon is marked fiscalized only after ATK returns a valid accepted transaction ID and the response is durably saved.
-- Production submission remains disabled until the provider and software solution receive formal ATK authorization/certification and production credentials.
+- **Browser POS:** generates a separate P-256 ECDSA key per business/branch/POS. The private CryptoKey is non-exportable and stored in IndexedDB. The browser builds PKCS#10 CSR requests, signs POS Coupon and CitizenCoupon protobuf payloads, and checks the ATK certificate public key against its local key.
+- **Cloudflare application Worker:** authenticates the Supabase user, checks business membership and saved POS configuration, handles ATK TEST verification/CSR/coupon requests, validates the POS and CitizenCoupon signatures, and records acceptance only after a genuine ATK TEST response contains a valid uint64 transaction ID.
+- **Supabase project `zikos`:** stores the business/POS records, paid sales, fiscal journal, public ATK certificate registry and durable offline queue. The service-role-only functions prevent browser callers from marking a document accepted or inserting server recovery records.
+- **Cloudflare scheduled recovery Worker:** runs every five minutes. It reads queued signed documents, validates their identity and signatures against the server-registered POS certificate, and submits only documents within their 48-hour recovery window. It retries only failures positively classified as occurring before delivery. Ambiguous timeouts, resets, malformed responses and stale worker claims move to reconciliation rather than blind retry.
 
-## Acceptance sequence
-1. ATK TEST taxpayer/application/POS verification.
-2. CSR and certificate issuance on the selected physical POS; public key must match local private key.
-3. One accepted Sale with saved transaction ID.
-4. Accepted Cancel and Return referencing original accepted Sale as required by ATK.
-5. Offline sale retention, reconnection recovery and duplicate/timeout reconciliation.
-6. Receipt comparison against current official ATK format.
-7. Authority-request export access-control test.
-8. ATK portal verification and formal certification application evidence.
+## Implemented web flows
 
-## 2026 ATK legal requirements cross-check
+- ATK TEST POS verification and certificate issuance through the Cloudflare gateway.
+- Browser-generated non-exportable P-256 POS key, CSR generation, certificate SPKI matching and local key storage.
+- ATK POS Coupon and CitizenCoupon protobuf encoding and DER ECDSA signatures.
+- Per-coupon 16-character NUIKF used as the coupon VerificationNo in both signed payloads.
+- Server-side verification of both signatures, POS/coupon identifiers, daily number, sale timestamp and financial totals.
+- Cloudflare-generated QR SVG from the signed CitizenCoupon payload.
+- Trusted server-side fiscal acceptance ledger; browser execution of the old acceptance RPC is revoked.
+- Durable browser IndexedDB outbox for signed coupons that have not been sent.
+- Authenticated queue upload and Supabase recovery queue for confirmed pre-delivery failures or outbox documents uploaded after reconnect.
+- Cloudflare cron recovery with exponential backoff for known pre-delivery transport failures, a strict 48-hour deadline and stop-on-ambiguity behavior.
+- ATK TEST-only response labels and no production submission path.
 
-Baseline reviewed: Administrative Instruction MF No. 01/2026 published by ATK. This is a software implementation checklist, not an ATK certification decision.
+## Remaining ATK acceptance work
 
-| Legal requirement | Current Basic MVP evidence | Status |
+| Scenario | Implementation | Evidence still required |
 |---|---|---|
-| Article 7: receipt contains taxpayer identity, address, operator identity, item/quantity/unit price, VAT, payment allocations, issue date/time, POS identity, daily receipt number, QR, NUIKF, RKS logo and document type | The Basic TEST receipt renders these identity, line, VAT, daily-number, NUIKF, QR and RKS/MFPT elements. It remains a TEST printout; its exact layout/content has not yet been validated against the current official ATK specimen, and split-tender allocations are not supported. | Partial — format validation outstanding |
-| Article 32(1)-(2): electronic register, digital signature per coupon, certificate identity, secure HTTPS exchange, QR generation, printer support, upgrade path and official ATK messages | Windows Agent has local key/certificate validation, Protobuf signing, HTTPS TEST submission, signed CitizenCoupon QR generation and thermal-printing primitives. Production protocol, ATK-issued production credentials and physical printer evidence remain outstanding. | Partial |
-| Article 32(3) and Article 44: issue and securely retain coupons offline, automatically transmit on reconnection, meet the 48-hour deadline | Encrypted local queue and recovery worker exist. Ambiguous submissions are deliberately locked for reconciliation; offline coupon issuance with a scannable signed QR and full 48-hour acceptance evidence are not yet demonstrated. | Partial |
-| Article 34: separate certificate and protected private key for each SEF/POS, including taxpayer, branch, POS, software solution code and fiscalization number | Local DPAPI key/certificate binding and TEST onboarding exist. ATK production-issued credentials and the certified software solution code are unavailable. | Partial |
-| Article 35(8)-(12): developer and software registration/certification; unique SEF code and developer NUI included in each fiscalization | Not implemented in the Basic payload and cannot be completed until ATK issues the developer/software registration. | Blocked |
-| Article 39: QR code on every fiscal coupon, including coupons issued while offline; unique identifier in ATK format | Agent generates the signed CitizenCoupon QR/NUIKF and retains it in the encrypted local queue; the web receipt renders the saved QR. Offline/online physical coupon scans and exact ATK-format validation have not yet been evidenced. | Partial — physical and format validation outstanding |
-| Article 43: corrective coupon must reference the original coupon | Protobuf model supports correction types, but the Basic product has no tested end-to-end Cancel/Return workflow. | Not complete |
+| POS verification | Cloudflare gateway uses saved business/POS values | Live ATK TEST verification using the configured taxpayer and POS |
+| CSR and certificate | Browser CSR, server-stored public certificate and local SPKI match | ATK TEST certificate issuance and live key-match evidence |
+| Sale | Browser signs; Cloudflare validates; ATK response controls accepted status | Real ATK TEST Sale and saved transaction ID |
+| Cancel | Existing data model supports document types, but browser signing and trusted ledger flow are not complete | Implement and test a Cancel referencing an accepted Sale |
+| Return | Existing data model supports document types, but browser signing and trusted ledger flow are not complete | Implement and test a Return referencing an accepted Sale |
+| Offline queue | Browser outbox, Supabase queue RPC and scheduled Cloudflare worker | Deploy Worker, simulate confirmed pre-delivery failure, reconnect and prove automatic ATK acceptance before 48 hours |
+| Duplicate/ambiguous response | Idempotency checks and stop-on-ambiguity states | Live duplicate and timeout/reconciliation tests |
+| Receipt | Server-generated CitizenCoupon QR and stored fiscal journal data | Compare printed TEST receipt against current official ATK specimen, including RKS mark, NUIKF and all mandatory fields |
+| Production | Explicitly disabled | Formal provider/software registration and ATK production authorization |
 
-The ATK legal instruction states that the SEF must save transactions securely when communication is interrupted and transmit them automatically when service returns; Article 44 sets a 48-hour deadline. The software must generate QR codes even when fiscalization cannot complete immediately. These requirements are not satisfied merely by storing a paid sale or printing a TEST copy.
+A passing build or a successful local unit test is not ATK acceptance. The application must be deployed to Cloudflare and tested against the live ATK TEST installation using the configured taxpayer/application/POS credentials.
 
-## Fiscal receipt and offline queue work delivered in migrations 0005-0006
+## Offline boundary
 
-- The POS Agent creates a cryptographically random 16-character uppercase alphanumeric NUIKF for each coupon and signs a separate ATK `CitizenCoupon` with the same locally protected ECDSA key used for the POS coupon.
-- The QR payload is `Base64(CitizenCoupon protobuf)|Base64(ECDSA signature)`, matching the official `fiskalizimi/pos-csharp` implementation. The Agent renders that exact payload as an SVG QR before attempting ATK submission and stores the CitizenCoupon bytes, signature, NUIKF and daily number in its encrypted local queue.
-- The Basic receipt view now includes taxpayer name/NUI, POS location, optional VAT number, operator name and identifier, SEF identifier, item quantity/unit price/value and ATK VAT letter, VAT group breakdown, totals, payment method, date/time, daily number, NUIKF, QR, document type, RKS/MFPT fiscal mark and `e-kuponi`. TEST receipts are explicitly labelled as test-only and cannot be mistaken for production coupons.
-- Migration 0005 adds a per-POS daily counter using the Kosovo local timezone, a unique NUIKF constraint, signed CitizenCoupon receipt fields and owner/member-checked RPCs to persist an offline receipt and later promote it to ATK-accepted status. Migration 0006 adds owner-only VAT-number maintenance.
-- The POS Agent retries only transport failures that prove the request was not delivered (DNS resolution failure, refused connection, network unreachable, etc.). It uses exponential backoff and one shared 48-hour deadline for all outstanding coupons in the same confirmed outage. A timeout, reset or ambiguous ATK response is moved to reconciliation rather than risk duplicate fiscalization.
-- When the Agent later receives a valid ATK TEST transaction ID, the browser polls the local queue and persists the accepted response into the cloud fiscal ledger.
+The hosted checkout creates the paid sale in Supabase before ATK submission. It can therefore queue a signed coupon when the ATK endpoint is unavailable while Fiskalo/Supabase connectivity remains available. If the browser loses connectivity after the paid sale has committed, the signed coupon is retained in IndexedDB and uploaded when the browser reconnects.
 
-**Deployment verification (2026-11-07):** migrations 0005 and 0006 are applied to Supabase project `zikos`. The catalog/privilege regression script for migration 0005 passed. The daily counter function is configured for `Europe/Belgrade` (Kosovo local time). The test receipt UI and Agent changes are committed, but the current GitHub Actions run must pass before this batch is considered build-verified.
+A sale cannot currently be created from a completely disconnected browser because sale creation, stock checks, daily numbering and coupon allocation still require the Supabase transaction. This is not yet a fully local-first POS with offline sales and preallocated coupon-number blocks.
 
-- Migrations 0007-0008 add an owner-visible, self-managed operator display name and snapshot it into every new sale. The POS requires a named operator before checkout, while retaining the authenticated user ID internally as the stable operator key; the ATK PosCoupon OperatorId field carries the registered operator name. Owner access to the business operator roster is mediated through a private SECURITY DEFINER helper to avoid recursive RLS policies.
+## Cloudflare configuration required
 
-**Receipt scope caveat:** the current Basic checkout records one payment method per sale and does not yet support split-tender payments or item-level discounts/markups. The receipt prints the full amount against the selected method and VAT breakdown; split allocations and discount/markup rows remain unimplemented if a business needs them.
+Set `SUPABASE_SERVICE_ROLE_KEY` as a secret (never a `NEXT_PUBLIC_` variable) on the main `fiskalo` Worker and the separate `fiskalo-atk-recovery` Worker. The repository workflow can configure both when the GitHub Actions secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `SUPABASE_SERVICE_ROLE_KEY` are present.
 
-**Important remaining boundary:** the current hosted checkout still creates the paid sale in Supabase before asking the local Agent to sign/queue the ATK coupon. Therefore this handles an ATK-system outage while the Fiskalo/Supabase connection remains available; it does not yet provide a fully disconnected POS sale when the store loses all internet connectivity. A local-first sales cache and post-reconnection sale sync are still required for that broader offline case. The current offline queue is Windows POS Agent-only; Android does not yet have an equivalent local signing/queue agent. A continuous ATK endpoint connectivity probe runs every 15 seconds while the Windows POS Agent is running and persists the first detected interruption; new offline coupons inherit that outage timestamp and the 48-hour deadline. If the monitor cannot record the outage, the first confirmed no-connect submission failure is the fallback. The deadline is therefore bounded by the probe interval while the Agent is running.
+Deploy the recovery Worker with:
 
-## Security hardening delivered in migration 0004
+```bash
+npm install
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.atk-recovery.jsonc
+npm run deploy:atk-recovery
+```
 
-Migration `0004_fiskalo_basic_security_hardening.sql` narrows the database trust boundary:
-- Owners alone can create or change POS configuration and product catalogue rows; cashiers retain read access for checkout.
-- Authenticated clients cannot directly insert/update/delete sales, sale lines or fiscal documents. Paid checkout and accepted ATK response persistence remain routed through validated RPCs.
-- Privileged database implementations are moved into the non-exposed `fiskalo_private` schema. Public RPC entry points are SECURITY INVOKER wrappers; private helpers require `auth.uid()` and are executable only by authenticated users.
-- The old column-level direct permission to update a sale's fiscal status is explicitly revoked.
-- `supabase/tests/0004_fiskalo_basic_security_hardening.sql` checks the resulting grants and function placement.
+The recovery Worker uses the existing `zikos` project. Do not create a second Supabase project and do not expose the service-role key to browser code.
 
-**Deployment status (2026-11-07):** migration 0004 is applied to the existing Supabase project `zikos`. The privilege regression SQL completed successfully against that database. The `fiskalo_private` schema is not in the configured exposed-schema override (the setting is unset, leaving the Supabase default exposed schemas); keep it out of any future exposed-schema list. This catalog test does not replace authenticated owner/cashier and cross-tenant RLS integration tests. The current UI still does not provide a complete owner-managed cashier invitation workflow; role provisioning needs its own secure implementation and tests.
+## Release gate
 
+Do not mark Fiskalo ATK TEST compliant until all of the following are evidenced:
 
-## Current ATK 2026 onboarding and technical source references
+1. CI passes, including browser cryptography, protobuf and recovery tests.
+2. The main web app is deployed to the existing Cloudflare Worker.
+3. The scheduled recovery Worker is deployed and its cron runs successfully.
+4. ATK TEST onboarding issues a certificate that matches the browser-held POS key.
+5. ATK TEST accepts Sale, Cancel and Return, each with the correct transaction ID and immutable fiscal journal entry.
+6. A confirmed pre-delivery failure is queued, automatically recovered by Cloudflare, and accepted by ATK before 48 hours.
+7. Ambiguous timeouts and duplicate attempts are held for reconciliation, not resubmitted.
+8. The receipt is checked against the current official ATK TEST specimen.
 
-The live ATK SEF portal currently publishes the Administrative Instruction (MFPT) No. 01/2026, the current specific technical/functional requirements for PEF/SF/SEF, certification and maintenance procedures, and the test/application user guide. The EDI service "Kërkesë për Fiskalizim" is the route through which a taxpayer obtains the Unique Fiscalization Code; ATK describes this code as a prerequisite for using SEF.
-
-Official sources (re-check these before each certification submission because ATK may revise documents):
-- ATK SEF application and document portal: https://apps.atk-ks.org/sefaplikimi/
-- ATK EDI announcement for the 2026 "Kërkesë për Fiskalizim" service: https://www.atk-ks.org/njoftim-per-tatimpagues-publikohet-versioni-i-ri-i-sistemit-elektronik-edi/
-- ATK legislation index, including the 29 May 2026 technical requirements and 27 April 2026 Administrative Instruction: https://www.atk-ks.org/portfolio/legjislacioni-perkates/
-- ATK published technical requirements document (portal download): https://apps.atk-ks.org/sefaplikimi/
-
-Do not populate production ATK unit/category dropdowns from guessed values, legacy EFD category numbers, or sample repository constants. Extract and version the current official catalogue/specification and retain the source document/version/date alongside the data. The existing free-text product fields are not evidence of an official validated catalogue.
-
-## Current status
-
-Implemented in the clean repository:
-- Web owner login and business onboarding against isolated Supabase tables.
-- Minimal product and POS configuration.
-- Atomic paid checkout with stock deduction and sale-line snapshots.
-- Windows local POS Agent with DPAPI-protected signing key, matching-certificate validation, encrypted fiscal queue, idempotency and ATK TEST submission.
-- Web ATK TEST onboarding: one-time local-agent pairing, ATK POS verification, CSR/certificate request and certificate status persistence.
-- Web paid-sale path: builds the ATK Sale coupon, submits through the local agent and stores the accepted response only when a valid transaction ID is returned.
-
-Not yet complete:
-- A POS Agent correction-coupon factory creates immutable full-cancellation and full-return protobuf documents with a distinct coupon ID, original-sale `ReferenceNo`, new verification number and UTC issue time. It preserves the original sale's fiscal values and clears the ATK response transaction number on the new request. Migration 0015 adds a durable correction journal linked to the original accepted Sale document and a server-side RPC that requires an accepted original and a matching accepted ATK TEST response before recording the correction. Migration 0015 is committed but has not been applied. Partial item returns, refund/payment calculation, signed-correction submission integration, web UI actions and end-to-end ATK acceptance tests remain unimplemented; do not expose this as a completed user-facing correction workflow.
-- Verified official unit/category catalogue and dropdowns. The sample integration repository demonstrates payload values but is not itself a complete current ATK catalogue.
-- Complete browser/operator reconciliation and authority-request export.
-- Add a tested POS cancellation/return UI and local-agent correction submission endpoint; the current code has a protobuf factory and persistence RPC only.
-- Run authenticated owner/cashier and cross-tenant RLS integration tests with real test JWTs. Migrations 0014–0017 are committed but have not been executed against the database; apply them only to an approved staging database after confirming the correct Supabase project, reviewing each migration and its backup/rollback procedure. Run SQL contract scripts 0004 and 0014–0016 against that staging schema, plus authenticated owner/cashier and cross-tenant RLS integration tests. PR #2 adds the 0016–0017 business-operations schema contract test.
-- Physical POS tests for Windows installation, printer output, offline recovery and duplicate/timeout scenarios.
-- ATK provider/software certification and production credentials.
-
-The app must not be described as fully ATK-compliant or certified until the required ATK tests pass and formal authorization is granted. Production submission remains disabled.
+This is a technical implementation checklist, not a declaration of formal ATK certification.
