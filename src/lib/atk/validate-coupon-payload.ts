@@ -1,5 +1,5 @@
-import { isAtkUnitCode } from "./product-units";
-import { isAtkItemCategoryCode } from "./product-categories";
+import { isAtkUnitCode } from "./product-units.ts";
+import { isAtkItemCategoryCode } from "./product-categories.ts";
 
 type ProtoValue = bigint | Uint8Array;
 type ProtoField = { number: number; wire: number; value: ProtoValue };
