@@ -1,6 +1,7 @@
 "use client";
 
 import { encodeAtkBase64, encodeAtkPosCoupon } from "@/lib/atk/protobuf";
+import { recoverAtkMappingsFromOriginalCoupon } from "@/lib/atk/validate-coupon-payload";
 import { hasBrowserPosCertificate, signAtkBase64Payload } from "@/lib/atk/browser-key-vault";
 import type { createClient } from "@/lib/supabase/client";
 
@@ -130,6 +131,7 @@ export async function submitInvoiceAdjustmentToATK(
   }
 
   const originalItemMap = new Map(invoiceItems.map((line) => [line.id, line]));
+  const recoveredMappings = new Map(recoverAtkMappingsFromOriginalCoupon(String(original.pos_coupon_base64 || ""), invoiceItems).map((mapping) => [mapping.id, mapping]));
   const lines = adjustmentItems.map((item) => {
     const originalLine = originalItemMap.get(item.original_invoice_item_id);
     if (!originalLine) throw new Error("Një artikull korrigjimi nuk përputhet me faturën origjinale.");
@@ -141,9 +143,9 @@ export async function submitInvoiceAdjustmentToATK(
       line_subtotal: Number(item.net_amount),
       line_vat: Number(item.vat_amount),
       vat_rate: Number(originalLine.vat_rate),
-      atk_unit_code: originalLine.atk_unit_code,
-      atk_tax_code: originalLine.atk_tax_code,
-      atk_item_category_code: originalLine.atk_item_category_code,
+      atk_unit_code: originalLine.atk_unit_code || recoveredMappings.get(originalLine.product_id || "")?.atk_unit_code || null,
+      atk_tax_code: originalLine.atk_tax_code || recoveredMappings.get(originalLine.product_id || "")?.atk_tax_code || null,
+      atk_item_category_code: originalLine.atk_item_category_code || recoveredMappings.get(originalLine.product_id || "")?.atk_item_category_code || null,
     };
   });
   // Reuse the exact ATK mapping captured on the original invoice line.
