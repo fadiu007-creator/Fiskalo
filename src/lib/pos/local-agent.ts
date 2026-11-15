@@ -71,6 +71,10 @@ export async function reconcileLocalAgentQueue(token:string,idempotencyKey:strin
 export type AtkCorrectionPrepareResult={
   detailsBase64:string;
   signatureBase64:string;
+  citizenPayloadBase64:string;
+  citizenSignatureBase64:string;
+  citizenQrPayload:string;
+  qrSvgBase64:string;
   nuiKf:string;
   originalCouponId:string;
   correctionCouponId:string;
