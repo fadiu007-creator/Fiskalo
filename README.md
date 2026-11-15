@@ -39,6 +39,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 **Basic app**
 - [x] Separate `fiskalo_basic_*` business/POS schema, owner/cashier roles and Cloudflare ATK TEST gateway.
 - [x] Browser-generated non-exportable P-256 POS keys, certificate/SPKI matching, Protobuf signing and trusted ATK acceptance journal.
+- [x] AES-256-GCM encryption at rest for the Basic signed fiscal outbox and POS outage metadata, with a non-exportable browser-held storage key and migration of legacy plaintext outbox rows.
 - [x] Official ATK unit/category/VAT validation in the Basic product editor and coupon pipeline.
 - [x] Sale, Cancel and full Return recovery worker source with idempotency, signature checks and ambiguity/reconciliation handling.
 - [x] Exact-cent split-tender allocation helper and checkout UI.
