@@ -93,6 +93,7 @@ function sameCorrection(existing: JsonObject, expected: {
   businessId: string;
   saleId: string;
   originalCouponId: string;
+  originalDocumentId: string;
   correctionCouponId: string;
   documentType: number;
   details: string;
@@ -103,6 +104,7 @@ function sameCorrection(existing: JsonObject, expected: {
     String(existing.coupon_id) === expected.correctionCouponId &&
     Number(existing.document_type) === expected.documentType &&
     String(existing.reference_coupon_id) === expected.originalCouponId &&
+    existing.parent_document_id === expected.originalDocumentId &&
     existing.signed_payload === expected.details &&
     existing.signature === expected.signature;
 }
@@ -122,7 +124,7 @@ async function existingIdempotencyResult(
   origin: string,
 ): Promise<Response | null> {
   const { data, error } = await admin.from("fiskalo_basic_fiscal_documents")
-    .select("id,business_id,sale_id,coupon_id,document_type,reference_coupon_id,signed_payload,signature,submission_state,atk_response")
+    .select("id,business_id,sale_id,coupon_id,document_type,reference_coupon_id,parent_document_id,signed_payload,signature,submission_state,atk_response")
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
   if (error) return json(500, { error: "idempotency_lookup_failed" }, origin);
@@ -131,8 +133,12 @@ async function existingIdempotencyResult(
     return json(409, { error: "idempotency_key_conflict" }, origin);
   }
   if (data.submission_state === "accepted") {
-    const transactionId = (data.atk_response as JsonObject | null)?.transactionId;
-    if (isUint64String(transactionId)) {
+    const response = data.atk_response as JsonObject | null;
+    const transactionId = response?.transactionId;
+    if (response?.status === "accepted" &&
+        response.environment === "ATK TEST" &&
+        response.verificationMethod === "direct-server-to-server-https" &&
+        isUint64String(transactionId)) {
       return json(200, {
         accepted: true,
         transactionId,
@@ -243,6 +249,7 @@ Deno.serve(async (request) => {
     businessId,
     saleId,
     originalCouponId,
+    originalDocumentId: original.id,
     correctionCouponId,
     documentType,
     details,
