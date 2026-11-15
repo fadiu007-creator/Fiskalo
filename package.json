@@ -11,7 +11,9 @@
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs",
-    "test:atk-browser": "node --experimental-strip-types --test tests/atk-browser-runtime.test.mjs tests/atk-protobuf.test.mjs"
+    "test:atk-browser": "node --experimental-strip-types --test tests/atk-browser-runtime.test.mjs tests/atk-protobuf.test.mjs",
+    "test:atk-recovery": "node --experimental-strip-types --test tests/atk-recovery.test.mjs",
+    "cf-build:atk-recovery": "wrangler deploy --dry-run --config wrangler.atk-recovery.jsonc"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
