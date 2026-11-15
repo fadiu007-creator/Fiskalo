@@ -1,4 +1,8 @@
 export type PaymentMethod = "cash" | "card" | "bank_transfer" | "voucher" | "cheque" | "crypto";
+
+export function isPaymentMethod(value: string): value is PaymentMethod {
+  return ["cash", "card", "bank_transfer", "voucher", "cheque", "crypto"].includes(value);
+}
 export type AdditionalPaymentMethod = Exclude<PaymentMethod, "cash">;
 export type AdditionalPaymentDraft = { method: AdditionalPaymentMethod; amount: string };
 export type PaymentAllocation = { method: PaymentMethod; amountCents: number };
