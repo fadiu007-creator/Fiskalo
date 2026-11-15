@@ -72,6 +72,7 @@ const originalDoc = {
   atk_transaction_id: "987654321",
   submission_state: "accepted",
   document_type: 1,
+  signed_payload: details,
 };
 
 
