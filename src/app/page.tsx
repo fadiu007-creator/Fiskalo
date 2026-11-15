@@ -171,6 +171,53 @@ export default function Home(){
 
 
   useEffect(()=>{
+    if(!business||!supabase||!user)return;
+    let running=false;
+    let active=true;
+    const syncKnownUnsentQueue=async()=>{
+      if(running||!navigator.onLine)return;
+      running=true;
+      try{
+        const queued=(await listFiscalOutboxItems(business.id)).filter(item=>item.state==="queued");
+        for(const item of queued){
+          if(!active||!navigator.onLine)break;
+          if(Date.parse(item.recoveryDeadlineUtc)<=Date.now()){
+            await updateFiscalOutboxItem(item.idempotencyKey,{
+              state:"needs_reconciliation",
+              lastError:"Afati 48-orësh ka kaluar. Mos e dërgo më; kërko reconciliim me ATK."
+            });
+            continue;
+          }
+          try{
+            const result=await submitCloudTestCoupon(supabase,{
+              businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
+              couponId:item.couponId,idempotencyKey:item.idempotencyKey,
+              details:item.detailsBase64,signature:item.signatureBase64,nuiKf:item.nuiKf,
+              citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
+              dailyNumber:item.dailyNumber,qrSvgBase64:item.qrSvg,
+              offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
+            });
+            await updateFiscalOutboxItem(item.idempotencyKey,{
+              state:"accepted",transactionId:result.transactionId,lastError:null
+            });
+          }catch(error){
+            await updateFiscalOutboxItem(item.idempotencyKey,{
+              state:"needs_reconciliation",
+              lastError:error instanceof Error?error.message:"Rezultati i dërgimit nuk dihet; kërkohet reconciliim."
+            });
+          }
+        }
+        if(active&&tab==="sales")void loadSales();
+      }catch(error){
+        if(active)setMessage(error instanceof Error?error.message:"Radha lokale e fiskalizimit nuk u sinkronizua.");
+      }finally{running=false;}
+    };
+    window.addEventListener("online",syncKnownUnsentQueue);
+    void syncKnownUnsentQueue();
+    return()=>{active=false;window.removeEventListener("online",syncKnownUnsentQueue);};
+  },[business,supabase,user,tab,loadSales]);
+
+  useEffect(()=>{
     if(!supabase){setConfigured(false);setLoading(false);return;}
     supabase.auth.getUser().then(async({data,error})=>{
       if(error){setMessage(error.message);setLoading(false);return;}
