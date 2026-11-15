@@ -377,6 +377,7 @@ Deno.serve(async (request) => {
     atkResponse = await fetch(ATK_TEST_COUPON_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      redirect: "error",
       body: JSON.stringify({ details, signature }),
       signal: AbortSignal.timeout(25_000),
     });
