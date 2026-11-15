@@ -41,6 +41,8 @@ create index if not exists fiskalo_basic_certificate_pos_application_idx
   on public.fiskalo_basic_pos_certificates(pos_id,application_id,issued_at desc)
   where revoked_at is null;
 
+drop function if exists public.fiskalo_basic_server_register_pos_certificate_v1(uuid,uuid,text,text);
+
 create or replace function public.fiskalo_basic_server_register_pos_certificate_v1(
   p_business_id uuid,
   p_pos_record_id uuid,
