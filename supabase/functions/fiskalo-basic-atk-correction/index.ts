@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("bad_response");
     atkBody = parsed;
     // Preserve the exact uint64 JSON token; JavaScript Number would round large IDs.
-    const match = /"transaction_id"\\s*:\\s*(?:"([0-9]+)"|([0-9]+))/.exec(responseText);
+    const match = /"transaction_id"\s*:\s*(?:"([0-9]+)"|([0-9]+))/.exec(responseText);
     rawTransactionId = match?.[1] ?? match?.[2] ?? null;
   } catch {
     return json(502, { error: "atk_invalid_response", accepted: false, reconciliationRequired: true }, origin);
