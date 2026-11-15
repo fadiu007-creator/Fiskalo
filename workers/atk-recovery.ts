@@ -26,7 +26,7 @@ type FiscalDoc = {
   attempt_count: number;
   next_attempt_at: string | null;
 };
-type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string; created_at: string; total: number | string; subtotal: number | string; vat_total: number | string };
+type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string; status: string; created_at: string; total: number | string; subtotal: number | string; vat_total: number | string };
 type Pos = { id: string; branch_id: number | string; pos_id: number | string; application_id: number | string; certificate_status: string };
 type PosCertificate = { business_id: string; pos_id: string; certificate_pem: string };
 type Business = { id: string; nui: string };
@@ -231,8 +231,8 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
   }
 
   const sales = await dbGet<Sale>(env, "fiskalo_basic_sales",
-    postgrestQuery({ select: "id,operator_id,pos_id,coupon_id,created_at,total,subtotal,vat_total", id: "eq." + doc.sale_id, business_id: "eq." + doc.business_id, limit: "1" }));
-  if (sales.length !== 1 || !sales[0].operator_id || String(sales[0].coupon_id) !== String(doc.coupon_id)) {
+    postgrestQuery({ select: "id,operator_id,pos_id,coupon_id,status,created_at,total,subtotal,vat_total", id: "eq." + doc.sale_id, business_id: "eq." + doc.business_id, limit: "1" }));
+  if (sales.length !== 1 || !sales[0].operator_id || sales[0].status !== "paid" || String(sales[0].coupon_id) !== String(doc.coupon_id)) {
     await markNeedsReconciliation(env, doc, "Sale identity could not be verified for automatic ATK recovery.");
     return "reconciliation";
   }
