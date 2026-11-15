@@ -12,7 +12,7 @@ revoke all on function public.fiskalo_basic_record_atk_correction(
 drop policy if exists fiskalo_basic_fiscal_insert on public.fiskalo_basic_fiscal_documents;
 revoke insert, update, delete on public.fiskalo_basic_fiscal_documents from public, anon, authenticated;
 
--- A cancellation is a single full-cancel document for an original sale. Reserve it
+-- A full cancellation or full return is a single correction document for an original sale. Reserve it
 -- before the external request so concurrent requests cannot submit two cancellations.
 do $$
 begin
@@ -20,20 +20,20 @@ begin
     select parent_document_id
     from public.fiskalo_basic_fiscal_documents
     where parent_document_id is not null
-      and document_type = 2
+      and document_type in (2,3)
       and submission_state in ('queued','submitted','accepted','needs_reconciliation')
     group by parent_document_id
     having count(*) > 1
   ) then
-    raise exception 'Cannot enforce one active ATK cancellation: duplicate unresolved cancellations already exist';
+    raise exception 'Cannot enforce one active ATK correction: duplicate unresolved full corrections already exist';
   end if;
 end
 $$;
 
-create unique index if not exists fiskalo_basic_fiscal_one_active_cancel_per_parent_uidx
+create unique index if not exists fiskalo_basic_fiscal_one_active_correction_per_parent_uidx
   on public.fiskalo_basic_fiscal_documents(parent_document_id)
   where parent_document_id is not null
-    and document_type = 2
+    and document_type in (2,3)
     and submission_state in ('queued','submitted','accepted','needs_reconciliation');
 
 comment on function fiskalo_private.fiskalo_basic_record_atk_correction(
