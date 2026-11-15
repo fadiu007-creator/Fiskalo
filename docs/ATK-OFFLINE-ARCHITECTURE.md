@@ -102,3 +102,13 @@ Still required for true full-offline operation:
 ## Release gate
 
 Do not describe Fiskalo as production ATK-compliant based on unit tests or one accepted TEST coupon. Release requires current protocol conformance, official offline acceptance sequence, 48-hour evidence, physical POS tests, provider/software registration, and formal authorization for production credentials.
+
+### Number reservation foundation (migration 0018)
+
+Implemented on the offline branch:
+- Authenticated, POS-scoped RPC reserves individual CouponIds from the same PostgreSQL sequence used by online checkout. Individual IDs are returned rather than assuming a contiguous block, because multiple online/offline POS devices may interleave sequence allocation.
+- Coupon reservation rows are immutable to authenticated clients; a separate RPC consumes a reserved ID once and binds it to a UUID idempotency key. Repeating the same consume request is idempotent; a different checkout cannot reuse it.
+- Authenticated, POS-scoped RPC reserves a contiguous daily-number interval by atomically advancing the existing per-POS/per-Kosovo-business-date counter. The online sale trigger and offline reservation RPC therefore share the same counter.
+- Reservations require a business member and a POS belonging to that business with a verified/issued certificate. Counts are capped at 500 per request. Daily reservations are restricted to the current Europe/Belgrade business date.
+
+This is a database reservation primitive, not yet end-to-end offline issuance. The POS Agent still needs durable local storage/consumption of these IDs and daily numbers, the offline coupon construction/signing path must be connected to them, and the signed local receipt must be reconciled to the cloud sale ledger. A browser-only client must not be allowed to claim the ID or daily number without the POS Agent's authenticated device identity. No formal ATK approval of this numbering workflow has been established; validate it against the current technical specification and ATK TEST before enabling it for sales.
