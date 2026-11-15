@@ -256,7 +256,7 @@ Deno.serve(async (request) => {
   if (member?.role !== "owner") return json(403, { error: "owner_access_required" }, origin);
 
   const { data: original, error: originalError } = await admin.from("fiskalo_basic_fiscal_documents")
-    .select("id,business_id,sale_id,coupon_id,document_type,submission_state")
+    .select("id,business_id,sale_id,coupon_id,document_type,submission_state,nui_kf")
     .eq("business_id", businessId)
     .eq("sale_id", saleId)
     .eq("coupon_id", originalCouponId)
@@ -315,10 +315,12 @@ Deno.serve(async (request) => {
       branchId: String(pos.branch_id),
       posId: String(pos.pos_id),
       applicationId: String(pos.application_id),
-      verificationNo: pos.verification_no,
       type: documentType,
       referenceNo: originalCouponId,
     });
+    if (!original.nui_kf || couponIdentity.verificationNo === original.nui_kf) {
+      throw new Error("Correction must use a new NUIKF, not the original coupon NUIKF.");
+    }
   } catch (error) {
     return json(400, {
       error: "signed_correction_identity_mismatch",
