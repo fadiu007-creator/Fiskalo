@@ -1,4 +1,5 @@
-import { authorizeAtkOrganization, getAtkRequestContext, positiveInteger } from "@/lib/atk/server-auth";
+import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
+import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
 import { validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 
 export const runtime = "nodejs";
@@ -92,6 +93,10 @@ export async function POST(request: Request) {
   const authorization = await authorizeAtkOrganization(supabase, user.id, organizationId, nui, ["owner", "administrator", "manager", "cashier"]);
   if (!authorization.ok) return Response.json({ error: "organization_not_authorized", detail: authorization.detail }, { status: authorization.status });
 
+  let service;
+  try { service = getAtkServiceRoleClient(); }
+  catch { return Response.json({ error: "trusted_atk_backend_unavailable" }, { status: 503 }); }
+
   const [{ data: invoice, error: invoiceError }, { data: pos, error: posError }] = await Promise.all([
     supabase.from("fiskalo_invoices").select("id,organization_id,status,total,subtotal,vat_total,discount_total,invoice_number,payment_status,payment_method").eq("id", invoiceId).eq("organization_id", organizationId).single(),
     supabase.from("fiskalo_atk_pos_installations").select("id,organization_id,atk_branch_id,pos_id,environment,status,location").eq("id", posInstallationId).eq("organization_id", organizationId).single(),
@@ -111,6 +116,23 @@ export async function POST(request: Request) {
       Number(verification.pos_id) !== Number(pos.pos_id) ||
       Number(verification.application_id) !== applicationId) {
     return Response.json({ error: "pos_verification_missing", detail: "This POS has no matching ATK TEST verification saved to the business account. Verify this exact POS once in Regjistro / certifiko POS, then retry." }, { status: 409 });
+  }
+
+  const { data: registeredCertificate, error: certificateError } = await service.from("fiskalo_atk_pos_certificates")
+    .select("certificate_pem,spki_sha256").eq("organization_id", organizationId)
+    .eq("pos_installation_id", posInstallationId).eq("status", "active").is("revoked_at", null)
+    .order("issued_at", { ascending: false }).limit(1).maybeSingle();
+  if (certificateError || !registeredCertificate?.certificate_pem || !registeredCertificate.spki_sha256) {
+    return Response.json({ error: "pos_certificate_not_registered", detail: "No active server-registered ATK certificate exists for this exact POS." }, { status: 409 });
+  }
+  try {
+    const fingerprint = await certificateSpkiFingerprint(registeredCertificate.certificate_pem);
+    if (fingerprint !== registeredCertificate.spki_sha256 ||
+        !(await verifySignedBase64Payload(registeredCertificate.certificate_pem, details, signature))) {
+      return Response.json({ error: "pos_signature_invalid", detail: "The signed coupon does not verify against the certificate registered to this POS." }, { status: 403 });
+    }
+  } catch {
+    return Response.json({ error: "pos_signature_invalid", detail: "The coupon signature or registered POS certificate is invalid." }, { status: 403 });
   }
   let header: Map<number, bigint>;
   try { header = readCouponHeader(details); }
@@ -177,7 +199,7 @@ export async function POST(request: Request) {
   const qrPayload = details + "|" + signature;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(details));
   const payloadHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const { data: fiscalDocument, error: insertError } = await supabase.from("fiskalo_atk_fiscal_documents").insert({
+  const { data: fiscalDocument, error: insertError } = await service.from("fiskalo_atk_fiscal_documents").insert({
     organization_id: organizationId,
     pos_installation_id: posInstallationId,
     source_invoice_id: invoiceId,
@@ -210,12 +232,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "fiscal_document_save_failed", detail: insertError?.message ?? "Could not save the ATK TEST document." }, { status: 500 });
   }
 
-  const { error: startedEventError } = await supabase.from("fiskalo_atk_fiscal_events").insert({
+  const { error: startedEventError } = await service.from("fiskalo_atk_fiscal_events").insert({
     organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
     event_type: "submission_started", details: { environment: "TEST", invoiceNumber: invoice.invoice_number },
   });
   if (startedEventError) return Response.json({ error: "fiscal_event_save_failed", fiscalDocumentId: fiscalDocument.id }, { status: 500 });
-  const { error: submittedStateError } = await supabase.from("fiskalo_atk_fiscal_documents").update({
+  const { error: submittedStateError } = await service.from("fiskalo_atk_fiscal_documents").update({
     status: "submitted", submission_attempts: 1, last_submitted_at: new Date().toISOString(),
   }).eq("id", fiscalDocument.id).eq("organization_id", organizationId);
   if (submittedStateError) return Response.json({ error: "fiscal_state_save_failed", fiscalDocumentId: fiscalDocument.id }, { status: 500 });
@@ -259,7 +281,7 @@ export async function POST(request: Request) {
     }
     // Persist the exact decimal digits as a string so neither JS nor JSON serialization rounds the uint64.
     result.transaction_id = transactionId;
-    const { error: acceptedUpdateError } = await supabase.from("fiskalo_atk_fiscal_documents").update({
+    const { error: acceptedUpdateError } = await service.from("fiskalo_atk_fiscal_documents").update({
       status: "accepted", atk_transaction_id: transactionId, atk_response: result,
       accepted_at: new Date().toISOString(), last_error: null,
     }).eq("id", fiscalDocument.id).eq("organization_id", organizationId);
