@@ -628,9 +628,46 @@ export async function POST(request: Request) {
           });
         }
         if (error instanceof AtkTransportFailure && error.delivery === "not_delivered") {
-          return NextResponse.json({ error: error.message, notDelivered: true, environment: "ATK TEST" }, {
-            status: 503, headers: { "Cache-Control": "no-store" },
+          const recoveryIssuedAt = new Date().toISOString();
+          const queueResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_queue_atk_receipt_v2", {
+            method: "POST",
+            headers: {
+              apikey: serviceRoleKey,
+              Authorization: "Bearer " + serviceRoleKey,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              p_actor_id: user.id,
+              p_business_id: businessId,
+              p_sale_id: saleId,
+              p_pos_record_id: posRecordId,
+              p_coupon_id: couponId,
+              p_idempotency_key: idempotencyKey,
+              p_signed_payload: details,
+              p_signature: signature,
+              p_nui_kf: nuiKf,
+              p_verification_no: verificationNo,
+              p_citizen_payload: citizenPayload,
+              p_citizen_signature: citizenSignature,
+              p_daily_number: dailyNumber,
+              p_offline_issued_at: recoveryIssuedAt,
+              p_qr_svg_base64: qrSvgBase64,
+            }),
+            cache: "no-store",
           });
+          if (!queueResponse.ok) {
+            return NextResponse.json({ error: "ATK was not reached, but the signed coupon could not be placed in the trusted recovery queue.", status: "needs_reconciliation" }, {
+              status: 502, headers: { "Cache-Control": "no-store" },
+            });
+          }
+          return NextResponse.json({
+            error: error.message,
+            notDelivered: true,
+            status: "queued",
+            recoveryDeadlineAt: new Date(Date.parse(recoveryIssuedAt) + 48 * 60 * 60 * 1000).toISOString(),
+            environment: "ATK TEST",
+          }, { status: 503, headers: { "Cache-Control": "no-store" } });
         }
         if (error instanceof AtkTransportFailure) {
           const recorded = await setTrustedSubmissionState(restOrigin, serviceRoleKey, idempotencyKey, "needs_reconciliation", error.message);
