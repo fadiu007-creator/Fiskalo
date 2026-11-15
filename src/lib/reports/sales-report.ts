@@ -272,22 +272,53 @@ export function buildSalesReportCsv(
   return "\uFEFF" + [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
 }
 
-function parseLocalDate(value: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+type CalendarDate = { year: number; month: number; day: number };
+
+function parseLocalDate(value: string): CalendarDate {
+  const match = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(value);
   if (!match) throw new Error("Zgjidh datat në formatin e vlefshëm.");
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  if (date.getFullYear() !== Number(match[1]) ||
-      date.getMonth() !== Number(match[2]) - 1 ||
-      date.getDate() !== Number(match[3])) {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
     throw new Error("Data e zgjedhur nuk është e vlefshme.");
   }
-  return date;
+  return { year, month, day };
+}
+
+function kosovoMidnightUtc(value: CalendarDate): Date {
+  const target = Date.UTC(value.year, value.month - 1, value.day);
+  let guess = target;
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = formatter.formatToParts(new Date(guess));
+    const get = (type: string) => Number(parts.find(part => part.type === type)?.value ?? 0);
+    const localAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    const adjustment = target - localAsUtc;
+    guess += adjustment;
+    if (adjustment === 0) break;
+  }
+  return new Date(guess);
+}
+
+function nextCalendarDate(value: CalendarDate): CalendarDate {
+  const next = new Date(Date.UTC(value.year, value.month - 1, value.day + 1));
+  return { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1, day: next.getUTCDate() };
 }
 
 export function localDateRangeToIso(startDate: string, endDate: string): { from: string; to: string } {
   const start = parseLocalDate(startDate);
   const end = parseLocalDate(endDate);
-  if (end.getTime() < start.getTime()) throw new Error("Data e përfundimit nuk mund të jetë para datës së fillimit.");
-  const exclusiveEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
-  return { from: start.toISOString(), to: exclusiveEnd.toISOString() };
+  const startKey = start.year * 10000 + start.month * 100 + start.day;
+  const endKey = end.year * 10000 + end.month * 100 + end.day;
+  if (endKey < startKey) throw new Error("Data e përfundimit nuk mund të jetë para datës së fillimit.");
+  return {
+    from: kosovoMidnightUtc(start).toISOString(),
+    to: kosovoMidnightUtc(nextCalendarDate(end)).toISOString(),
+  };
 }
