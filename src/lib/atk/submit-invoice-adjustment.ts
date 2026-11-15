@@ -88,7 +88,7 @@ export async function submitInvoiceAdjustmentToATK(
       .select("original_invoice_item_id,product_id,description,quantity,unit_price,net_amount,vat_amount,total_amount")
       .eq("adjustment_id", adjustmentId).eq("organization_id", organizationId),
     supabase.from("fiskalo_invoice_items")
-      .select("id,product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate")
+      .select("id,product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate,atk_unit_code,atk_tax_code,atk_item_category_code")
       .eq("invoice_id", adjustment.original_invoice_id),
   ]);
   if (originalError || !original || original.document_type !== "sale" || original.status !== "accepted" || !original.atk_transaction_id) {
@@ -141,25 +141,23 @@ export async function submitInvoiceAdjustmentToATK(
       line_subtotal: Number(item.net_amount),
       line_vat: Number(item.vat_amount),
       vat_rate: Number(originalLine.vat_rate),
+      atk_unit_code: originalLine.atk_unit_code,
+      atk_tax_code: originalLine.atk_tax_code,
+      atk_item_category_code: originalLine.atk_item_category_code,
     };
   });
-  const productIds = Array.from(new Set(lines.map((line) => line.product_id).filter((id): id is string => Boolean(id))));
-  const { data: products, error: productsError } = productIds.length
-    ? await supabase.from("fiskalo_products").select("id,atk_unit_code,atk_tax_code,atk_item_category_code")
-      .eq("organization_id", organizationId).in("id", productIds)
-    : { data: [], error: null };
-  if (productsError) throw new Error("Kodet ATK të produkteve nuk u lexuan.");
-
-  const productMap = new Map((products ?? []).map((product) => [product.id, product]));
+  // Reuse the exact ATK mapping captured on the original invoice line.
+  // Current product-master edits must never alter a historical return/cancel.
   const itemRows = lines.map((line) => {
     if (!line.product_id) throw new Error("Një artikull nuk ka produkt të lidhur.");
-    const product = productMap.get(line.product_id);
-    const unit = product?.atk_unit_code?.trim() ?? "";
-    const tax = product?.atk_tax_code?.trim() ?? "";
-    const itemType = product?.atk_item_category_code?.trim() ?? "";
+    const unit = line.atk_unit_code?.trim() ?? "";
+    const tax = line.atk_tax_code?.trim() ?? "";
+    const itemType = line.atk_item_category_code?.trim() ?? "";
     const rate = Number(line.vat_rate);
     const taxMatches = rate === 8 ? tax === "D" : rate === 18 ? tax === "E" : rate === 0 ? tax === "A" || tax === "C" : false;
-    if (!unit || !taxMatches || !itemType) throw new Error("Një produkt ka kode ATK që mungojnë ose nuk përputhen me TVSH-në.");
+    if (!unit || !["A","C","D","E"].includes(tax) || !taxMatches || !itemType) {
+      throw new Error("Kuponi origjinal nuk ka snapshot të plotë të kodeve ATK. Korrigjimi nuk u dërgua.");
+    }
     return { line, unit, tax, itemType };
   });
 
