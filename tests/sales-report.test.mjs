@@ -64,8 +64,11 @@ test("an ATK acceptance requires a positive uint64 transaction ID", () => {
 
 test("date filters use an inclusive end date and reject reversed ranges", () => {
   const range = localDateRangeToIso("2026-11-01", "2026-11-02");
-  assert.equal(range.from, "2026-11-01T00:00:00.000Z");
-  assert.equal(range.to, "2026-11-03T00:00:00.000Z");
+  assert.equal(range.from, "2026-10-31T23:00:00.000Z");
+  assert.equal(range.to, "2026-11-02T23:00:00.000Z");
+  const daylightSavingRange = localDateRangeToIso("2026-03-29", "2026-03-29");
+  assert.equal(daylightSavingRange.from, "2026-03-28T23:00:00.000Z");
+  assert.equal(daylightSavingRange.to, "2026-03-29T22:00:00.000Z");
   assert.throws(() => localDateRangeToIso("2026-11-03", "2026-11-02"), /para datës së fillimit/);
   assert.throws(() => localDateRangeToIso("2026-02-30", "2026-03-01"), /nuk është e vlefshme/);
 });
