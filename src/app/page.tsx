@@ -16,6 +16,8 @@ export default function Home() {
           <strong style={{ fontSize: 23, letterSpacing: "-0.8px" }}>fiskalo</strong>
         </div>
         <nav style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <Link href="/app" style={{ color: "var(--brand)", fontWeight: 700, fontSize: 14 }}>Zgjidh aplikacionin</Link>
+          <Link href="/basic" style={{ color: "var(--brand)", fontWeight: 700, fontSize: 14 }}>Fiskalo Basic</Link>
           <Link href="/platform-admin" style={{ color: "var(--brand)", fontWeight: 700, fontSize: 14 }}>Paneli i ofruesit</Link>
           <Link href="/login" style={{ color: "var(--brand)", fontWeight: 700, fontSize: 14 }}>Hyr</Link>
           <Link href="/register" style={{ background: "var(--brand)", color: "white", borderRadius: 9, padding: "11px 16px", fontWeight: 700, fontSize: 14 }}>Krijo llogari</Link>
