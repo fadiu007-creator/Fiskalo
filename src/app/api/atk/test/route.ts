@@ -535,7 +535,9 @@ export async function POST(request: Request) {
               productionEnabled: false,
             }, { headers: { "Cache-Control": "no-store" } });
           }
-          return jsonError("This fiscal document already exists with status " + String(existingQueue[0].submission_state) + ". Reconciliation is required before further action.", 409);
+          if (existingQueue[0].submission_state !== "submitting") {
+            return jsonError("This fiscal document already exists with status " + String(existingQueue[0].submission_state) + ". Reconciliation is required before further action.", 409);
+          }
         }
         const queueResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_queue_atk_receipt_v2", {
           method: "POST",
