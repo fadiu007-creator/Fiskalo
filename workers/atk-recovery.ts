@@ -25,7 +25,7 @@ type FiscalDoc = {
   attempt_count: number;
   next_attempt_at: string | null;
 };
-type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string };
+type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string; created_at: string; total: number | string; subtotal: number | string; vat_total: number | string };
 type Pos = { id: string; branch_id: number | string; pos_id: number | string; application_id: number | string; certificate_status: string };
 type PosCertificate = { business_id: string; pos_id: string; certificate_pem: string };
 type Business = { id: string; nui: string };
@@ -106,6 +106,7 @@ function certSpki(pem: string): Uint8Array {
 function derSignatureToRaw(signatureBase64: string): Uint8Array {
   const binary = atob(signatureBase64);
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  if (bytes.length === 64) return bytes; // WebCrypto/.NET fixed-width IEEE-P1363 signature.
   const seq = readDer(bytes, 0);
   if (seq.tag !== 0x30 || seq.end !== bytes.length) throw new Error("ECDSA signature is not DER.");
   const r = readDer(bytes, seq.contentStart);
@@ -125,10 +126,10 @@ function derSignatureToRaw(signatureBase64: string): Uint8Array {
   return raw;
 }
 async function verifyPayload(certificatePem: string, payload: string, signature: string) {
-  const key = await crypto.subtle.importKey("spki", certSpki(certificatePem),
+  const key = await crypto.subtle.importKey("spki", Uint8Array.from(certSpki(certificatePem)).buffer,
     { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
   return crypto.subtle.verify(
-    { name: "ECDSA", hash: "SHA-256" }, key, derSignatureToRaw(signature), new TextEncoder().encode(payload),
+    { name: "ECDSA", hash: "SHA-256" }, key, Uint8Array.from(derSignatureToRaw(signature)).buffer, new TextEncoder().encode(payload),
   );
 }
 function encodeBase64(bytes: Uint8Array) {
@@ -346,10 +347,11 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     return "reconciliation";
   }
 
+  const bodyMessage = (body as Record<string, unknown>).message;
   const trustedResponse = {
     status: "accepted",
     transactionId,
-    message: typeof (body as { message?: unknown }).message === "string" ? (body as { message: string }).message : "",
+    message: typeof bodyMessage === "string" ? bodyMessage : "",
     environment: "ATK TEST",
   };
   try {
