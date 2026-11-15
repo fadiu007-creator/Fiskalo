@@ -121,6 +121,7 @@ async function existingIdempotencyResult(
     originalCouponId: string;
     originalDocumentId: string;
     correctionCouponId: string;
+    nuiKf: string;
     documentType: number;
     details: string;
     signature: string;
@@ -269,18 +270,6 @@ Deno.serve(async (request) => {
   if (originalError) return json(500, { error: "original_coupon_lookup_failed" }, origin);
   if (!original) return json(409, { error: "original_sale_not_confirmed_by_atk" }, origin);
 
-  const expectedCorrection = {
-    businessId,
-    saleId,
-    originalCouponId,
-    originalDocumentId: original.id,
-    correctionCouponId,
-    nuiKf: couponIdentity.verificationNo,
-    documentType,
-    details,
-    signature,
-  };
-
   const { data: sale, error: saleError } = await admin.from("fiskalo_basic_sales")
     .select("id,status,pos_id")
     .eq("id", saleId)
@@ -330,6 +319,18 @@ Deno.serve(async (request) => {
       details: error instanceof Error ? error.message : "Invalid signed correction payload.",
     }, origin);
   }
+
+  const expectedCorrection = {
+    businessId,
+    saleId,
+    originalCouponId,
+    originalDocumentId: original.id,
+    correctionCouponId,
+    nuiKf: couponIdentity.verificationNo,
+    documentType,
+    details,
+    signature,
+  };
 
   const replay = await existingIdempotencyResult(admin, idempotencyKey, expectedCorrection, origin);
   if (replay) return replay;
