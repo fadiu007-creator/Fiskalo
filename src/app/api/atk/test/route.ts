@@ -330,7 +330,23 @@ export async function POST(request: Request) {
       if (typeof result.signed_certificate !== "string" || !result.signed_certificate.includes("BEGIN CERTIFICATE")) {
         return jsonError("ATK TEST returned no valid signed certificate.", 502);
       }
-      const certificatePersist = await fetch(restOrigin + "fiskalo_basic_pos?id=eq." + encodeURIComponent(posRecordId) + "&business_id=eq." + encodeURIComponent(businessId), {
+      const certificatePersist = await fetch(restOrigin + "fiskalo_basic_pos_certificates?on_conflict=pos_id", {
+        method: "POST",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: "Bearer " + serviceRoleKey,
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify({
+          business_id: businessId,
+          pos_id: posRecordId,
+          certificate_pem: result.signed_certificate,
+        }),
+        cache: "no-store",
+      });
+      if (!certificatePersist.ok) return jsonError("ATK issued the certificate, but Fiskalo could not persist its public certificate record. Do not repeat CSR issuance; reconcile the certificate.", 502);
+      const posPersist = await fetch(restOrigin + "fiskalo_basic_pos?id=eq." + encodeURIComponent(posRecordId) + "&business_id=eq." + encodeURIComponent(businessId), {
         method: "PATCH",
         headers: {
           apikey: serviceRoleKey,
@@ -339,13 +355,12 @@ export async function POST(request: Request) {
           Prefer: "return=minimal",
         },
         body: JSON.stringify({
-          atk_certificate_pem: result.signed_certificate,
           certificate_status: "certificate_issued",
           verified_business_name: String(pos.verified_business_name || business.name || ""),
         }),
         cache: "no-store",
       });
-      if (!certificatePersist.ok) return jsonError("ATK issued the certificate, but Fiskalo could not persist its public certificate record. Do not repeat CSR issuance; reconcile the certificate.", 502);
+      if (!posPersist.ok) return jsonError("ATK issued the certificate and the public certificate was stored, but the POS status could not be updated. Reconcile before requesting another certificate.", 502);
       return NextResponse.json({
         signedCertificate: result.signed_certificate,
         environment: "ATK TEST",
@@ -362,7 +377,7 @@ export async function POST(request: Request) {
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) return jsonError("Coupon signature is not valid base64.", 400);
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
       const posQuery = new URLSearchParams({
-        select: "id,branch_id,pos_id,application_id,verification_no,certificate_status,atk_certificate_pem",
+        select: "id,branch_id,pos_id,application_id,verification_no,certificate_status",
         id: "eq." + posRecordId,
         business_id: "eq." + businessId,
         limit: "1",
@@ -415,8 +430,17 @@ export async function POST(request: Request) {
       const citizenSignature = requiredString(body.citizenSignature, "CitizenCoupon signature", 256);
       const dailyNumber = requiredPositiveInteger(body.dailyNumber, "Daily coupon number");
       if (dailyNumber !== requiredPositiveInteger(sales[0].daily_number, "Saved daily coupon number")) return jsonError("Daily coupon number does not match the saved sale.", 409);
-      const certificatePem = requiredString(pos.atk_certificate_pem, "ATK-issued POS public certificate", 16_384);
-      if (String(body.certificatePem).trim() !== certificatePem.trim()) return jsonError("Browser certificate does not match the ATK-issued certificate stored for this POS.", 409);
+      const certResponse = await fetch(restOrigin + "fiskalo_basic_pos_certificates?" + new URLSearchParams({
+        select: "certificate_pem,business_id,pos_id",
+        business_id: "eq." + businessId,
+        pos_id: "eq." + posRecordId,
+        limit: "1",
+      }).toString(), { headers: { apikey: serviceRoleKey, Authorization: "Bearer " + serviceRoleKey }, cache: "no-store" });
+      if (!certResponse.ok) return jsonError("Could not load the server-registered ATK certificate for this POS.", 502);
+      const certRows: unknown = await certResponse.json();
+      if (!Array.isArray(certRows) || certRows.length !== 1 || !isRecord(certRows[0])) return jsonError("No ATK-issued public certificate is registered for this POS.", 409);
+      const certificatePem = requiredString(certRows[0].certificate_pem, "ATK-issued POS public certificate", 16_384);
+      if (String(body.certificatePem).trim() !== certificatePem.trim()) return jsonError("Browser certificate does not match the server-registered ATK certificate for this POS.", 409);
       const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
       const citizenIdentity = readCouponIdentity(citizenPayload);
       const citizenExpected: Array<[number, bigint]> = [
