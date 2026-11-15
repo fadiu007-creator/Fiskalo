@@ -17,11 +17,21 @@ type AccessState = "loading" | "owner" | "signed_out" | "forbidden" | "unconfigu
 const MAX_SALES = 5000;
 
 function dateInputValue(date: Date): string {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find(part => part.type === type)?.value ?? "";
+  return get("year") + "-" + get("month") + "-" + get("day");
+}
+
+function kosovoCalendarDate(date: Date): { year: number; month: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade", year: "numeric", month: "2-digit",
+  }).formatToParts(date);
+  return {
+    year: Number(parts.find(part => part.type === "year")?.value ?? 0),
+    month: Number(parts.find(part => part.type === "month")?.value ?? 0),
+  };
 }
 
 function formatMoney(cents: number): string {
@@ -57,7 +67,9 @@ export default function ReportsPage() {
   }, []);
 
   const today = new Date();
-  const [startDate, setStartDate] = useState(() => dateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)));
+  const todayInKosovo = kosovoCalendarDate(today);
+  const firstOfMonthInKosovo = new Date(Date.UTC(todayInKosovo.year, todayInKosovo.month - 1, 1, 12));
+  const [startDate, setStartDate] = useState(() => dateInputValue(firstOfMonthInKosovo));
   const [endDate, setEndDate] = useState(() => dateInputValue(today));
   const [access, setAccess] = useState<AccessState>("loading");
   const [business, setBusiness] = useState<Business | null>(null);
