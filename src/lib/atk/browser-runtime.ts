@@ -96,10 +96,13 @@ function derOid(value: string): Uint8Array {
 function derInteger(bytes: Uint8Array): Uint8Array {
   let first = 0;
   while (first < bytes.length - 1 && bytes[first] === 0) first++;
-  let value = bytes.slice(first);
-  if (!value.length) value = new Uint8Array([0]);
-  if (value[0] & 0x80) value = join([new Uint8Array([0]), value]);
-  return der(0x02, value);
+  const value = bytes.slice(first);
+  const normalized = value.length === 0
+    ? new Uint8Array([0])
+    : value[0] & 0x80
+      ? join([new Uint8Array([0]), value])
+      : value;
+  return der(0x02, normalized);
 }
 function rawEcdsaToDer(signature: Uint8Array): Uint8Array {
   if (signature.length !== 64) throw new Error("Expected a P-256 ECDSA signature.");
@@ -191,7 +194,7 @@ export async function createOrLoadPosCsr(identity: BrowserPosIdentity): Promise<
     der(0xa0, new Uint8Array()),
   ]));
   const signature = new Uint8Array(await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" }, stored.privateKey, requestInfo,
+    { name: "ECDSA", hash: "SHA-256" }, stored.privateKey, Uint8Array.from(requestInfo).buffer,
   ));
   const algorithm = der(0x30, derOid("1.2.840.10045.4.3.2"));
   const csr = der(0x30, join([
@@ -246,16 +249,6 @@ export async function getPosCertificatePem(identity: BrowserPosIdentity): Promis
   const stored = await getStoredKey(posKeyId(identity));
   if (!stored?.certificatePem || !await hasMatchingPosCertificate(identity)) {
     throw new Error("This browser does not have a matching ATK TEST certificate for the selected POS.");
-  }
-  return stored.certificatePem;
-}
-
-
-/** Returns only the public ATK certificate; the non-exportable private key never leaves IndexedDB. */
-export async function getPosCertificatePem(identity: BrowserPosIdentity): Promise<string> {
-  const stored = await getStoredKey(posKeyId(identity));
-  if (!stored?.certificatePem || !await hasMatchingPosCertificate(identity)) {
-    throw new Error("The selected POS has no matching ATK TEST certificate in this browser.");
   }
   return stored.certificatePem;
 }
