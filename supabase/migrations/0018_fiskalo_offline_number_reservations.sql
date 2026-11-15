@@ -155,7 +155,7 @@ begin
 end;
 $$;
 revoke all on function fiskalo_private.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid) from public,anon,authenticated;
-grant execute on function fiskalo_private.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid) to authenticated;
+-- Intentionally not granted until the local POS Agent has a device-bound credential.
 
 create or replace function public.fiskalo_basic_consume_offline_coupon_id(
   p_business_id uuid,p_pos_id uuid,p_coupon_id bigint,p_idempotency_key uuid
@@ -163,4 +163,4 @@ create or replace function public.fiskalo_basic_consume_offline_coupon_id(
   select fiskalo_private.fiskalo_basic_consume_offline_coupon_id(p_business_id,p_pos_id,p_coupon_id,p_idempotency_key)
 $$;
 revoke all on function public.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid) from public,anon;
-grant execute on function public.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid) to authenticated;
+-- Keep the browser-facing wrapper disabled until device-bound Agent authentication exists.
