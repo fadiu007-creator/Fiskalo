@@ -22,3 +22,11 @@ create unique index if not exists fiskalo_basic_fiscal_one_active_correction_per
   where parent_document_id is not null
     and document_type = 2
     and submission_state in ('queued','submitted','accepted','needs_reconciliation');
+
+-- This UI exposes full returns only. Keep one active full return per original sale;
+-- partial returns need a separately modelled remaining-quantity/refund workflow.
+create unique index if not exists fiskalo_basic_fiscal_one_active_full_return_per_parent_uidx
+  on public.fiskalo_basic_fiscal_documents(parent_document_id)
+  where parent_document_id is not null
+    and document_type = 3
+    and submission_state in ('queued','submitted','accepted','needs_reconciliation');
