@@ -6,14 +6,15 @@ create table if not exists public.fiskalo_atk_pos_certificates (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.fiskalo_organizations(id) on delete cascade,
   pos_installation_id uuid not null references public.fiskalo_atk_pos_installations(id) on delete cascade,
+  application_id bigint not null check (application_id > 0),
   certificate_pem text not null,
   spki_sha256 text not null check (spki_sha256 ~ '^[a-f0-9]{64}$'),
-  status text not null default 'active' check (status in ('active','revoked')),
+  status text not null default 'active' check (status in ('active','superseded','revoked')),
   issued_at timestamptz not null default now(),
   revoked_at timestamptz,
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
-  check ((status = 'active' and revoked_at is null) or (status = 'revoked' and revoked_at is not null))
+  check ((status in ('active','superseded') and revoked_at is null) or (status = 'revoked' and revoked_at is not null))
 );
 
 create unique index if not exists fiskalo_atk_pos_certificates_one_active_per_pos
