@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
 import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, getPosCertificatePem, signAtkBase64Payload, generateNuiKf } from "@/lib/atk/browser-runtime";
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
-import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, CloudAtkError } from "@/lib/pos/cloud-atk";
+import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
 import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem } from "@/lib/pos/browser-outbox";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
@@ -149,7 +149,7 @@ export default function Home(){
           nui_kf:doc?.nui_kf??queued?.nuiKf??null,
           legacy_nui_kf:doc?.legacy_nui_kf??null,
           daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
-          submission_state:doc?.submission_state??(queued?.state==="prepared"?"needs_reconciliation":queued?.state??null),
+          submission_state:doc?.submission_state??(queued?.state==="prepared"?"needs_reconciliation":queued?.state==="cloud_queued"?"queued":queued?.state??null),
           offline_issued_at:doc?.offline_issued_at??queued?.issuedAtUtc??null,
           recovery_deadline_at:doc?.recovery_deadline_at??queued?.recoveryDeadlineUtc??null,
           qr_svg_base64:doc?.qr_svg_base64??queued?.qrSvg??null,
@@ -189,16 +189,16 @@ export default function Home(){
             continue;
           }
           try{
-            const result=await submitCloudTestCoupon(supabase,{
+            const result=await queueCloudTestCoupon(supabase,{
               businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
               couponId:item.couponId,idempotencyKey:item.idempotencyKey,
               details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,verificationNo:item.nuiKf,
               citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
-              dailyNumber:item.dailyNumber,
+              dailyNumber:item.dailyNumber,verificationNo:item.nuiKf,
               offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
             });
             await updateFiscalOutboxItem(item.idempotencyKey,{
-              state:"accepted",transactionId:result.transactionId,lastError:null,qrSvg:result.qrSvgBase64
+              state:"cloud_queued",transactionId:null,lastError:null
             });
           }catch(error){
             await updateFiscalOutboxItem(item.idempotencyKey,{
