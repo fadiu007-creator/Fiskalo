@@ -10,6 +10,7 @@ export type BrowserFiscalOutboxItem = {
   documentType: 1 | 2 | 3;
   detailsBase64: string;
   signatureBase64: string;
+  certificatePem: string;
   citizenPayloadBase64: string;
   citizenSignatureBase64: string;
   citizenQrPayload: string;
