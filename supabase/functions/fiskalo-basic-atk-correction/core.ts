@@ -169,7 +169,7 @@ export function assertAtkCorrectionIdentity(
   actual: AtkCorrectionIdentity,
   expected: ExpectedAtkCorrectionIdentity,
 ): void {
-  const fields: (keyof AtkCorrectionIdentity)[] = [
+  const fields: (keyof ExpectedAtkCorrectionIdentity)[] = [
     "businessId", "couponId", "branchId", "posId", "applicationId",
     "type", "referenceNo",
   ];
