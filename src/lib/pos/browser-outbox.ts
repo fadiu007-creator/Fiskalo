@@ -1,6 +1,11 @@
+import { decryptBrowserFiscalData, encryptBrowserFiscalData } from "../atk/browser-key-vault";
+import type { EncryptedBrowserPayload } from "../atk/local-storage-crypto";
+
 const DB_NAME = "fiskalo-fiscal-outbox";
 const STORE_NAME = "signed-documents";
 const OUTAGE_STORE_NAME = "connectivity-outages";
+const OUTBOX_ENCRYPTION_SCOPE = "basic-fiscal-outbox";
+const OUTAGE_ENCRYPTION_SCOPE = "basic-pos-connectivity-outage";
 
 export type BrowserFiscalOutboxItem = {
   idempotencyKey: string;
@@ -29,6 +34,20 @@ export type BrowserFiscalOutboxItem = {
   lastError: string | null;
 };
 
+type EncryptedRecord = {
+  revision: number;
+  encrypted: EncryptedBrowserPayload;
+};
+type EncryptedOutboxRecord = EncryptedRecord & { idempotencyKey: string };
+type EncryptedOutageRecord = EncryptedRecord & { id: string };
+
+export type PosConnectivityOutage = {
+  id: string;
+  businessId: string;
+  posRecordId: string;
+  startedAt: string;
+};
+
 function openDb(): Promise<IDBDatabase> {
   if (typeof window === "undefined" || !globalThis.indexedDB) {
     throw new Error("This browser does not support a durable offline fiscal outbox.");
@@ -48,67 +67,126 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveFiscalOutboxItem(item: BrowserFiscalOutboxItem): Promise<void> {
+function isEncryptedRecord(value: unknown): value is EncryptedRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<EncryptedRecord>;
+  return Number.isInteger(record.revision) && !!record.encrypted && record.encrypted.version === 1;
+}
+
+async function readOutboxRecord(idempotencyKey: string): Promise<unknown | null> {
   const db = await openDb();
   try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).put(item);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("Could not persist the signed fiscal document."));
-      tx.onabort = () => reject(tx.error ?? new Error("Fiscal outbox write was aborted."));
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(idempotencyKey);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error ?? new Error("Could not read the fiscal outbox record."));
     });
   } finally { db.close(); }
 }
 
-export async function listFiscalOutboxItems(businessId?: string): Promise<BrowserFiscalOutboxItem[]> {
+async function writeOutboxRecordIfRevision(
+  idempotencyKey: string,
+  expectedRevision: number,
+  encrypted: EncryptedBrowserPayload,
+): Promise<boolean> {
   const db = await openDb();
   try {
-    const all = await new Promise<BrowserFiscalOutboxItem[]>((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite", { durability: "strict" });
+      const store = tx.objectStore(STORE_NAME);
+      let conflict = false;
+      let missing = false;
+      const request = store.get(idempotencyKey);
+      request.onsuccess = () => {
+        const current = request.result as (EncryptedOutboxRecord | BrowserFiscalOutboxItem) | undefined;
+        if (!current) { missing = true; tx.abort(); return; }
+        const revision = isEncryptedRecord(current) ? current.revision : 0;
+        if (revision !== expectedRevision) { conflict = true; tx.abort(); return; }
+        store.put({ idempotencyKey, revision: expectedRevision + 1, encrypted } satisfies EncryptedOutboxRecord);
+      };
+      request.onerror = () => reject(request.error ?? new Error("Could not read the fiscal outbox record."));
+      tx.oncomplete = () => resolve(true);
+      tx.onabort = () => {
+        if (conflict) resolve(false);
+        else reject(tx.error ?? new Error(missing ? "Fiscal outbox document was not found." : "Fiscal outbox update was aborted."));
+      };
+      tx.onerror = () => {
+        if (!conflict && !missing) reject(tx.error ?? new Error("Could not update the fiscal outbox."));
+      };
+    });
+  } finally { db.close(); }
+}
+
+async function addOutboxRecord(item: BrowserFiscalOutboxItem, encrypted: EncryptedBrowserPayload): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite", { durability: "strict" });
+      tx.objectStore(STORE_NAME).add({
+        idempotencyKey: item.idempotencyKey, revision: 1, encrypted,
+      } satisfies EncryptedOutboxRecord);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("Could not persist the encrypted fiscal document."));
+      tx.onabort = () => reject(tx.error ?? new Error("Encrypted fiscal outbox write was aborted."));
+    });
+  } finally { db.close(); }
+}
+
+async function decodeOutboxRecord(raw: unknown): Promise<BrowserFiscalOutboxItem> {
+  if (isEncryptedRecord(raw)) {
+    return decryptBrowserFiscalData<BrowserFiscalOutboxItem>(OUTBOX_ENCRYPTION_SCOPE, raw.encrypted);
+  }
+  // One-time migration for older browser profiles that stored plaintext outbox rows.
+  const legacy = raw as BrowserFiscalOutboxItem;
+  if (!legacy || typeof legacy.idempotencyKey !== "string" || typeof legacy.businessId !== "string") {
+    throw new Error("Unrecognized local fiscal outbox record. Do not clear browser data; contact Fiskalo support.");
+  }
+  const encrypted = await encryptBrowserFiscalData(OUTBOX_ENCRYPTION_SCOPE, legacy);
+  await writeOutboxRecordIfRevision(legacy.idempotencyKey, 0, encrypted).catch(() => false);
+  return legacy;
+}
+
+export async function saveFiscalOutboxItem(item: BrowserFiscalOutboxItem): Promise<void> {
+  const encrypted = await encryptBrowserFiscalData(OUTBOX_ENCRYPTION_SCOPE, item);
+  await addOutboxRecord(item, encrypted);
+}
+
+export async function listFiscalOutboxItems(businessId?: string): Promise<BrowserFiscalOutboxItem[]> {
+  const db = await openDb();
+  let rawRecords: unknown[];
+  try {
+    rawRecords = await new Promise<unknown[]>((resolve, reject) => {
       const request = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).getAll();
-      request.onsuccess = () => resolve((request.result ?? []) as BrowserFiscalOutboxItem[]);
+      request.onsuccess = () => resolve((request.result ?? []) as unknown[]);
       request.onerror = () => reject(request.error ?? new Error("Could not read the fiscal outbox."));
     });
-    return businessId ? all.filter(item => item.businessId === businessId) : all;
   } finally { db.close(); }
+  const all = await Promise.all(rawRecords.map(decodeOutboxRecord));
+  return businessId ? all.filter(item => item.businessId === businessId) : all;
 }
 
 export async function updateFiscalOutboxItem(
   idempotencyKey: string,
   patch: Partial<Pick<BrowserFiscalOutboxItem, "state" | "transactionId" | "lastError" | "qrSvg" | "offlineIssuedAtUtc" | "recoveryDeadlineUtc">>,
 ): Promise<void> {
-  const db = await openDb();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.get(idempotencyKey);
-      request.onsuccess = () => {
-        if (!request.result) { reject(new Error("Fiscal outbox document was not found.")); return; }
-        store.put({ ...request.result, ...patch });
-      };
-      request.onerror = () => reject(request.error ?? new Error("Could not load fiscal outbox document."));
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("Could not update fiscal outbox document."));
-    });
-  } finally { db.close(); }
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const raw = await readOutboxRecord(idempotencyKey);
+    if (!raw) throw new Error("Fiscal outbox document was not found.");
+    const current = await decodeOutboxRecord(raw);
+    const revision = isEncryptedRecord(raw) ? raw.revision : 0;
+    const encrypted = await encryptBrowserFiscalData(OUTBOX_ENCRYPTION_SCOPE, { ...current, ...patch });
+    if (await writeOutboxRecordIfRevision(idempotencyKey, revision, encrypted)) return;
+  }
+  throw new Error("Fiscal outbox changed repeatedly; retry the update.");
 }
 
-
-export type PosConnectivityOutage = {
-  id: string;
-  businessId: string;
-  posRecordId: string;
-  startedAt: string;
-};
-
-/** Preserve the first outage time until a successful recovery sync clears it. */
+/** Preserve the first observed connectivity-loss time until the outage is recovered. */
 export function resolvePosOutageStart(existingStart: string | null | undefined, detectedAt: string): string {
   if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
   return existingStart && Number.isFinite(Date.parse(existingStart)) ? existingStart : detectedAt;
 }
 
-/** Use the first observed connectivity-loss time for every coupon in one POS outage. */
+/** The 48-hour recovery deadline is measured from the first observed outage time. */
 export function outageRecoveryDeadline(startedAt: string): string {
   const timestamp = Date.parse(startedAt);
   if (!Number.isFinite(timestamp)) throw new Error("Invalid POS connectivity outage timestamp.");
@@ -120,39 +198,93 @@ function outageKey(businessId: string, posRecordId: string): string {
   return businessId + ":" + posRecordId;
 }
 
+async function readOutageRecord(id: string): Promise<unknown | null> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(OUTAGE_STORE_NAME, "readonly").objectStore(OUTAGE_STORE_NAME).get(id);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error ?? new Error("Could not read the POS connectivity outage."));
+    });
+  } finally { db.close(); }
+}
+
+async function writeOutageRecordIfRevision(
+  id: string,
+  expectedRevision: number,
+  encrypted: EncryptedBrowserPayload,
+): Promise<boolean> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(OUTAGE_STORE_NAME, "readwrite", { durability: "strict" });
+      const store = tx.objectStore(OUTAGE_STORE_NAME);
+      let conflict = false;
+      let missing = false;
+      const request = store.get(id);
+      request.onsuccess = () => {
+        const current = request.result as (EncryptedOutageRecord | PosConnectivityOutage) | undefined;
+        if (!current) { missing = true; tx.abort(); return; }
+        const revision = isEncryptedRecord(current) ? current.revision : 0;
+        if (revision !== expectedRevision) { conflict = true; tx.abort(); return; }
+        store.put({ id, revision: expectedRevision + 1, encrypted } satisfies EncryptedOutageRecord);
+      };
+      request.onerror = () => reject(request.error ?? new Error("Could not read the POS connectivity outage."));
+      tx.oncomplete = () => resolve(true);
+      tx.onabort = () => {
+        if (conflict) resolve(false);
+        else reject(tx.error ?? new Error(missing ? "POS connectivity outage was not found." : "POS outage update was aborted."));
+      };
+      tx.onerror = () => {
+        if (!conflict && !missing) reject(tx.error ?? new Error("Could not update the POS connectivity outage."));
+      };
+    });
+  } finally { db.close(); }
+}
+
 export async function getOrStartPosConnectivityOutage(
   businessId: string,
   posRecordId: string,
   detectedAt = new Date().toISOString(),
 ): Promise<PosConnectivityOutage> {
   if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
-  const db = await openDb();
-  try {
-    return await new Promise<PosConnectivityOutage>((resolve, reject) => {
-      const tx = db.transaction(OUTAGE_STORE_NAME, "readwrite", { durability: "strict" });
-      const store = tx.objectStore(OUTAGE_STORE_NAME);
-      const id = outageKey(businessId, posRecordId);
-      let result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt: detectedAt };
-      const request = store.get(id);
-      request.onsuccess = () => {
-        const existing = request.result as PosConnectivityOutage | undefined;
-        const startedAt = resolvePosOutageStart(
-          existing && existing.businessId === businessId && existing.posRecordId === posRecordId
-            ? existing.startedAt : null,
-          detectedAt,
-        );
-        result = { id, businessId, posRecordId, startedAt };
-        if (!existing || existing.startedAt !== startedAt || existing.businessId !== businessId ||
-            existing.posRecordId !== posRecordId) store.put(result);
-      };
-      request.onerror = () => reject(request.error ?? new Error("Could not read the POS connectivity outage."));
-      tx.oncomplete = () => resolve(result);
-      tx.onerror = () => reject(tx.error ?? new Error("Could not persist the POS connectivity outage."));
-      tx.onabort = () => reject(tx.error ?? new Error("POS connectivity outage write was aborted."));
-    });
-  } finally {
-    db.close();
+  const id = outageKey(businessId, posRecordId);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const raw = await readOutageRecord(id);
+    let existing: PosConnectivityOutage | null = null;
+    if (raw) {
+      if (isEncryptedRecord(raw)) {
+        existing = await decryptBrowserFiscalData<PosConnectivityOutage>(OUTAGE_ENCRYPTION_SCOPE, raw.encrypted);
+      } else {
+        existing = raw as PosConnectivityOutage;
+      }
+    }
+    const startedAt = resolvePosOutageStart(
+      existing && existing.businessId === businessId && existing.posRecordId === posRecordId
+        ? existing.startedAt : null,
+      detectedAt,
+    );
+    const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt };
+    if (existing && existing.startedAt === startedAt && isEncryptedRecord(raw)) return existing;
+    const encrypted = await encryptBrowserFiscalData(OUTAGE_ENCRYPTION_SCOPE, result);
+    if (raw) {
+      const revision = isEncryptedRecord(raw) ? raw.revision : 0;
+      if (await writeOutageRecordIfRevision(id, revision, encrypted)) return result;
+    } else {
+      const db = await openDb();
+      try {
+        const added = await new Promise<boolean>((resolve, reject) => {
+          const tx = db.transaction(OUTAGE_STORE_NAME, "readwrite", { durability: "strict" });
+          tx.objectStore(OUTAGE_STORE_NAME).add({ id, revision: 1, encrypted } satisfies EncryptedOutageRecord);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+          tx.onabort = () => resolve(false);
+        });
+        if (added) return result;
+      } finally { db.close(); }
+    }
   }
+  throw new Error("Could not persist the encrypted POS connectivity outage.");
 }
 
 export async function clearPosConnectivityOutage(businessId: string, posRecordId: string): Promise<void> {
@@ -165,7 +297,5 @@ export async function clearPosConnectivityOutage(businessId: string, posRecordId
       tx.onerror = () => reject(tx.error ?? new Error("Could not clear the POS connectivity outage."));
       tx.onabort = () => reject(tx.error ?? new Error("POS connectivity outage clear was aborted."));
     });
-  } finally {
-    db.close();
-  }
+  } finally { db.close(); }
 }
