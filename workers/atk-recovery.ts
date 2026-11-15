@@ -29,10 +29,10 @@ type FiscalDoc = {
   next_attempt_at: string | null;
 };
 type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string; status: string; created_at: string; total: number | string; subtotal: number | string; vat_total: number | string };
-type OriginalDoc = { id: string; coupon_id: number | string; atk_transaction_id: number | string; submission_state: string; document_type: number };
+type OriginalDoc = { id: string; coupon_id: number | string; atk_transaction_id: number | string; submission_state: string; document_type: number; signed_payload: string };
 type CorrectionReservation = { business_id: string; sale_id: string; document_type: number; original_coupon_id: number | string; correction_coupon_id: number | string; created_by: string; status: string };
 type Pos = { id: string; branch_id: number | string; pos_id: number | string; application_id: number | string; certificate_status: string };
-type PosCertificate = { business_id: string; pos_id: string; certificate_pem: string };
+type PosCertificate = { business_id: string; pos_id: string; application_id: number | string; certificate_pem: string; spki_sha256: string; status: string };
 type Business = { id: string; nui: string };
 
 const ATK_TEST_ORIGIN = "https://fiskalizimi-test.atk-ks.org";
@@ -94,6 +94,11 @@ function readDer(bytes: Uint8Array, offset: number) {
   const end = cursor + length;
   if (end > bytes.length) throw new Error("Truncated certificate DER.");
   return { tag, start: offset, contentStart: cursor, end };
+}
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const input = new Uint8Array(bytes);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input.buffer));
+  return Array.from(digest, value => value.toString(16).padStart(2, "0")).join("");
 }
 function certSpki(pem: string): Uint8Array {
   const body = pem.replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s/g, "");
@@ -245,7 +250,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
   const sale = sales[0];
   const poses = await dbGet<Pos>(env, "fiskalo_basic_pos",
     postgrestQuery({ select: "id,branch_id,pos_id,application_id,certificate_status", id: "eq." + sale.pos_id, business_id: "eq." + doc.business_id, limit: "1" }));
-  if (poses.length !== 1 || poses[0].certificate_status !== "certificate_issued") {
+  if (poses.length !== 1 || (doc.document_type === 1 && poses[0].certificate_status !== "certificate_issued")) {
     await markNeedsReconciliation(env, doc, "The original POS certificate or POS identity is no longer available.");
     return "reconciliation";
   }
