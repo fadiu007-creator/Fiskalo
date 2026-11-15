@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   const applicationId = positiveInteger(body.applicationId);
   const totalCents = positiveInteger(body.totalCents);
   const refundPaymentMethod = typeof body.refundPaymentMethod === "string" ? body.refundPaymentMethod : "";
-  const paymentType: Record<string, number> = { cash: 1, card: 2, bank_transfer: 6 };
+  const paymentType: Record<string, number> = { cash: 1, card: 2, voucher: 3, cheque: 4, crypto: 5, bank_transfer: 6 };
   if (!organizationId || !adjustmentId || !/^\d{9}$/.test(nui)) {
     return Response.json({ error: "invalid_adjustment_request", detail: "A valid organization, adjustment and nine-digit NUI are required." }, { status: 400 });
   }
