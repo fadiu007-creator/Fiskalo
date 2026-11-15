@@ -26,6 +26,7 @@ jobs:
       - run: deno lint supabase/functions/fiskalo-basic-workers
       - run: npm run typecheck
       - run: npm run test:products
+      - run: npm run test:payments
       - run: npm run test:atk-browser
       - run: npm run test:atk-recovery
       - run: npm run lint
