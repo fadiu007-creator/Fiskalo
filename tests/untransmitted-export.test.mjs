@@ -29,8 +29,9 @@ test("authority export includes signed POS and CitizenCoupon evidence", () => {
     citizen_payload: "CITIZEN-PROTOBUF-BASE64",
     citizen_signature: "CITIZEN-SIGNATURE-BASE64",
     atk_response: null,
-  }]);
+  }], "ATK-REQ-2026-001");
   assert.ok(csv.startsWith("\uFEFF"));
+  assert.match(csv, /ATK-REQ-2026-001/);
   assert.match(csv, /POS-PROTOBUF-BASE64/);
   assert.match(csv, /POS-SIGNATURE-BASE64/);
   assert.match(csv, /CITIZEN-PROTOBUF-BASE64/);
