@@ -449,7 +449,7 @@ export default function Home(){
         payments:[{type:paymentType,amountCents:cents(sale.total)}],
         totalCents:cents(sale.total),taxGroups,totalTaxCents:cents(sale.vat_total),
         totalNoTaxCents:cents(sale.subtotal),totalDiscountCents:0,
-        referenceNo:originalCouponId,transactionNo:originalTransactionId
+        referenceNo:originalCouponId
       } as const;
       const detailsBase64=encodeAtkBase64(encodeAtkPosCoupon(coupon));
       const signatureBase64=await signAtkBase64Payload(pos.id,detailsBase64);
