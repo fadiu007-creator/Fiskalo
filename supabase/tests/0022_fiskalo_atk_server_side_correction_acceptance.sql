@@ -46,6 +46,15 @@ begin
   if index_definition is null or position('UNIQUE INDEX' in upper(index_definition))=0 then
     raise exception 'One-active-cancellation uniqueness index is missing';
   end if;
+
+  select indexdef into index_definition
+  from pg_indexes
+  where schemaname='public'
+    and tablename='fiskalo_basic_fiscal_documents'
+    and indexname='fiskalo_basic_fiscal_one_active_full_return_per_parent_uidx';
+  if index_definition is null or position('UNIQUE INDEX' in upper(index_definition))=0 then
+    raise exception 'One-active-full-return uniqueness index is missing';
+  end if;
 end
 $$;
 rollback;
