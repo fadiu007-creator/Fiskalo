@@ -52,5 +52,5 @@ export function buildUntransmittedExportCsv(documents: UntransmittedExportDocume
     document.atk_transaction_id, document.signed_payload, document.signature,
     document.citizen_payload, document.citizen_signature, document.atk_response,
   ]);
-  return "\\uFEFF" + [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\\r\\n");
+  return "\uFEFF" + [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
 }
