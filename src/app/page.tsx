@@ -201,7 +201,7 @@ export default function Home(){
               state:"cloud_queued",transactionId:null,lastError:null
             });
           }catch(error){
-            const conflict=error instanceof CloudAtkError&&error.httpStatus===409;
+            const conflict=error instanceof CloudAtkError&&[400,401,403,409,422].includes(error.httpStatus);
             await updateFiscalOutboxItem(item.idempotencyKey,{
               state:conflict?"needs_reconciliation":"queued",
               lastError:error instanceof Error?error.message:"Ngarkimi i radhës dështoi; do të provohet përsëri kur lidhja të rikthehet."
