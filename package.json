@@ -13,6 +13,7 @@
     "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs tests/product-categories.test.mjs",
     "test:atk-browser": "node --experimental-strip-types --test tests/atk-browser-runtime.test.mjs tests/atk-protobuf.test.mjs",
     "test:atk-recovery": "node --experimental-strip-types --test tests/atk-recovery.test.mjs",
+    "test:payments": "node --experimental-strip-types --test tests/payment-allocation.test.mjs",
     "cf-build:atk-recovery": "wrangler deploy --dry-run --config wrangler.atk-recovery.jsonc",
     "deploy:atk-recovery": "wrangler deploy --config wrangler.atk-recovery.jsonc"
   },
