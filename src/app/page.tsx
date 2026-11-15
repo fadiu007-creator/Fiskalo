@@ -256,8 +256,31 @@ export default function Home(){
     if(!business)return;
     const storageKey="fiskalo.pendingCheckout."+business.id;
     const raw=sessionStorage.getItem(storageKey);
-    if(!raw){setCheckoutDraftLoaded(true);return;}
     if(!products.length)return;
+    if(!raw){
+      let cancelled=false;
+      void new OfflineCheckoutJournal(new IndexedDbOfflineSaleStorage()).listPendingCloudSync()
+        .then(records=>{
+          if(cancelled||!records.length)return;
+          const pending=records.filter(record=>record.businessId===business.id)
+            .sort((a,b)=>b.createdAtUtc.localeCompare(a.createdAtUtc))[0];
+          if(!pending)return;
+          const restored:Record<string,CartLine>={};
+          for(const line of pending.lines){
+            const product=products.find(p=>p.id===line.productId);
+            if(product)restored[product.id]={product,quantity:line.quantityMilli/1000};
+          }
+          if(Object.keys(restored).length){
+            setCart(restored);setCheckoutKey(pending.idempotencyKey);setCheckoutAttempted(false);
+            setPayment(pending.paymentMethod);
+            if(positions.some(p=>p.id===pending.posId))setSelectedPos(pending.posId);
+            setMessage("U rikthye një checkout i ruajtur lokalisht. Ky nuk është ende kupon fiskal; lidhu me internetin dhe përfundo të njëjtin checkout.");
+          }
+        })
+        .catch(()=>{})
+        .finally(()=>{if(!cancelled)setCheckoutDraftLoaded(true);});
+      return ()=>{cancelled=true;};
+    }
     try{
       const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;payment?:string;selectedPos?:string};
       if(!draft.key||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draft.key)||!Array.isArray(draft.lines)){
@@ -478,6 +501,7 @@ export default function Home(){
         supabase!.from("fiskalo_basic_sale_items").select("*").eq("sale_id",saleId).order("id")
       ]);
       if(saleError)throw saleError;if(linesError)throw linesError;
+      await offlineJournal.markCloudSynced(checkoutIdempotencyKey,String(sale.id),Number(sale.coupon_id));
       const cents=(value:number)=>Math.round(Number(value)*100);
       const grouped=new Map<string,{taxRate:string;base:number;tax:number}>();
       for(const line of lines??[]){
