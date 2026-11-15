@@ -249,3 +249,13 @@ export async function getPosCertificatePem(identity: BrowserPosIdentity): Promis
   }
   return stored.certificatePem;
 }
+
+
+/** Returns only the public ATK certificate; the non-exportable private key never leaves IndexedDB. */
+export async function getPosCertificatePem(identity: BrowserPosIdentity): Promise<string> {
+  const stored = await getStoredKey(posKeyId(identity));
+  if (!stored?.certificatePem || !await hasMatchingPosCertificate(identity)) {
+    throw new Error("The selected POS has no matching ATK TEST certificate in this browser.");
+  }
+  return stored.certificatePem;
+}
