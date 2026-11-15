@@ -83,7 +83,7 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     writeFileSync(csrPath, first.csrPem);
     openssl(["req", "-in", csrPath, "-noout", "-verify"]);
 
-    const dbRequest = indexedDB.open("fiskalo-atk-pos-keys", 2);
+    const dbRequest = indexedDB.open("fiskalo-atk-local", 2);
     const db = await new Promise((resolve, reject) => {
       dbRequest.onsuccess = () => resolve(dbRequest.result);
       dbRequest.onerror = () => reject(dbRequest.error);
@@ -182,7 +182,7 @@ test("signed offline fiscal outbox persists and only changes state by idempotenc
   assert.equal(rawOutboxRecord.detailsBase64, undefined);
   assert.equal(rawOutboxRecord.signatureBase64, undefined);
 
-  const keyDbRequest = indexedDB.open("fiskalo-atk-pos-keys", 2);
+  const keyDbRequest = indexedDB.open("fiskalo-atk-local", 2);
   const keyDb = await new Promise((resolve, reject) => {
     keyDbRequest.onsuccess = () => resolve(keyDbRequest.result);
     keyDbRequest.onerror = () => reject(keyDbRequest.error);
