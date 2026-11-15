@@ -197,14 +197,28 @@ export default function Home(){
             continue;
           }
           try{
-            const result=await queueCloudTestCoupon(supabase,{
-              businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
-              couponId:item.couponId,idempotencyKey:item.idempotencyKey,
-              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,
-              citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
-              dailyNumber:item.dailyNumber,verificationNo:item.nuiKf,
-              offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
-            });
+            if(item.documentType===1){
+              await queueCloudTestCoupon(supabase,{
+                businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
+                couponId:item.couponId,idempotencyKey:item.idempotencyKey,
+                details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,
+                citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
+                dailyNumber:item.dailyNumber,verificationNo:item.nuiKf,
+                offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
+              });
+            }else{
+              if(!item.originalCouponId||!item.originalTransactionId)throw new Error("Correction reference is missing from the local outbox.");
+              await queueCloudCorrection(supabase,{
+                businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
+                correctionCouponId:item.couponId,originalCouponId:item.originalCouponId,
+                originalTransactionId:item.originalTransactionId,documentType:item.documentType as 2|3,
+                idempotencyKey:item.idempotencyKey,details:item.detailsBase64,signature:item.signatureBase64,
+                certificatePem:item.certificatePem,nuiKf:item.nuiKf,dailyNumber:item.dailyNumber,
+                unixTime:Math.floor(Date.parse(item.issuedAtUtc)/1000),
+                citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
+                offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
+              });
+            }
             await updateFiscalOutboxItem(item.idempotencyKey,{
               state:"cloud_queued",transactionId:null,lastError:null
             });
