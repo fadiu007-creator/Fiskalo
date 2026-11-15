@@ -30,46 +30,48 @@ grant all on table public.fiskalo_atk_pos_certificates to service_role;
 comment on table public.fiskalo_atk_pos_certificates is
   'Server-only registry of ATK-issued public POS certificates. Browser clients cannot insert, read, update, or revoke certificates.';
 
--- Enforce the current ATK product catalogues for Full as well as Basic.
--- NOT VALID preserves legacy rows for correction while checking every new/updated row.
-do $catalogue$
+-- Enforce official ATK product codes for new products and changes to fiscal fields.
+-- Existing legacy products can still receive non-fiscal stock/metadata updates, but
+-- cannot be newly created or have fiscal fields changed with invalid ATK codes.
+create or replace function public.fiskalo_validate_full_product_atk_catalogue()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $function$
 begin
-  if not exists (
-    select 1 from pg_constraint where conrelid='public.fiskalo_products'::regclass
-      and conname='fiskalo_products_atk_unit_2026_check'
+  if new.atk_unit_code is null or new.atk_unit_code not in (
+    'EA','CP','LTR','SEC','MIN','HUR','DAY','MON','ANN','KGB','KGN',
+    'TN','GRM','M4','UDH','KMT','LM','MTS','MTV','MSK','KWH'
   ) then
-    alter table public.fiskalo_products add constraint fiskalo_products_atk_unit_2026_check
-      check (atk_unit_code is not null and atk_unit_code in (
-        'EA','CP','LTR','SEC','MIN','HUR','DAY','MON','ANN','KGB','KGN',
-        'TN','GRM','M4','UDH','KMT','LM','MTS','MTV','MSK','KWH'
-      )) not valid;
+    raise exception 'Invalid ATK measurement unit code: %', new.atk_unit_code using errcode = '23514';
   end if;
-  if not exists (
-    select 1 from pg_constraint where conrelid='public.fiskalo_products'::regclass
-      and conname='fiskalo_products_atk_category_2026_check'
+  if new.atk_item_category_code is null or new.atk_item_category_code not in (
+    'TT','UR','AU','VM','KO','AP','BM','PM','PP','PE','PS','PB','BB',
+    'KB','EE','PSE','SM','SJ','ST','SK','SMK','STR','PI','PT','SEA',
+    'KS','MN','SHN','SDG','HT','SHB','STI','SHT','PBS','MPM'
   ) then
-    alter table public.fiskalo_products add constraint fiskalo_products_atk_category_2026_check
-      check (atk_item_category_code is not null and atk_item_category_code in (
-        'TT','UR','AU','VM','KO','AP','BM','PM','PP','PE','PS','PB','BB',
-        'KB','EE','PSE','SM','SJ','ST','SK','SMK','STR','PI','PT','SEA',
-        'KS','MN','SHN','SDG','HT','SHB','STI','SHT','PBS','MPM'
-      )) not valid;
+    raise exception 'Invalid ATK item category code: %', new.atk_item_category_code using errcode = '23514';
   end if;
-  if not exists (
-    select 1 from pg_constraint where conrelid='public.fiskalo_products'::regclass
-      and conname='fiskalo_products_atk_vat_class_2026_check'
+  if not (
+    (new.atk_tax_code in ('A','C') and new.vat_rate = 0)
+    or (new.atk_tax_code = 'D' and new.vat_rate = 8)
+    or (new.atk_tax_code = 'E' and new.vat_rate = 18)
   ) then
-    alter table public.fiskalo_products add constraint fiskalo_products_atk_vat_class_2026_check
-      check (
-        atk_tax_code is not null and vat_rate is not null and (
-          (atk_tax_code in ('A','C') and vat_rate=0)
-          or (atk_tax_code='D' and vat_rate=8)
-          or (atk_tax_code='E' and vat_rate=18)
-        )
-      ) not valid;
+    raise exception 'ATK VAT code and VAT rate do not match.' using errcode = '23514';
   end if;
-end
-$catalogue$;
+  return new;
+end;
+$function$;
+
+revoke all on function public.fiskalo_validate_full_product_atk_catalogue() from public, anon, authenticated;
+drop trigger if exists fiskalo_products_atk_catalogue_insert on public.fiskalo_products;
+drop trigger if exists fiskalo_products_atk_catalogue_update on public.fiskalo_products;
+create trigger fiskalo_products_atk_catalogue_insert
+  before insert on public.fiskalo_products
+  for each row execute function public.fiskalo_validate_full_product_atk_catalogue();
+create trigger fiskalo_products_atk_catalogue_update
+  before update of atk_unit_code, atk_item_category_code, atk_tax_code, vat_rate on public.fiskalo_products
+  for each row execute function public.fiskalo_validate_full_product_atk_catalogue();
 
 -- Fiscal acceptance and audit events are server-trusted facts, never browser-editable.
 drop policy if exists fiskalo_atk_docs_insert_test on public.fiskalo_atk_fiscal_documents;
