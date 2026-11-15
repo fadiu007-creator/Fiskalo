@@ -146,7 +146,6 @@ export default function Home(){
           idempotency_key:idempotencyKey,
           items:itemsBySale.get(s.id)??[],
           transaction_id:String(doc?.atk_transaction_id??queued?.transactionId??"")||null,
-          verification_no:doc?.verification_no??queued?.verificationNo??null,
           nui_kf:doc?.nui_kf??queued?.nuiKf??null,
           legacy_nui_kf:doc?.legacy_nui_kf??null,
           daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
@@ -193,7 +192,7 @@ export default function Home(){
             const result=await submitCloudTestCoupon(supabase,{
               businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
               couponId:item.couponId,idempotencyKey:item.idempotencyKey,
-              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,
+              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,verificationNo:item.nuiKf,
               citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
               dailyNumber:item.dailyNumber,
               offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
@@ -544,7 +543,7 @@ export default function Home(){
       }
       const fiscal=await submitCloudTestCoupon(supabase,{
         businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
-        details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,citizenPayload,citizenSignature,
+        details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,verificationNo:nuiKf,citizenPayload,citizenSignature,
         dailyNumber:Number(sale.daily_number),offlineIssuedAt:null
       });
       await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null,qrSvg:fiscal.qrSvgBase64});
