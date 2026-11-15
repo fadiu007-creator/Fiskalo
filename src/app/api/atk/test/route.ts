@@ -434,7 +434,7 @@ export async function POST(request: Request) {
         business_name: requiredString(pos.verified_business_name || business.name, "Verified business name", 256),
         business_id: requiredPositiveInteger(business.nui, "Business NUI"),
         branch_id: requiredPositiveInteger(pos.branch_id, "Branch ID"),
-        verification_no: requiredString(pos.verification_no, "ATK verification code", 16),
+        verification_code: requiredString(pos.verification_no, "ATK verification code", 128),
         pos_id: requiredPositiveInteger(pos.pos_id, "POS ID"),
         application_id: applicationId,
         csr: csrPem,
