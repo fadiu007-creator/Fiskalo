@@ -45,13 +45,13 @@ begin
   end if;
 
   fn:=to_regprocedure('public.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid)');
-  if fn is null or not has_function_privilege('authenticated',fn,'EXECUTE')
+  if fn is null or has_function_privilege('authenticated',fn,'EXECUTE')
      or has_function_privilege('anon',fn,'EXECUTE') then
-    raise exception 'Coupon consume RPC must be authenticated-only';
+    raise exception 'Coupon consume RPC must remain disabled until POS Agent device authentication is implemented';
   end if;
-  select pg_get_functiondef(fn) into def;
+  select pg_get_functiondef('fiskalo_private.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid)'::regprocedure) into def;
   if position('already been consumed' in def)=0 or position('consumed_idempotency_key' in def)=0 then
-    raise exception 'Coupon consumption must reject cross-checkout reuse';
+    raise exception 'Private coupon consumption must reject cross-checkout reuse';
   end if;
 
   if not exists(select 1 from pg_constraint
