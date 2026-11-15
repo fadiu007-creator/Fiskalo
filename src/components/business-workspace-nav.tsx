@@ -84,6 +84,7 @@ export default function BusinessWorkspaceNav({ organizationId, businessName, rol
       </nav>
       <div className="business-sidebar-bottom">
         {isProvider && <Link href="/provider" className="business-sidebar-provider"><Building2 size={16}/> Paneli i ofruesit</Link>}
+        <Link href="/basic" className="business-sidebar-account"><ArrowLeftRight size={17}/><span>Kalo te Fiskalo Basic</span></Link>
         <Link href="/account" className="business-sidebar-account"><UserCircle size={17}/><span>Profili dhe llogaria</span></Link>
         <button type="button" onClick={() => void signOut()} className="business-sidebar-account"><LogOut size={17}/><span>Dil nga llogaria</span></button>
         <div className="business-sidebar-footnote">Fiskalo · Menaxhimi i biznesit</div>
@@ -94,6 +95,7 @@ export default function BusinessWorkspaceNav({ organizationId, businessName, rol
         <div><span className="business-topbar-eyebrow">HAPËSIRA E PUNËS / {current.toUpperCase()}</span><strong>{businessName}</strong></div>
         <div className="business-topbar-actions">
           {isProvider && <Link href="/provider" aria-label="Paneli i ofruesit"><Building2 size={15}/><span>Ofruesi</span></Link>}
+          <Link href="/basic" aria-label="Kalo te Fiskalo Basic"><ArrowLeftRight size={16}/><span>Basic</span></Link>
           <Link href="/account" aria-label="Profili dhe llogaria"><UserCircle size={17}/><span>Llogaria</span></Link>
           <button type="button" onClick={() => void signOut()} aria-label="Dil nga llogaria"><LogOut size={16}/><span>Dil</span></button>
         </div>
@@ -107,6 +109,7 @@ export default function BusinessWorkspaceNav({ organizationId, businessName, rol
             <div className="business-mobile-menu-links">{group.items.map(item => renderLink(item, true))}</div>
           </section>)}
           {isProvider && <Link href="/provider" className="business-mobile-extra"><Building2 size={16}/> Paneli i ofruesit</Link>}
+          <Link href="/basic" className="business-mobile-extra"><ArrowLeftRight size={16}/> Kalo te Fiskalo Basic</Link>
           <Link href="/account" className="business-mobile-extra"><UserCircle size={16}/> Profili dhe llogaria</Link>
           <button type="button" onClick={() => void signOut()} className="business-mobile-extra"><LogOut size={16}/> Dil nga llogaria</button>
         </div>
