@@ -18,12 +18,14 @@ export class CloudAtkError extends Error {
   readonly transactionId: string | null;
   readonly acceptedButNotPersisted: boolean;
   readonly notDelivered: boolean;
-  constructor(message: string, transactionId: string | null = null, acceptedButNotPersisted = false, notDelivered = false) {
+  readonly httpStatus: number;
+  constructor(message: string, transactionId: string | null = null, acceptedButNotPersisted = false, notDelivered = false, httpStatus = 0) {
     super(message);
     this.name = "CloudAtkError";
     this.transactionId = transactionId;
     this.acceptedButNotPersisted = acceptedButNotPersisted;
     this.notDelivered = notDelivered;
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -54,6 +56,7 @@ async function callGateway<T>(
       typeof record.transactionId === "string" ? record.transactionId : null,
       record.status === "accepted_not_persisted",
       record.notDelivered === true,
+      response.status,
     );
   }
   return payload as T;
