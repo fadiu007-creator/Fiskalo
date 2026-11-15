@@ -27,34 +27,29 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 
 ## Current implementation state
 
-- [x] Clean Next.js/Cloudflare application foundation
-- [x] Supabase email/password login UI
-- [x] Owner-only worker invitation and team roster source through a Supabase Edge Function; deployment and live email-delivery verification remain release gates.
-- [x] Isolated `fiskalo_basic_*` schema and owner onboarding / atomic paid-sale RPCs
-- [x] ATK product unit dropdown from the 29 September 2026 official catalogue; 21 codes are covered by unit tests
-- [x] ATK item/service category dropdown with 35 official May 2026 category codes and exact-code validation
-- [x] Product VAT classification validation for A/C/D/E, keeping exempt and zero-rated classes distinct
-- [x] POS checkout with stock deduction and payment recording
-- [x] Automatic ATK TEST Sale submission after payment through the authenticated Cloudflare gateway using the browser-held POS key and matching TEST certificate
-- [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
-- [x] Browser POS runtime: non-exportable per-POS P-256 keys in IndexedDB, CSR creation, certificate/SPKI matching, and POS/CitizenCoupon signing
-- [x] Durable browser IndexedDB fiscal outbox with authenticated upload to the Cloudflare/Supabase recovery queue
-- [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0017 are committed but have not been executed against the database. Treat database migration execution and authenticated RLS integration testing as separate release gates.
-- [x] Cloudflare scheduled recovery Worker source: certificate/signature validation, Sale/Cancel/full Return handling, 48-hour deadline and stop-on-ambiguity behavior
-- [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
-- [ ] Reconcile the 29 September 2026 unit/category DOCX and any subsequent ATK catalogue update before certification; current category dropdown is based on the May 2026 official technical annex
-- [ ] Apply and verify migrations 0030–0031 (ATK catalogue constraints and split-tender RPC) on an approved staging project; run both SQL contract tests
-- [ ] Apply and verify migrations 0014–0017 on an approved staging project; run SQL contract tests 0014–0017 and authenticated tenant-isolation tests
-- [ ] Complete ambiguous-submission reconciliation UI and authority-request export
-- [ ] Complete cancellation/return POS workflow using the existing correction-document factory
-- [ ] Deploy `supabase/functions/fiskalo-basic-workers` to the approved Supabase project and verify owner-only worker invitation/listing with real Auth email delivery
-- [ ] Deploy the Cloudflare recovery Worker and verify scheduled recovery with a real pre-delivery failure and reconnection
-- [ ] Cloudflare deployment and live smoke tests
+**Full app**
+- [x] Full business workspace restored at `/app/[organizationId]`: invoices, customers, products, suppliers/purchases, expenses, inventory, team, cashier shifts, reports, provider and platform administration, Web POS and printer settings.
+- [x] Full POS setup uses browser-held P-256 keys and same-origin Cloudflare ATK TEST routes; no localhost POS agent is part of the supported runtime.
+- [x] Full product editor uses the 21-code ATK unit catalogue (29.09.2026) and the 35-code May 2026 category annex; Full coupon validation rejects invalid unit/category/VAT mappings.
+- [x] Full invoice payment ledger and POS support Cash, CreditCard, Voucher, Cheque, CryptoCurrency and Other (bank transfer); repeated installments are aggregated by ATK PaymentType.
+- [x] Full ATK server routes now use a server-only Supabase client for verification and fiscal journal writes; CSR-to-certificate SPKI matching and per-POS certificate signature verification are implemented in source.
+- [ ] Apply the Full server-trusted fiscal-write migration in `supabase/full-migrations/`; until applied, the existing Full RLS policies still allow authenticated direct writes to fiscal status/event tables.
+- [ ] Deploy and live-test Full ATK TEST verification, certificate issuance, Sale, Cancel and Return.
 
-The web-only ATK TEST runtime, browser signing, authenticated Cloudflare gateway, trusted acceptance journal, correction reservations and scheduled recovery Worker are implemented in PR #12. CI and live ATK TEST acceptance remain release gates; formal ATK certification and production submission are not claimed. Partial returns are not supported. Basic inventory, purchases, expenses and split-tender payment allocation are implemented in source but remain unavailable until their database migrations are applied and verified. Migrations 0004–0006 are documented as applied to the existing `zikos` project; migrations 0014–0017 and 0030–0031 are committed but not executed there. All Basic objects use the isolated `fiskalo_basic_*` namespace and do not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
+**Basic app**
+- [x] Separate `fiskalo_basic_*` business/POS schema, owner/cashier roles and Cloudflare ATK TEST gateway.
+- [x] Browser-generated non-exportable P-256 POS keys, certificate/SPKI matching, Protobuf signing and trusted ATK acceptance journal.
+- [x] Official ATK unit/category/VAT validation in the Basic product editor and coupon pipeline.
+- [x] Sale, Cancel and full Return recovery worker source with idempotency, signature checks and ambiguity/reconciliation handling.
+- [x] Exact-cent split-tender allocation helper and checkout UI; migration 0031 is committed but not applied.
+- [ ] Apply and verify Basic catalogue constraints (migration 0030) and split-tender RPC (migration 0031).
+- [ ] Complete genuinely local-first disconnected checkout. The current outbox/recovery source does not yet prove a sale can be completed while Supabase and the internet are unavailable.
+- [ ] Align the 48-hour recovery clock to the start of the communications outage, implement the Article 44 notification/evidence path, and document Article 45 approved paper-booklet fallback.
 
-A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued.
+**Shared Supabase project**
+- The existing `zikos` project already contains the Fiskalo Full schema and the Basic core, checkout, ATK acceptance, offline receipt, business operations and atomic purchase migrations. It also contains the PR #12 server acceptance, recovery queue, POS certificate and correction migrations.
+- This repository is not the complete migration history for the shared `zikos` project, which also hosts other applications. Do not run a generic `supabase db push` from this partial repository. Apply only reviewed additive Fiskalo migrations through the connected Supabase project and record the returned migration version in this repository.
+- Pending database work: Basic migrations 0030–0031 and the Full migration draft under `supabase/full-migrations/`.
 
-## Database security migration
+A successful build or ATK TEST coupon is not ATK certification. Production fiscalization remains disabled until the developer/software solution is registered and certified, the unique SEF code is integrated as ATK specifies, and production credentials are issued. Real ATK TEST acceptance and a Cloudflare deployment are still required release gates.
 
-Migration `supabase/migrations/0004_fiskalo_basic_security_hardening.sql` has been applied to Supabase project `zikos`; its catalog/privilege regression script passed there. The private helper schema must remain outside the exposed Data API schemas. Full authenticated owner/cashier and cross-tenant RLS integration tests are still required before enabling cashier provisioning.
