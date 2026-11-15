@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { buildUntransmittedExportCsv, type UntransmittedExportDocument } from "@/lib/reports/untransmitted-export";
 import {
   buildSalesReport,
   buildSalesReportCsv,
@@ -79,6 +80,11 @@ export default function ReportsPage() {
   const [busy, setBusy] = useState(false);
   const [truncated, setTruncated] = useState(false);
   const [message, setMessage] = useState("");
+  const [authorityRequestReference, setAuthorityRequestReference] = useState("");
+  const [untransmittedDocuments, setUntransmittedDocuments] = useState<UntransmittedExportDocument[]>([]);
+  const [exportMeta, setExportMeta] = useState<{ reference: string; exportedAt: string; totalCount: number; truncated: boolean } | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportMessage, setExportMessage] = useState("");
 
   const loadReport = useCallback(async () => {
     if (!supabase) {
@@ -156,6 +162,71 @@ export default function ReportsPage() {
   useEffect(() => {
     void loadReport();
   }, [loadReport]);
+
+  async function prepareUntransmittedExport() {
+    if (!supabase || !business) return;
+    const reference = authorityRequestReference.trim();
+    if (reference.length < 3 || reference.length > 100) {
+      setExportMessage("Shëno referencën e kërkesës zyrtare të ATK-së ose autoritetit kompetent (3–100 karaktere).");
+      return;
+    }
+    setExportBusy(true);
+    setExportMessage("");
+    try {
+      const range = localDateRangeToIso(startDate, endDate);
+      const { data, error } = await supabase.rpc("fiskalo_basic_untransmitted_export", {
+        p_business_id: business.id,
+        p_from: range.from,
+        p_to: range.to,
+        p_authority_request_reference: reference,
+        p_limit: 5000,
+      });
+      if (error) throw error;
+      const payload = (data ?? {}) as {
+        documents?: UntransmittedExportDocument[];
+        count?: number;
+        total_count?: number;
+        truncated?: boolean;
+        exported_at?: string;
+        authority_request_reference?: string;
+      };
+      const rows = Array.isArray(payload.documents) ? payload.documents : [];
+      setUntransmittedDocuments(rows);
+      setExportMeta({
+        reference: String(payload.authority_request_reference ?? reference),
+        exportedAt: String(payload.exported_at ?? new Date().toISOString()),
+        totalCount: Number(payload.total_count ?? payload.count ?? rows.length),
+        truncated: Boolean(payload.truncated),
+      });
+      setExportMessage(rows.length
+        ? "Të dhënat e pafiskalizuara u përgatitën dhe kërkesa u regjistrua në audit."
+        : "Nuk ka kuponë të pafiskalizuar në periudhën e zgjedhur. Kërkesa u regjistrua në audit.");
+    } catch (error) {
+      setExportMessage(error instanceof Error ? error.message : "Eksporti i të dhënave të pafiskalizuara dështoi.");
+      setUntransmittedDocuments([]);
+      setExportMeta(null);
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  function downloadUntransmittedCsv() {
+    if (!untransmittedDocuments.length || !exportMeta) return;
+    const csv = buildUntransmittedExportCsv(untransmittedDocuments);
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fiskalo-kuponet-e-pafiskalizuara-" + startDate + "-" + endDate + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function printUntransmittedPdf() {
+    if (!untransmittedDocuments.length || !exportMeta) return;
+    window.print();
+  }
 
   const report = useMemo(
     () => buildSalesReport(sales, items, documents),
@@ -271,6 +342,63 @@ export default function ReportsPage() {
         </div>}
       </section>
 
+      <section className="panel" style={{ marginTop: 16 }}>
+        <h2>Eksporti i kuponëve të pafiskalizuar</h2>
+        <p className="sub">Për përdorim vetëm kur kërkohet nga ATK ose autoritet tjetër kompetent. Shëno referencën e kërkesës zyrtare; çdo përgatitje regjistrohet në audit.</p>
+        <div className="row authority-export-no-print" style={{ alignItems: "end", flexWrap: "wrap" }}>
+          <div className="field" style={{ minWidth: 240, flex: 1, margin: 0 }}>
+            <label htmlFor="authority-request-reference">Referenca e kërkesës zyrtare</label>
+            <input id="authority-request-reference" required minLength={3} maxLength={100}
+              value={authorityRequestReference} onChange={event => setAuthorityRequestReference(event.target.value)}
+              placeholder="Nr. i shkresës / kërkesës së ATK-së" />
+          </div>
+          <button type="button" className="btn" disabled={exportBusy || authorityRequestReference.trim().length < 3}
+            onClick={() => void prepareUntransmittedExport()}>
+            {exportBusy ? "Duke përgatitur…" : "Përgatit eksportin"}
+          </button>
+        </div>
+        {exportMessage && <p className="notice authority-export-no-print" role="status">{exportMessage}</p>}
+        {exportMeta && <div className="authority-export-print" style={{ marginTop: 14 }}>
+          <h3>Regjistri i kuponëve të pafiskalizuar</h3>
+          <p>Referenca: <strong>{exportMeta.reference}</strong> · Përgatitur: {new Date(exportMeta.exportedAt).toLocaleString("sq-XK")}</p>
+          <p>Dokumente në eksport: {untransmittedDocuments.length} / {exportMeta.totalCount}</p>
+          {exportMeta.truncated && <p role="alert">Eksporti është kufizuar në 5,000 dokumente. Ngushto periudhën dhe përgatit eksport tjetër me të njëjtën referencë.</p>}
+          {untransmittedDocuments.length === 0 ? <p className="sub">Nuk ka dokumente në radhë për këtë periudhë.</p> :
+            untransmittedDocuments.map(document => <article key={document.fiscal_document_id}
+              style={{ borderTop: "1px solid var(--line)", padding: "12px 0", breakInside: "avoid" }}>
+              <strong>Kupon #{document.coupon_id} · {document.submission_state}</strong>
+              <p style={{ fontSize: 12, margin: "4px 0" }}>
+                {document.business_name} · NUI {document.nui} · {document.pos_label} · Branch {document.branch_id} · POS {document.pos_id}
+              </p>
+              <p style={{ fontSize: 12, margin: "4px 0" }}>
+                NUIKF: {document.nui_kf ?? "—"} · Nr. ditor: {document.daily_number ?? "—"} · Afati: {document.recovery_deadline_at ?? "—"}
+              </p>
+              <p style={{ fontSize: 12, margin: "4px 0" }}>
+                Offline nga: {document.offline_issued_at ?? "—"} · Totali: €{Number(document.total).toFixed(2)}
+              </p>
+              <div style={{ fontSize: 9, overflowWrap: "anywhere", marginTop: 8 }}>
+                <strong>POS payload (Base64)</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.signed_payload}</pre>
+                <strong>POS signature (Base64)</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.signature}</pre>
+                {document.citizen_payload && <><strong>Citizen payload (Base64)</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.citizen_payload}</pre></>}
+                {document.citizen_signature && <><strong>Citizen signature (Base64)</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.citizen_signature}</pre></>}
+                {document.atk_response && <><strong>ATK response</strong><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(document.atk_response)}</pre></>}
+              </div>
+            </article>)}
+        </div>}
+        {exportMeta && untransmittedDocuments.length > 0 && <div className="row authority-export-no-print" style={{ marginTop: 12 }}>
+          <button type="button" className="btn secondary" onClick={downloadUntransmittedCsv}>Shkarko CSV</button>
+          <button type="button" className="btn secondary" onClick={printUntransmittedPdf}>Printo / Ruaj PDF</button>
+        </div>}
+      </section>
+      <style jsx global>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          .authority-export-print, .authority-export-print * { visibility: visible !important; }
+          .authority-export-print { position: absolute; inset: 0; width: 100%; padding: 12px; background: white; color: black; }
+          .authority-export-no-print { display: none !important; }
+          .authority-export-print pre { font-size: 7px; }
+        }
+      `}</style>
       <p className="footer">Ky është raport menaxherial i gjeneruar nga regjistrat e Fiskalo. Nuk është deklaratë zyrtare e ATK-së dhe nuk zëvendëson dorëzimet ose raportet e kërkuara në EDI.</p>
     </main>
   );
