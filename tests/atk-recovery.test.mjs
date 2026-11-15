@@ -127,7 +127,7 @@ function response(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
 
-async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at, selectedDoc = doc) {
+async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at, selectedDoc = doc, selectedCertificate = cert) {
   const calls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
@@ -144,7 +144,7 @@ async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at, selec
     if (url.includes("/fiskalo_basic_sales?")) return response([selectedDoc.document_type===1?{...sale,status:"paid"}:{...sale,status:"fiscalized"}]);
     if (url.includes("/fiskalo_basic_pos?")) return response([pos]);
     if (url.includes("/fiskalo_basic_businesses?")) return response([business]);
-    if (url.includes("/fiskalo_basic_pos_certificates?")) return response([cert]);
+    if (url.includes("/fiskalo_basic_pos_certificates?")) return response([selectedCertificate]);
     if (url.includes("/fiskalo_basic_correction_reservations?")) return response([{
       business_id: "business-1", sale_id: "sale-1", document_type: 2,
       original_coupon_id: "100", correction_coupon_id: "101", created_by: "owner-1", status: "queued",
@@ -185,6 +185,27 @@ test("recovery worker validates and records a queued ATK Cancel", async () => {
   assert.equal(rpc.body.p_actor_id, "owner-1");
   assert.equal(rpc.body.p_original_coupon_id, "100");
   assert.equal(rpc.body.p_correction_coupon_id, "101");
+});
+
+test("recovery worker uses a superseded certificate for the original Application ID", async () => {
+  const calls = await runWorker(
+    () => response({ transaction_id: "987654323", message: "cancel accepted" }),
+    correctionDoc.recovery_deadline_at,
+    correctionDoc,
+    { ...cert, status: "superseded" },
+  );
+  assert.equal(calls.filter(call => call.url.includes("/pos/coupon")).length, 1);
+});
+
+test("recovery worker rejects a certificate registered to a different Application ID", async () => {
+  const calls = await runWorker(
+    () => response({ transaction_id: "987654324", message: "must not be submitted" }),
+    correctionDoc.recovery_deadline_at,
+    correctionDoc,
+    { ...cert, application_id: 4 },
+  );
+  assert.equal(calls.filter(call => call.url.includes("/pos/coupon")).length, 0);
+  assert.ok(calls.some(call => call.method === "PATCH" && call.body?.submission_state === "rejected"));
 });
 
 test("recovery worker retries only transport failures proven not delivered", async () => {
