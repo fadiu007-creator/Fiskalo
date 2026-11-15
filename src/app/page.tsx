@@ -201,9 +201,10 @@ export default function Home(){
               state:"cloud_queued",transactionId:null,lastError:null
             });
           }catch(error){
+            const conflict=error instanceof CloudAtkError&&error.httpStatus===409;
             await updateFiscalOutboxItem(item.idempotencyKey,{
-              state:"needs_reconciliation",
-              lastError:error instanceof Error?error.message:"Rezultati i dërgimit nuk dihet; kërkohet reconciliim."
+              state:conflict?"needs_reconciliation":"queued",
+              lastError:error instanceof Error?error.message:"Ngarkimi i radhës dështoi; do të provohet përsëri kur lidhja të rikthehet."
             });
           }
         }
