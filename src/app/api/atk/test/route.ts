@@ -502,7 +502,6 @@ export async function POST(request: Request) {
       const signature = requiredString(body.signature, "Correction signature", 256);
       const citizenPayload = requiredString(body.citizenPayload, "CitizenCoupon payload", 200_000);
       const citizenSignature = requiredString(body.citizenSignature, "CitizenCoupon signature", 256);
-      const certificatePemFromBrowser = requiredString(body.certificatePem, "POS public certificate", 16_384);
       const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
 
       const posQuery = new URLSearchParams({
@@ -531,7 +530,7 @@ export async function POST(request: Request) {
 
       const adminHeaders = { apikey: serviceRoleKey, Authorization: "Bearer " + serviceRoleKey, Accept: "application/json" };
       const originalQuery = new URLSearchParams({
-        select: "id,coupon_id,atk_transaction_id,submission_state,document_type",
+        select: "id,coupon_id,atk_transaction_id,submission_state,document_type,signed_payload",
         business_id: "eq." + businessId,
         sale_id: "eq." + saleId,
         coupon_id: "eq." + originalCouponId,
@@ -547,6 +546,11 @@ export async function POST(request: Request) {
       if (!Array.isArray(originals) || originals.length !== 1 || !isRecord(originals[0]) ||
           String(originals[0].atk_transaction_id) !== originalTransactionId) {
         return jsonError("Original ATK transaction does not match the accepted sale.", 409);
+      }
+      const originalCouponIdentity = readCouponIdentity(requiredString(originals[0].signed_payload, "Original accepted coupon payload", 200_000));
+      const originalApplicationId = Number(originalCouponIdentity.get(7) ?? 0n);
+      if (!Number.isSafeInteger(originalApplicationId) || originalApplicationId <= 0) {
+        return jsonError("The original accepted coupon has no valid ATK Application ID.", 409);
       }
       const reservationQuery = new URLSearchParams({
         select: "business_id,sale_id,pos_id,document_type,original_coupon_id,original_transaction_id,correction_coupon_id,daily_number,idempotency_key,created_by,status",
@@ -573,16 +577,20 @@ export async function POST(request: Request) {
       }
 
       const certResponse = await fetch(restOrigin + "fiskalo_basic_pos_certificates?" + new URLSearchParams({
-        select: "certificate_pem",
+        select: "certificate_pem,application_id,spki_sha256",
         business_id: "eq." + businessId,
         pos_id: "eq." + posRecordId,
-        limit: "1",
+        application_id: "eq." + originalApplicationId,
+        status: "in.(active,superseded)",
+        revoked_at: "is.null",
+        order: "issued_at.desc",
       }).toString(), { headers: adminHeaders, cache: "no-store" });
-      if (!certResponse.ok) return jsonError("Could not load the server-registered ATK certificate.", 502);
+      if (!certResponse.ok) return jsonError("Could not load the ATK certificate for the original application ID.", 502);
       const certRows: unknown = await certResponse.json();
-      if (!Array.isArray(certRows) || certRows.length !== 1 || !isRecord(certRows[0])) return jsonError("No ATK certificate is registered for this POS.", 409);
-      const certificatePem = requiredString(certRows[0].certificate_pem, "ATK-issued POS certificate", 16_384);
-      if (certificatePemFromBrowser.trim() !== certificatePem.trim()) return jsonError("Browser certificate does not match the server-registered ATK certificate.", 409);
+      if (!Array.isArray(certRows) || !certRows.length) {
+        return jsonError("No retained ATK certificate exists for the original sale's Application ID. Re-verify and issue a certificate for that original ID before retrying this correction.", 409);
+      }
+
 
       const couponIdentity = readCouponIdentity(details);
       const expectedUnixTime = BigInt(unixTime);
@@ -590,7 +598,7 @@ export async function POST(request: Request) {
         [1,BigInt(business.nui as string)],[2,BigInt(correctionCouponId)],
         [3,BigInt(requiredPositiveInteger(pos.branch_id,"Branch ID"))],
         [6,BigInt(requiredPositiveInteger(pos.pos_id,"POS ID"))],
-        [7,BigInt(requiredPositiveInteger(pos.application_id,"Application ID"))],
+        [7,BigInt(originalApplicationId)],
         [9,BigInt(documentType)],[10,expectedUnixTime],
         [13,BigInt(Math.round(Number(sales[0].total)*100))],
         [15,BigInt(Math.round(Number(sales[0].vat_total)*100))],
@@ -612,11 +620,22 @@ export async function POST(request: Request) {
       ];
       for (const [field,value] of expectedCitizen) if (citizenIdentity.get(field)!==value) return jsonError("CitizenCoupon correction identifiers or totals do not match.", 409);
       if (citizenIdentity.get(5)!==nuiKf) return jsonError("CitizenCoupon NUIKF / VerificationNo mismatch.", 409);
-      const [posSignatureValid,citizenSignatureValid]=await Promise.all([
-        verifySignedBase64Payload(certificatePem,details,signature),
-        verifySignedBase64Payload(certificatePem,citizenPayload,citizenSignature),
-      ]);
-      if (!posSignatureValid || !citizenSignatureValid) return jsonError("Correction POS or CitizenCoupon signature is invalid.", 400);
+      let originalCertificateMatched = false;
+      for (const candidate of certRows) {
+        if (!isRecord(candidate) || Number(candidate.application_id) !== originalApplicationId) continue;
+        const candidatePem = requiredString(candidate.certificate_pem, "ATK-issued POS certificate", 16_384);
+        const candidateFingerprint = await sha256Hex(getCertificateSpki(candidatePem));
+        if (candidateFingerprint !== candidate.spki_sha256) continue;
+        const [posSignatureValid,citizenSignatureValid]=await Promise.all([
+          verifySignedBase64Payload(candidatePem,details,signature),
+          verifySignedBase64Payload(candidatePem,citizenPayload,citizenSignature),
+        ]);
+        if (posSignatureValid && citizenSignatureValid) {
+          originalCertificateMatched = true;
+          break;
+        }
+      }
+      if (!originalCertificateMatched) return jsonError("Correction signatures do not match a retained ATK certificate for the original Application ID.", 400);
       const qrSvg = await createCitizenQrSvg(citizenPayload + "|" + citizenSignature);
       const qrSvgBase64 = encodeAtkBase64(new TextEncoder().encode(qrSvg));
       const existingCorrectionQuery = new URLSearchParams({
