@@ -45,7 +45,7 @@ Deno.test("ATK correction protobuf identity is decoded from signed details", () 
   assertEquals(identity.branchId, "1");
   assertEquals(identity.posId, "2");
   assertEquals(identity.applicationId, "300");
-  assertEquals(identity.verificationNo, "VERIFY123");
+  assertEquals(identity.verificationNo, "NUIKF12345678901");
   assertEquals(identity.type, 2);
   assertEquals(identity.referenceNo, "9000");
   assertEquals(identity.location, "Prishtine");
@@ -69,7 +69,7 @@ Deno.test("ATK correction identity must match the reserved original sale and POS
     branchId: "1",
     posId: "2",
     applicationId: "300",
-    verificationNo: "VERIFY123",
+    verificationNo: "NUIKF12345678901",
     type: 2,
     referenceNo: "8999",
   }));
