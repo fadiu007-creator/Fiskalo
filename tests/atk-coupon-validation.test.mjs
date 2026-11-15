@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { encodeAtkBase64, encodeAtkPosCoupon } from "../src/lib/atk/protobuf.ts";
-import { recoverAtkMappingsFromOriginalCoupon, validateAtkCouponPayload } from "../src/lib/atk/validate-coupon-payload.ts";
+import { encodeAtkBase64, encodeAtkCitizenCoupon, encodeAtkPosCoupon } from "../src/lib/atk/protobuf.ts";
+import { readAtkPosCouponVerificationNo, recoverAtkMappingsFromOriginalCoupon, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "../src/lib/atk/validate-coupon-payload.ts";
 
 function makePayload(overrides = {}) {
   const input = {
@@ -90,4 +90,47 @@ test("legacy correction mapping fails closed when original coupon items do not m
     () => recoverAtkMappingsFromOriginalCoupon(makePayload(), [{ ...context.lines[0], description: "Different item" }]),
     /cannot be matched/,
   );
+});
+
+function makeCitizenPayload(overrides = {}) {
+  return encodeAtkBase64(encodeAtkCitizenCoupon({
+    businessId: "123456789",
+    couponId: 100,
+    branchId: 1,
+    posId: 2,
+    verificationNo: "123456789",
+    type: 1,
+    unixTime: 1794760000,
+    totalCents: 118,
+    taxGroups: [{ taxRate: "E", totalForTaxCents: 100, totalTaxCents: 18 }],
+    totalTaxCents: 18,
+    totalNoTaxCents: 100,
+    ...overrides,
+  }));
+}
+
+const citizenContext = {
+  nui: "123456789",
+  couponId: 100,
+  branchId: 1,
+  posId: 2,
+  verificationNo: "123456789",
+  type: 1,
+  unixTime: 1794760000,
+  totalCents: 118,
+  totalTaxCents: 18,
+  totalNoTaxCents: 100,
+  taxGroups: [{ taxRate: "E", totalForTaxCents: 100, totalTaxCents: 18 }],
+};
+
+test("official CitizenCoupon validation accepts the signed receipt QR payload", () => {
+  assert.deepEqual(validateAtkCitizenCouponPayload(makeCitizenPayload(), citizenContext), { ok: true });
+  assert.equal(readAtkPosCouponVerificationNo(makePayload()), citizenContext.verificationNo);
+});
+
+test("CitizenCoupon validation rejects totals or verification numbers that differ from POS Coupon", () => {
+  const invalid = makeCitizenPayload({ totalCents: 117 });
+  const result = validateAtkCitizenCouponPayload(invalid, citizenContext);
+  assert.equal(result.ok, false);
+  assert.match(result.detail, /identifiers or totals/);
 });
