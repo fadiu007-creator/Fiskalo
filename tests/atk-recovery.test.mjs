@@ -66,7 +66,7 @@ const doc = {
   next_attempt_at: null,
 };
 const sale = {
-  id: "sale-1", operator_id: "user-1", pos_id: "pos-1", coupon_id: "100",
+  id: "sale-1", operator_id: "user-1", pos_id: "pos-1", coupon_id: "100", status: "paid",
   created_at: createdAt, total: 1.18, subtotal: 1, vat_total: 0.18,
 };
 const pos = { id: "pos-1", branch_id: 1, pos_id: 2, application_id: 3, certificate_status: "certificate_issued" };
