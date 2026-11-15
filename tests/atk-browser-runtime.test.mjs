@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import "fake-indexeddb/auto";
 
-globalThis.crypto = webcrypto;
+Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 globalThis.window = globalThis;
 
 const {
