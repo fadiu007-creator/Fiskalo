@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildPaymentAllocations,
   formatPaymentAllocations,
+  isPaymentMethod,
   parseEuroAmountToCents,
   toAtkPaymentType,
 } from "../src/lib/atk/payment-allocation.ts";
@@ -92,4 +93,13 @@ test("formats stored allocations for receipt and sales history", () => {
     ]),
     "KESH €7.00 + KARTELË €3.00",
   );
+});
+
+test("validates the same six payment methods used by ATK sale and correction coupons", () => {
+  for (const method of ["cash", "card", "voucher", "cheque", "crypto", "bank_transfer"]) {
+    assert.equal(isPaymentMethod(method), true);
+  }
+  for (const method of ["", "credit", "mixed", "paypal", "Cash"]) {
+    assert.equal(isPaymentMethod(method), false);
+  }
 });
