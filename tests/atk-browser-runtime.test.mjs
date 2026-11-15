@@ -116,7 +116,7 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     assert.equal(verifySignature(
       "sha256",
       Buffer.from(payload, "utf8"),
-      { key: x509.publicKey, dsaEncoding: "ieee-p1363" },
+      { key: x509.publicKey, dsaEncoding: "der" },
       Buffer.from(signature, "base64"),
     ), true);
     assert.match(generateNuiKf(), /^[A-Z0-9]{16}$/);
