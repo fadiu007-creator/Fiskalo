@@ -3,6 +3,15 @@
 -- fiskalo_full_server_trusted_fiscal_writes.sql.
 begin;
 do $$
+declare
+  test_org uuid;
+  test_pos uuid;
+  test_user uuid;
+  first_certificate uuid;
+  second_certificate uuid;
+  old_status text;
+  old_revoked_at timestamptz;
+  new_status text;
 begin
   if not exists (
     select 1 from information_schema.columns
