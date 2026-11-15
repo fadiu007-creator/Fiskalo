@@ -1,5 +1,3 @@
-import { encodeAtkBase64 } from "@/lib/atk/protobuf";
-
 const DB_NAME = "fiskalo-atk-pos-keys";
 const STORE_NAME = "pos-keys";
 const encoder = new TextEncoder();
@@ -107,7 +105,11 @@ function rawEcdsaToDer(signature: Uint8Array): Uint8Array {
   if (signature.length !== 64) throw new Error("Expected a P-256 ECDSA signature.");
   return der(0x30, join([derInteger(signature.slice(0, 32)), derInteger(signature.slice(32))]));
 }
-function base64(bytes: Uint8Array): string { return encodeAtkBase64(bytes); }
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 function pem(label: string, bytes: Uint8Array): string {
   const value = base64(bytes);
   return "-----BEGIN " + label + "-----\n" + (value.match(/.{1,64}/g) ?? []).join("\n") +
