@@ -139,7 +139,8 @@ export class OfflineCheckoutJournal {
     const mutableFields = ["updatedAtUtc", "cloudSyncState", "fiscalState", "serverSaleId",
       "couponId", "atkTransactionId", "atkEnvironment", "lastError"];
     const stable = Object.fromEntries(Object.entries(existing).filter(([key]) => !mutableFields.includes(key)));
-    if (!equal(stable, candidate))
+    const candidateStable = Object.fromEntries(Object.entries(candidate).filter(([key]) => !mutableFields.includes(key)));
+    if (!equal(stable, candidateStable))
       throw new OfflineSaleConflictError("The offline idempotency key already belongs to different sale content.");
     return existing;
   }
