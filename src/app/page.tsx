@@ -531,7 +531,25 @@ export default function Home(){
             ?"Kuponi është duke u dërguar nga POS Agent. Prit sinkronizimin para riprovimit."
             :"ATK e ka refuzuar këtë dokument. Kontrollo përgjigjen dhe mos krijo kupon të dytë për të njëjtën pagesë.");
       }
-      const fiscal=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon);
+      await offlineJournal.markFiscalQueued(checkoutIdempotencyKey);
+      let fiscal;
+      try{
+        fiscal=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon);
+      }catch(submitError){
+        const localQueue=await getLocalAgentQueue(agentToken).catch(()=>null);
+        const queuedItem=localQueue?.items.find(item=>item.idempotencyKey===idempotencyKey);
+        if(queuedItem?.status.toLowerCase()==="rejected"){
+          await offlineJournal.markFiscalRejected(checkoutIdempotencyKey,queuedItem.lastError||"ATK rejected the fiscal document.");
+        }else if(queuedItem?.status.toLowerCase()==="needsreconciliation"||queuedItem?.status.toLowerCase()==="submitting"){
+          await offlineJournal.markNeedsReconciliation(checkoutIdempotencyKey,"ATK submission outcome is uncertain; reconcile against ATK before retrying.");
+        }
+        throw submitError;
+      }
+      if(fiscal.status==="accepted"){
+        await offlineJournal.markFiscalAccepted(checkoutIdempotencyKey,{
+          status:"accepted",environment:"ATK TEST",transactionId:fiscal.transactionId||""
+        });
+      }
       if(!/^[A-Z0-9]{16}$/.test(fiscal.nuiKf||"")||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)throw new Error("POS Agent did not produce a valid 16-character ATK NUIKF and signed CitizenCoupon QR. Do not print this as a fiscal receipt.");
       if(fiscal.status==="accepted"&&(!fiscal.transactionId||!(/^[1-9][0-9]{0,19}$/.test(fiscal.transactionId))))throw new Error("ATK did not return a valid transaction_id.");
 
