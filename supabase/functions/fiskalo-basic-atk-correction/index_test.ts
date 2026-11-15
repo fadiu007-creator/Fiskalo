@@ -2,6 +2,7 @@ import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert
 import { encodeAtkBase64, encodeAtkPosCoupon } from "../../../src/lib/atk/protobuf.ts";
 import {
   assertAtkCorrectionIdentity,
+  assertFullCorrectionMatchesOriginal,
   decodeAtkCorrectionIdentity,
   extractAtkTransactionId,
   isBase64,
@@ -36,6 +37,36 @@ function correctionPayload(overrides: Record<string, unknown> = {}) {
     totalNoTaxCents: 100,
     ...overrides,
   } as Parameters<typeof encodeAtkPosCoupon>[0]));
+}
+
+
+function originalPayload() {
+  return encodeAtkBase64(encodeAtkPosCoupon({
+    businessId: "810123456",
+    couponId: "9000",
+    branchId: "1",
+    location: "Prishtine",
+    operatorId: "Operator 1",
+    posId: "2",
+    applicationId: "300",
+    verificationNo: "ORIGINAL12345678",
+    type: 1,
+    unixTime: 1794729500,
+    items: [{
+      name: "Test item",
+      unitPriceEuro: 1,
+      unit: "CP",
+      quantity: 1,
+      lineTotalCents: 100,
+      taxRate: "A",
+      itemType: "TT",
+    }],
+    payments: [{ type: 1, amountCents: 100 }],
+    totalCents: 100,
+    taxGroups: [{ taxRate: "A", totalForTaxCents: 100, totalTaxCents: 0 }],
+    totalTaxCents: 0,
+    totalNoTaxCents: 100,
+  }));
 }
 
 Deno.test("ATK correction protobuf identity is decoded from signed details", () => {
@@ -73,6 +104,28 @@ Deno.test("ATK correction identity must match the reserved original sale and POS
     type: 2,
     referenceNo: "8999",
   }));
+});
+
+
+Deno.test("full cancellation/return must preserve original lines, payments, discount and tax totals", () => {
+  assertFullCorrectionMatchesOriginal(originalPayload(), correctionPayload());
+  const altered = correctionPayload({
+    items: [{
+      name: "Test item",
+      unitPriceEuro: 2,
+      unit: "CP",
+      quantity: 1,
+      lineTotalCents: 200,
+      taxRate: "A",
+      itemType: "TT",
+    }],
+    payments: [{ type: 1, amountCents: 200 }],
+    totalCents: 200,
+    taxGroups: [{ taxRate: "A", totalForTaxCents: 200, totalTaxCents: 0 }],
+    totalTaxCents: 0,
+    totalNoTaxCents: 200,
+  });
+  assertThrows(() => assertFullCorrectionMatchesOriginal(originalPayload(), altered));
 });
 
 Deno.test("ATK uint64 identifiers are validated without JavaScript number conversion", () => {
