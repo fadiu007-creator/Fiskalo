@@ -386,6 +386,133 @@ export default function Home(){
     const link=document.createElement("a");link.href=url;link.download="fiskalo-shitjet-50-te-fundit-"+new Date().toISOString().slice(0,10)+".csv";
     document.body.appendChild(link);link.click();link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
+  async function issueCorrection(sale:SaleRecord,documentType:2|3){
+    if(!business||!supabase||!user)return;
+    if(sale.status!=="fiscalized"||!sale.transaction_id){
+      setMessage("Vetëm një shitje e pranuar nga ATK mund të anulohet ose kthehet.");
+      return;
+    }
+    const label=documentType===2?"ANULIM":"KTHIM";
+    if(!window.confirm("Konfirmo "+label.toLowerCase()+" të plotë për kuponin #"+sale.coupon_id+"? Ky veprim do të dërgohet në ATK TEST."))return;
+    const pos=positions.find(p=>p.id===sale.pos_id);
+    if(!pos||pos.certificate_status!=="certificate_issued"||!pos.application_id){
+      setMessage("POS-i origjinal nuk ka certifikatë ATK TEST aktive.");
+      return;
+    }
+    setBusy(true);setMessage("");
+    let idempotencyKey="";
+    try{
+      const identity={businessNui:business.nui,branchId:pos.branch_id,posId:pos.pos_id,businessName:pos.verified_business_name||business.name};
+      if(!await hasMatchingPosCertificate(identity))throw new Error("Çelësi privat dhe certifikata ATK nuk përputhen në këtë shfletues.");
+      const certificatePem=await getPosCertificatePem(identity);
+      idempotencyKey=crypto.randomUUID();
+      const reservation=await reserveCloudCorrection(supabase,{
+        businessId:business.id,saleId:sale.id,documentType,idempotencyKey
+      });
+      const correctionCouponId=Number(reservation.correctionCouponId);
+      const dailyNumber=Number(reservation.dailyNumber);
+      const originalCouponId=Number(reservation.originalCouponId);
+      const originalTransactionId=String(reservation.originalTransactionId);
+      if(!Number.isSafeInteger(correctionCouponId)||correctionCouponId<=0||!Number.isSafeInteger(dailyNumber)||dailyNumber<=0)throw new Error("ATK nuk rezervoi numër unik për kuponin korrigjues.");
+      const nuiKf=generateNuiKf();
+      const unixTime=Math.floor(Date.now()/1000);
+      const cents=(value:number)=>Math.round(Number(value)*100);
+      const grouped=new Map<string,{taxRate:string;base:number;tax:number}>();
+      for(const line of sale.items){
+        const taxRate=line.atk_vat_code??"E";
+        const group=grouped.get(taxRate)??{taxRate,base:0,tax:0};
+        group.base+=cents(line.line_net??(line.line_total/(1+(Number(line.vat_rate??0)/100))));
+        group.tax+=cents(line.line_vat??(line.line_total-(line.line_net??(line.line_total/(1+(Number(line.vat_rate??0)/100))))));
+        grouped.set(taxRate,group);
+      }
+      const taxGroups=Array.from(grouped.values());
+      if(!taxGroups.length)throw new Error("Shitja origjinale nuk ka grupe të vlefshme TVSH-je.");
+      const paymentType=sale.payment_method==="cash"?1:sale.payment_method==="card"?2:6;
+      const coupon={
+        businessId:BigInt(business.nui),couponId:correctionCouponId,branchId:pos.branch_id,
+        location:pos.location,operatorId:sale.operator_name??operatorName.trim(),
+        posId:pos.pos_id,applicationId:Number(pos.application_id),verificationNo:nuiKf,
+        type:documentType,unixTime,
+        items:sale.items.map(line=>({
+          name:line.description,unitPriceEuro:Number(line.unit_price),unit:line.atk_unit_code??"CP",
+          quantity:Number(line.quantity),lineTotalCents:cents(line.line_total),
+          taxRate:line.atk_vat_code??"E",itemType:line.atk_item_category_code??"TT"
+        })),
+        payments:[{type:paymentType,amountCents:cents(sale.total)}],
+        totalCents:cents(sale.total),taxGroups,totalTaxCents:cents(sale.vat_total),
+        totalNoTaxCents:cents(sale.subtotal),totalDiscountCents:0,
+        referenceNo:originalCouponId,transactionNo:originalTransactionId
+      } as const;
+      const detailsBase64=encodeAtkBase64(encodeAtkPosCoupon(coupon));
+      const signatureBase64=await signAtkBase64Payload(pos.id,detailsBase64);
+      const citizenPayloadBase64=encodeAtkBase64(encodeAtkCitizenCoupon({
+        businessId:BigInt(business.nui),couponId:correctionCouponId,branchId:pos.branch_id,posId:pos.pos_id,
+        verificationNo:nuiKf,type:documentType,unixTime,totalCents:cents(sale.total),
+        taxGroups,totalTaxCents:cents(sale.vat_total),totalNoTaxCents:cents(sale.subtotal)
+      }));
+      const citizenSignatureBase64=await signAtkBase64Payload(pos.id,citizenPayloadBase64);
+      const qrSvgBase64=encodeAtkBase64(new TextEncoder().encode(await createCitizenQrSvg(citizenPayloadBase64+"|"+citizenSignatureBase64)));
+      const issuedAtUtc=new Date(unixTime*1000).toISOString();
+      const recoveryDeadlineUtc=new Date(Date.parse(issuedAtUtc)+48*60*60*1000).toISOString();
+      await saveFiscalOutboxItem({
+        businessId:business.id,posRecordId:pos.id,saleId:sale.id,couponId:correctionCouponId,
+        originalCouponId,originalTransactionId,idempotencyKey,detailsBase64,signatureBase64,
+        certificatePem,nuiKf,verificationNo:nuiKf,citizenPayloadBase64,citizenSignatureBase64,
+        dailyNumber,issuedAtUtc,offlineIssuedAtUtc:null,recoveryDeadlineUtc,
+        documentType,state:"prepared",qrSvg:qrSvgBase64
+      });
+      const correctionInput={
+        businessId:business.id,posRecordId:pos.id,saleId:sale.id,correctionCouponId,
+        originalCouponId,originalTransactionId,documentType,idempotencyKey,
+        details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,dailyNumber,unixTime,
+        citizenPayload:citizenPayloadBase64,citizenSignature:citizenSignatureBase64,offlineIssuedAt:null
+      };
+      let queuedOffline=false;
+      let transactionId:string|null=null;
+      let qrToPrint=qrSvgBase64;
+      if(!navigator.onLine){
+        queuedOffline=true;
+        await updateFiscalOutboxItem(idempotencyKey,{state:"queued",lastError:"Shfletuesi ishte offline; korrigjimi pret ngarkimin cloud."});
+      }else{
+        try{
+          const result=await submitCloudCorrection(supabase,correctionInput);
+          transactionId=result.transactionId;
+          qrToPrint=result.qrSvgBase64;
+          await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId,qrSvg:qrToPrint,lastError:null});
+        }catch(error){
+          if(!(error instanceof CloudAtkError)||!error.notDelivered)throw error;
+          const offlineIssuedAt=new Date().toISOString();
+          try{
+            await queueCloudCorrection(supabase,{...correctionInput,offlineIssuedAt});
+            queuedOffline=true;
+            await updateFiscalOutboxItem(idempotencyKey,{state:"cloud_queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:new Date(Date.parse(offlineIssuedAt)+48*60*60*1000).toISOString(),lastError:error.message});
+          }catch(queueError){
+            queuedOffline=true;
+            await updateFiscalOutboxItem(idempotencyKey,{state:"queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:new Date(Date.parse(offlineIssuedAt)+48*60*60*1000).toISOString(),lastError:queueError instanceof Error?queueError.message:error.message});
+          }
+        }
+      }
+      const receipt:SaleRecord={
+        ...sale,coupon_id:correctionCouponId,created_at:issuedAtUtc,daily_number:dailyNumber,
+        transaction_id:transactionId,nui_kf:nuiKf,verification_no:nuiKf,
+        submission_state:queuedOffline?"queued":"accepted",offline_issued_at:queuedOffline?new Date().toISOString():null,
+        recovery_deadline_at:queuedOffline?recoveryDeadlineUtc:null,qr_svg_base64:qrToPrint,
+        document_type:label,correction_type:label,
+        correction_state:queuedOffline?"queued":"accepted",correction_transaction_id:transactionId,
+        is_offline:queuedOffline,is_copy:false
+      };
+      setReceipt(receipt);
+      setMessage(queuedOffline?label+" u ruajt për dërgim automatik në ATK TEST brenda 48 orëve.":"ATK TEST pranoi "+label.toLowerCase()+". Transaction ID: "+transactionId);
+      await loadSales();
+    }catch(error){
+      if(idempotencyKey)await updateFiscalOutboxItem(idempotencyKey,{
+        state:error instanceof CloudAtkError&&error.rejected?"rejected":"needs_reconciliation",
+        lastError:error instanceof Error?error.message:"Korrigjimi nuk u konfirmua nga ATK."
+      }).catch(()=>undefined);
+      setMessage(error instanceof Error?error.message:"Korrigjimi ATK dështoi.");
+    }finally{setBusy(false);}
+  }
+
   async function verifyAtkPos(){
     const pos=positions.find(p=>p.id===selectedPos);
     if(!pos||!business||!supabase){setMessage("Zgjidh biznesin dhe POS-in.");return;}
