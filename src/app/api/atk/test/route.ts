@@ -51,6 +51,8 @@ function getCertificateSpki(certificatePem: string): Uint8Array {
 function derSignatureToP1363(signatureBase64: string): Uint8Array {
   const binary = atob(signatureBase64);
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  // WebCrypto and .NET ECDsa.SignHash both use fixed-width IEEE-P1363 (r || s).
+  if (bytes.length === 64) return bytes;
   const sequence = readDerNode(bytes, 0);
   if (sequence.tag !== 0x30 || sequence.end !== bytes.length) throw new Error("ECDSA signature must be a DER sequence.");
   const r = readDerNode(bytes, sequence.contentStart);
@@ -272,7 +274,7 @@ export async function POST(request: Request) {
     if (action === "sign-csr") {
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
       const posQuery = new URLSearchParams({
-        select: "id,branch_id,pos_id,application_id,verification_no,fiscalization_number",
+        select: "id,branch_id,pos_id,application_id,verification_no,fiscalization_number,verified_business_name",
         id: "eq." + posRecordId,
         business_id: "eq." + businessId,
         limit: "1",
@@ -280,13 +282,16 @@ export async function POST(request: Request) {
       const poses = await supabaseRequest(restOrigin + "fiskalo_basic_pos?" + posQuery.toString(), token, anonKey);
       if (!Array.isArray(poses) || poses.length !== 1 || !isRecord(poses[0])) return jsonError("POS does not belong to this business.", 403);
       const pos = poses[0];
+      const applicationId = requiredPositiveInteger(pos.application_id, "Application ID");
+      if (String(body.applicationId) !== String(applicationId)) return jsonError("Application ID does not match the saved POS configuration.", 409);
+      if (String(body.verificationCode) !== String(pos.verification_no)) return jsonError("ATK verification code does not match the saved POS verification.", 409);
       const result = await atkPost<JsonRecord>("/ca/signcsr", {
-        business_name: requiredString(business.name, "Business name", 256),
+        business_name: requiredString(pos.verified_business_name || business.name, "Verified business name", 256),
         business_id: requiredPositiveInteger(business.nui, "Business NUI"),
         branch_id: requiredPositiveInteger(pos.branch_id, "Branch ID"),
         verification_no: requiredString(pos.verification_no, "ATK verification code", 16),
         pos_id: requiredPositiveInteger(pos.pos_id, "POS ID"),
-        application_id: requiredPositiveInteger(body.applicationId, "Application ID"),
+        application_id: applicationId,
         csr: requiredString(body.csrPem, "Browser-generated CSR", 32_000),
       });
       if (typeof result.signed_certificate !== "string" || !result.signed_certificate.includes("BEGIN CERTIFICATE")) {
@@ -344,7 +349,7 @@ export async function POST(request: Request) {
         if (couponIdentity.get(field) !== value) return jsonError("Signed coupon identifiers do not match the selected business and POS.", 409);
       }
       if (couponIdentity.get(2) !== BigInt(couponId)) return jsonError("Signed coupon number does not match the paid sale.", 409);
-      if (couponIdentity.get(8) !== String(pos.verification_no)) return jsonError("Signed coupon verification number does not match the saved POS.", 409);
+      if (couponIdentity.get(8) !== nuiKf) return jsonError("Signed coupon VerificationNo must match the per-coupon NUIKF.", 409);
       const expectedUnixTime = BigInt(Math.floor(new Date(String(sales[0].created_at)).getTime() / 1000));
       if (couponIdentity.get(9) !== BigInt(1) || couponIdentity.get(10) !== expectedUnixTime ||
           couponIdentity.get(13) !== BigInt(Math.round(Number(sales[0].total) * 100)) ||
@@ -376,7 +381,7 @@ export async function POST(request: Request) {
       for (const [field, value] of citizenExpected) {
         if (citizenIdentity.get(field) !== value) return jsonError("CitizenCoupon QR identifiers or totals do not match the paid POS sale.", 409);
       }
-      if (citizenIdentity.get(5) !== String(pos.verification_no)) return jsonError("CitizenCoupon verification number does not match the saved POS.", 409);
+      if (citizenIdentity.get(5) !== nuiKf) return jsonError("CitizenCoupon VerificationNo must match the per-coupon NUIKF.", 409);
       const [posSignatureValid, citizenSignatureValid] = await Promise.all([
         verifySignedBase64Payload(certificatePem, details, signature),
         verifySignedBase64Payload(certificatePem, citizenPayload, citizenSignature),
