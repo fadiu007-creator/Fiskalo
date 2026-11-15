@@ -267,21 +267,25 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     const unixTime = BigInt(Math.floor(new Date(doc.document_type === 1 ? sale.created_at : doc.created_at).getTime() / 1000));
     const expectedPos: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
-      [6,BigInt(pos.pos_id)],[7,BigInt(pos.application_id)],[9,BigInt(doc.document_type)],[10,unixTime],
+      [6,BigInt(pos.pos_id)],[7,BigInt(pos.application_id)],[9,BigInt(doc.document_type)],
       [13,BigInt(Math.round(Number(sale.total)*100))],[15,BigInt(Math.round(Number(sale.vat_total)*100))],
       [16,BigInt(Math.round(Number(sale.subtotal)*100))],
     ];
     for (const [field,value] of expectedPos) if (posFields.get(field)!==value) throw new Error("POS coupon identity or totals mismatch.");
+    const posTimestamp=posFields.get(10);
+    if (typeof posTimestamp!=="bigint" || (doc.document_type===1 ? posTimestamp!==unixTime : (posTimestamp>unixTime+BigInt(300)||posTimestamp<unixTime-BigInt(300)))) throw new Error("POS coupon timestamp does not match its issue record.");
     if (posFields.get(8)!==doc.nui_kf || doc.verification_no!==doc.nui_kf) throw new Error("POS coupon NUIKF/VerificationNo mismatch.");
     if (doc.document_type !== 1 && (posFields.get(17)!==BigInt(doc.reference_coupon_id!) || posFields.get(18)!==BigInt(original!.atk_transaction_id))) throw new Error("Correction reference coupon or original ATK transaction does not match.");
     const expectedCitizen: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
-      [4,BigInt(pos.pos_id)],[6,BigInt(doc.document_type)],[7,unixTime],
+      [4,BigInt(pos.pos_id)],[6,BigInt(doc.document_type)],
       [8,BigInt(Math.round(Number(sale.total)*100))],
       [10,BigInt(Math.round(Number(sale.vat_total)*100))],
       [11,BigInt(Math.round(Number(sale.subtotal)*100))],
     ];
     for (const [field,value] of expectedCitizen) if (citizenFields.get(field)!==value) throw new Error("CitizenCoupon identity or totals mismatch.");
+    const citizenTimestamp=citizenFields.get(7);
+    if (typeof citizenTimestamp!=="bigint" || (doc.document_type===1 ? citizenTimestamp!==unixTime : (citizenTimestamp>unixTime+BigInt(300)||citizenTimestamp<unixTime-BigInt(300)))) throw new Error("CitizenCoupon timestamp does not match its issue record.");
     if (citizenFields.get(5)!==doc.nui_kf) throw new Error("CitizenCoupon NUIKF mismatch.");
     const [posValid,citizenValid]=await Promise.all([
       verifyPayload(certificatePem,doc.signed_payload,doc.signature),
