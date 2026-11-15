@@ -1,8 +1,11 @@
-# Fiskalo — Basic ATK MVP
+# Fiskalo — Full + Basic business and fiscalization platform
 
-A deliberately small Kosovo fiscalization product focused on ATK POS onboarding, signed fiscal coupons, corrections, offline retention and receipt delivery.
+Fiskalo now contains two selectable web applications in one Cloudflare-hosted repository:
 
-This repository is the Basic MVP implementation. It is separate from `Fiskalo1`; no files or deployment settings in `Fiskalo1` are modified. The current `Fiskalo` repository does not contain the former Full application source or a Full/Basic selector. No Full application code has been removed; a selectable Full version remains blocked until its source is located and safely integrated.
+- **Fiskalo Full** — `/app` and `/app/[organizationId]`: business workspace for invoices, customers, products, suppliers, purchases, expenses, inventory, team roles, cashier shifts, operational reports, audit views, provider administration, Web POS and printer settings. It uses the existing `fiskalo_*` schema in Supabase project `zikos`.
+- **Fiskalo Basic** — `/basic`: separate simplified business/POS application using the isolated `fiskalo_basic_*` schema, ATK 2026 catalogue validation, browser-held POS keys, Cloudflare ATK TEST gateway, signed coupons and recovery journal.
+
+The landing page and authenticated workspace provide routes between Full and Basic. The source of the Full workspace was restored into this repository without modifying the separate `Fiskalo1` repository. The Windows localhost POS agent is not part of the supported web runtime; ATK operations must use the Cloudflare-hosted server routes.
 
 ## Scope
 
@@ -15,7 +18,7 @@ This repository is the Basic MVP implementation. It is separate from `Fiskalo1`;
 - Encrypted offline fiscal journal, safe recovery and reconciliation
 - Basic receipts and sales/fiscal status reporting
 
-Supplier purchasing, advanced inventory, subscriptions, advanced cash management, ARBK lookup and multi-client parity are intentionally out of scope.
+The Full app contains the broader business-operation modules. Formal ATK certification, production submission, Android-native fiscal signing, and complete local-first offline checkout remain release gates.
 
 ## Compliance boundary
 
