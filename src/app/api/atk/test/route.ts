@@ -715,6 +715,7 @@ export async function POST(request: Request) {
           p_atk_transaction_id: transactionIdText,
           p_atk_response: trustedResponse,
           p_nui_kf: nuiKf,
+          p_verification_no: verificationNo,
           p_citizen_payload: citizenPayload,
           p_citizen_signature: citizenSignature,
           p_daily_number: dailyNumber,
