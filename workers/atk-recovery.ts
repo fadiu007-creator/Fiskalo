@@ -310,11 +310,32 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     const citizenTimestamp=citizenFields.get(7);
     if (typeof citizenTimestamp!=="bigint" || (doc.document_type===1 ? citizenTimestamp!==unixTime : (citizenTimestamp>unixTime+BigInt(300)||citizenTimestamp<unixTime-BigInt(300)))) throw new Error("CitizenCoupon timestamp does not match its issue record.");
     if (citizenFields.get(5)!==doc.nui_kf) throw new Error("CitizenCoupon NUIKF mismatch.");
-    const [posValid,citizenValid]=await Promise.all([
-      verifyPayload(certificatePem,doc.signed_payload,doc.signature),
-      verifyPayload(certificatePem,doc.citizen_payload,doc.citizen_signature),
-    ]);
-    if (!posValid || !citizenValid) throw new Error("POS or CitizenCoupon signature does not verify against the server-registered ATK certificate.");
+    const certificateStatusFilter = doc.document_type === 1 ? "eq.active" : "in.(active,superseded)";
+    const certificates = await dbGet<PosCertificate>(env, "fiskalo_basic_pos_certificates",
+      postgrestQuery({
+        select: "business_id,pos_id,application_id,certificate_pem,spki_sha256,status",
+        business_id: "eq." + doc.business_id,
+        pos_id: "eq." + pos.id,
+        application_id: "eq." + originalApplicationId.toString(),
+        status: certificateStatusFilter,
+        revoked_at: "is.null",
+        order: "issued_at.desc",
+      }));
+    let signaturesVerified = false;
+    for (const certificate of certificates) {
+      if (certificate.status !== "active" && certificate.status !== "superseded") continue;
+      if (BigInt(certificate.application_id) !== originalApplicationId) continue;
+      if (await sha256Hex(certSpki(certificate.certificate_pem)) !== certificate.spki_sha256) continue;
+      const [posValid,citizenValid]=await Promise.all([
+        verifyPayload(certificate.certificate_pem,doc.signed_payload,doc.signature),
+        verifyPayload(certificate.certificate_pem,doc.citizen_payload,doc.citizen_signature),
+      ]);
+      if (posValid && citizenValid) {
+        signaturesVerified = true;
+        break;
+      }
+    }
+    if (!signaturesVerified) throw new Error("POS or CitizenCoupon signature does not match a retained certificate for the original ATK Application ID.");
   } catch (error) {
     await dbPatch(env, "fiskalo_basic_fiscal_documents",
       postgrestQuery({ id: "eq." + doc.id, submission_state: "eq.submitting" }),
