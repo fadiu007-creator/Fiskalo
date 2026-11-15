@@ -358,9 +358,32 @@ export async function POST(request: Request) {
       const citizenPayload = requiredString(body.citizenPayload, "Signed CitizenCoupon payload", 200_000);
       const citizenSignature = requiredString(body.citizenSignature, "CitizenCoupon signature", 256);
       const dailyNumber = requiredPositiveInteger(body.dailyNumber, "Daily coupon number");
-      const qrSvgBase64 = requiredString(body.qrSvgBase64, "CitizenCoupon QR SVG", 1_500_000);
+      const certificatePem = requiredString(body.certificatePem, "POS public certificate", 16_384);
       const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
       if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("NUIKF must be 16 uppercase alphanumeric characters.", 400);
+      const citizenIdentity = readCouponIdentity(citizenPayload);
+      const citizenExpected: Array<[number, bigint]> = [
+        [1, BigInt(business.nui as string)],
+        [2, BigInt(couponId)],
+        [3, BigInt(requiredPositiveInteger(pos.branch_id, "Branch ID"))],
+        [4, BigInt(requiredPositiveInteger(pos.pos_id, "POS ID"))],
+        [6, BigInt(1)],
+        [7, expectedUnixTime],
+        [8, BigInt(Math.round(Number(sales[0].total) * 100))],
+        [10, BigInt(Math.round(Number(sales[0].vat_total) * 100))],
+        [11, BigInt(Math.round(Number(sales[0].subtotal) * 100))],
+      ];
+      for (const [field, value] of citizenExpected) {
+        if (citizenIdentity.get(field) !== value) return jsonError("CitizenCoupon QR identifiers or totals do not match the paid POS sale.", 409);
+      }
+      if (citizenIdentity.get(5) !== String(pos.verification_no)) return jsonError("CitizenCoupon verification number does not match the saved POS.", 409);
+      const [posSignatureValid, citizenSignatureValid] = await Promise.all([
+        verifySignedBase64Payload(certificatePem, details, signature),
+        verifySignedBase64Payload(certificatePem, citizenPayload, citizenSignature),
+      ]);
+      if (!posSignatureValid || !citizenSignatureValid) return jsonError("POS or CitizenCoupon signature does not verify against the installed POS certificate.", 400);
+      const qrSvg = await createCitizenQrSvg(citizenPayload + "|" + citizenSignature);
+      const qrSvgBase64 = encodeAtkBase64(new TextEncoder().encode(qrSvg));
 
       const existingQuery = new URLSearchParams({
         select: "submission_state,atk_transaction_id",
@@ -434,6 +457,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ...trustedResponse,
         persisted: true,
+        qrSvgBase64,
         productionEnabled: false,
       }, { headers: { "Cache-Control": "no-store" } });
     }
