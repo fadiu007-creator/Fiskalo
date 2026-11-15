@@ -513,7 +513,6 @@ export async function POST(request: Request) {
       const poses = await supabaseRequest(restOrigin + "fiskalo_basic_pos?" + posQuery.toString(), token, anonKey);
       if (!Array.isArray(poses) || poses.length !== 1 || !isRecord(poses[0])) return jsonError("POS does not belong to this business.", 403);
       const pos = poses[0];
-      if (pos.certificate_status !== "certificate_issued") return jsonError("This POS has no issued ATK TEST certificate.", 409);
 
       const saleQuery = new URLSearchParams({
         select: "id,coupon_id,pos_id,status,total,subtotal,vat_total,daily_number",
