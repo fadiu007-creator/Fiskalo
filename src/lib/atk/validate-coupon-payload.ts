@@ -379,3 +379,82 @@ export function validateAtkCouponPayload(details: string, context: CouponValidat
     return { ok: false, detail: error instanceof Error ? error.message : "The signed coupon payload could not be validated." };
   }
 }
+
+
+export type CitizenCouponTaxGroup = {
+  taxRate: string;
+  totalForTaxCents: number;
+  totalTaxCents: number;
+};
+
+export type CitizenCouponValidationContext = {
+  nui: string;
+  couponId: number;
+  branchId: number;
+  posId: number;
+  verificationNo: string;
+  type: 1 | 2 | 3;
+  unixTime: number;
+  totalCents: number;
+  totalTaxCents: number;
+  totalNoTaxCents: number;
+  taxGroups: CitizenCouponTaxGroup[];
+};
+
+/** Validates the signed CitizenCoupon used by the official receipt QR. */
+export function validateAtkCitizenCouponPayload(
+  details: string,
+  context: CitizenCouponValidationContext,
+): { ok: true } | { ok: false; detail: string } {
+  try {
+    const binary = atob(details);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const fields = parseFields(bytes);
+    const expectedHeader: Array<[number, bigint]> = [
+      [1, BigInt(context.nui)],
+      [2, BigInt(context.couponId)],
+      [3, BigInt(context.branchId)],
+      [4, BigInt(context.posId)],
+      [6, BigInt(context.type)],
+      [7, BigInt(context.unixTime)],
+      [8, BigInt(context.totalCents)],
+      [10, BigInt(context.totalTaxCents)],
+      [11, BigInt(context.totalNoTaxCents)],
+    ];
+    for (const [field, expected] of expectedHeader) {
+      if (asUint(fields, field) !== expected) throw new Error("CitizenCoupon identifiers or totals do not match the ATK POS coupon.");
+    }
+    if (asString(fields, 5) !== context.verificationNo) {
+      throw new Error("CitizenCoupon verification number does not match the ATK POS coupon.");
+    }
+    const expectedGroups = new Map(context.taxGroups.map(group => [
+      group.taxRate,
+      { base: BigInt(group.totalForTaxCents), tax: BigInt(group.totalTaxCents) },
+    ]));
+    if (expectedGroups.size !== context.taxGroups.length) throw new Error("Expected CitizenCoupon tax groups contain duplicates.");
+    const actualGroups = new Map<string, { base: bigint; tax: bigint }>();
+    for (const payload of repeatedBytes(fields, 9)) {
+      const nested = parseFields(payload);
+      const taxRate = asString(nested, 1);
+      if (actualGroups.has(taxRate)) throw new Error("CitizenCoupon contains duplicate tax groups.");
+      actualGroups.set(taxRate, { base: asUint(nested, 2), tax: asUint(nested, 3) });
+    }
+    if (actualGroups.size !== expectedGroups.size) throw new Error("CitizenCoupon tax groups do not match the invoice.");
+    for (const [taxRate, expected] of expectedGroups) {
+      const actual = actualGroups.get(taxRate);
+      if (!actual || actual.base !== expected.base || actual.tax !== expected.tax) {
+        throw new Error("CitizenCoupon tax-group amounts do not match the invoice.");
+      }
+    }
+    const taxBase = Array.from(actualGroups.values()).reduce((sum, group) => sum + group.base, BigInt(0));
+    const taxTotal = Array.from(actualGroups.values()).reduce((sum, group) => sum + group.tax, BigInt(0));
+    if (taxBase !== BigInt(context.totalNoTaxCents) ||
+        taxTotal !== BigInt(context.totalTaxCents) ||
+        taxBase + taxTotal !== BigInt(context.totalCents)) {
+      throw new Error("CitizenCoupon tax groups do not reconcile to the receipt total.");
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : "CitizenCoupon payload could not be validated." };
+  }
+}
