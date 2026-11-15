@@ -8,7 +8,7 @@ import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, g
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
 import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, reserveCloudCorrection, submitCloudCorrection, queueCloudCorrection, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
-import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem } from "@/lib/pos/browser-outbox";
+import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline } from "@/lib/pos/browser-outbox";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { ATK_ITEM_CATEGORIES, getAtkItemCategoryLabel, isAtkItemCategoryCode } from "@/lib/atk/product-categories";
@@ -198,7 +198,9 @@ export default function Home(){
       running=true;
       try{
         const queued=(await listFiscalOutboxItems(business.id)).filter(item=>item.state==="queued");
+        const touchedPosIds=new Set<string>();
         for(const item of queued){
+          touchedPosIds.add(item.posRecordId);
           if(!active||!navigator.onLine)break;
           if(Date.parse(item.recoveryDeadlineUtc)<=Date.now()){
             await updateFiscalOutboxItem(item.idempotencyKey,{
@@ -239,6 +241,16 @@ export default function Home(){
               state:conflict?"needs_reconciliation":"queued",
               lastError:error instanceof Error?error.message:"Ngarkimi i radhës dështoi; do të provohet përsëri kur lidhja të rikthehet."
             });
+          }
+        }
+        if(active){
+          const remaining=(await listFiscalOutboxItems(business.id)).filter(item=>
+            item.state==="queued"||item.state==="needs_reconciliation"
+          );
+          for(const posRecordId of touchedPosIds){
+            if(!remaining.some(item=>item.posRecordId===posRecordId)){
+              await clearPosConnectivityOutage(business.id,posRecordId).catch(()=>undefined);
+            }
           }
         }
         if(active&&tab==="sales")void loadSales();
@@ -492,7 +504,12 @@ export default function Home(){
       let qrToPrint=qrSvgBase64;
       if(!navigator.onLine){
         queuedOffline=true;
-        await updateFiscalOutboxItem(idempotencyKey,{state:"queued",lastError:"Shfletuesi ishte offline; korrigjimi pret ngarkimin cloud."});
+        const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
+        const outageDeadline=outageRecoveryDeadline(outage.startedAt);
+        await updateFiscalOutboxItem(idempotencyKey,{
+          state:"queued",offlineIssuedAtUtc:outage.startedAt,recoveryDeadlineUtc:outageDeadline,
+          lastError:"Shfletuesi ishte offline; korrigjimi pret ngarkimin cloud."
+        });
       }else{
         try{
           const result=await submitCloudCorrection(supabase,correctionInput);
@@ -501,11 +518,13 @@ export default function Home(){
           await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId,qrSvg:qrToPrint,lastError:null});
         }catch(error){
           if(!(error instanceof CloudAtkError)||!error.notDelivered)throw error;
-          const offlineIssuedAt=new Date().toISOString();
+          const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
+          const offlineIssuedAt=outage.startedAt;
+          const outageDeadline=outageRecoveryDeadline(offlineIssuedAt);
           try{
             await queueCloudCorrection(supabase,{...correctionInput,offlineIssuedAt});
             queuedOffline=true;
-            await updateFiscalOutboxItem(idempotencyKey,{state:"cloud_queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:new Date(Date.parse(offlineIssuedAt)+48*60*60*1000).toISOString(),lastError:error.message});
+            await updateFiscalOutboxItem(idempotencyKey,{state:"cloud_queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:outageDeadline,lastError:error.message});
           }catch(queueError){
             queuedOffline=true;
             await updateFiscalOutboxItem(idempotencyKey,{state:"queued",offlineIssuedAtUtc:offlineIssuedAt,recoveryDeadlineUtc:new Date(Date.parse(offlineIssuedAt)+48*60*60*1000).toISOString(),lastError:queueError instanceof Error?queueError.message:error.message});
@@ -695,8 +714,9 @@ export default function Home(){
         state:"prepared",transactionId:null,lastError:null
       });
       if(!navigator.onLine){
-        const offlineIssuedAtUtc=new Date().toISOString();
-        const offlineDeadline=new Date(Date.parse(offlineIssuedAtUtc)+48*60*60*1000).toISOString();
+        const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
+        const offlineIssuedAtUtc=outage.startedAt;
+        const offlineDeadline=outageRecoveryDeadline(offlineIssuedAtUtc);
         await updateFiscalOutboxItem(idempotencyKey,{
           state:"queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,
           lastError:"Shfletuesi ishte pa lidhje përpara dërgimit në ATK."
@@ -726,8 +746,9 @@ export default function Home(){
         });
       } catch (submitError) {
         if (submitError instanceof CloudAtkError && submitError.notDelivered) {
-          const offlineIssuedAtUtc=new Date().toISOString();
-          const offlineDeadline=new Date(Date.parse(offlineIssuedAtUtc)+48*60*60*1000).toISOString();
+          const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
+          const offlineIssuedAtUtc=outage.startedAt;
+          const offlineDeadline=outageRecoveryDeadline(offlineIssuedAtUtc);
           let cloudQueued=false;
           let queueErrorMessage=submitError.message;
           try {
