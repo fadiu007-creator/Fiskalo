@@ -326,7 +326,7 @@ export async function POST(request: Request) {
       const saleId = requiredString(body.saleId, "Sale ID", 64);
       const couponId = requiredPositiveInteger(body.couponId, "Coupon ID");
       const saleQuery = new URLSearchParams({
-        select: "id,coupon_id,pos_id,status,created_at,total,subtotal,vat_total",
+        select: "id,coupon_id,pos_id,status,created_at,total,subtotal,vat_total,daily_number",
         id: "eq." + saleId,
         business_id: "eq." + businessId,
         pos_id: "eq." + posRecordId,
@@ -366,6 +366,7 @@ export async function POST(request: Request) {
       const citizenPayload = requiredString(body.citizenPayload, "Signed CitizenCoupon payload", 200_000);
       const citizenSignature = requiredString(body.citizenSignature, "CitizenCoupon signature", 256);
       const dailyNumber = requiredPositiveInteger(body.dailyNumber, "Daily coupon number");
+      if (dailyNumber !== requiredPositiveInteger(sales[0].daily_number, "Saved daily coupon number")) return jsonError("Daily coupon number does not match the saved sale.", 409);
       const certificatePem = requiredString(body.certificatePem, "POS public certificate", 16_384);
       const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
       const citizenIdentity = readCouponIdentity(citizenPayload);
