@@ -171,7 +171,7 @@ export async function POST(request: Request) {
       const nui = requiredPositiveInteger(business.nui, "Business NUI");
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
       const posQuery = new URLSearchParams({
-        select: "id,branch_id,pos_id,application_id,verification_no,fiscalization_number",
+        select: "id,branch_id,pos_id,application_id,verification_no,fiscalization_number,verified_business_name",
         id: "eq." + posRecordId,
         business_id: "eq." + businessId,
         limit: "1",
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
         if (couponIdentity.get(field) !== value) return jsonError("Signed coupon identifiers do not match the selected business and POS.", 409);
       }
       if (couponIdentity.get(2) !== BigInt(couponId)) return jsonError("Signed coupon number does not match the paid sale.", 409);
-      if (couponIdentity.get(8) !== String(pos.verification_no)) return jsonError("Signed coupon verification number does not match the saved POS.", 409);
+      if (couponIdentity.get(8) !== String(body.nuiKf)) return jsonError("Signed coupon VerificationNo must match the per-coupon NUIKF.", 409);
 
       const idempotencyKey = requiredString(body.idempotencyKey, "Fiscal idempotency key", 256);
       const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
