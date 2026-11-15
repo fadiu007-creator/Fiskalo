@@ -236,10 +236,14 @@ export default function Home(){
         documentType,
         idempotencyKey,
         detailsBase64:prepared.detailsBase64,
-        signatureBase64:prepared.signatureBase64
+        signatureBase64:prepared.signatureBase64,
+        citizenPayloadBase64:prepared.citizenPayloadBase64,
+        citizenSignatureBase64:prepared.citizenSignatureBase64,
+        qrSvgBase64:prepared.qrSvgBase64
       }});
       if(error)throw error;
       if(!data?.accepted||!data?.transactionId)throw new Error(data?.error??"ATK nuk konfirmoi pranimin e korrigjimit.");
+      setReceipt({...sale,coupon_id:Number(correctionCouponId),transaction_id:String(data.transactionId),nui_kf:prepared.nuiKf,qr_svg_base64:data.qrSvgBase64,document_type:documentType===2?"ANULIM":"KTHIM",is_copy:false});
       setMessage((documentType===2?"Anulimi":"Kthimi")+" u pranua nga ATK TEST. Transaction ID: "+data.transactionId);
       await loadSales();
     }catch(e){setMessage(e instanceof Error?e.message:"Dërgimi i korrigjimit në ATK TEST dështoi.");}
