@@ -75,7 +75,7 @@ begin
     select 1 from public.fiskalo_basic_pos p
     where p.id=p_pos_record_id
       and p.business_id=p_business_id
-      and p.application_id ~ '^[0-9]+
+      and p.application_id ~ '^[0-9]+$'
       and p.certificate_status='verified'
   ) then
     raise exception 'ATK Application ID is not verified for this Basic POS';
