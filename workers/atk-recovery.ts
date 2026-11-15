@@ -1,4 +1,4 @@
-import { createCitizenQrSvg } from "../src/lib/atk/citizen-qr";
+import QRCode from "qrcode";
 type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
@@ -285,7 +285,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     );
     return "rejected";
   }
-  const qrSvg = await createCitizenQrSvg(doc.citizen_payload + "|" + doc.citizen_signature);
+  const qrSvg = await QRCode.toString(doc.citizen_payload + "|" + doc.citizen_signature, { type: "svg", errorCorrectionLevel: "M", margin: 1, width: 320 });
   const qrSvgBase64 = encodeBase64(new TextEncoder().encode(qrSvg));
 
   let response: Response;
