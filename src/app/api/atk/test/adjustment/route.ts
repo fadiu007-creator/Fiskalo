@@ -1,4 +1,5 @@
-import { authorizeAtkOrganization, getAtkRequestContext, positiveInteger } from "@/lib/atk/server-auth";
+import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
+import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
 import { validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 
 export const runtime = "nodejs";
@@ -87,6 +88,10 @@ export async function POST(request: Request) {
   const authorization = await authorizeAtkOrganization(supabase, user.id, organizationId, nui, ["owner", "administrator", "manager", "accountant"]);
   if (!authorization.ok) return Response.json({ error: "organization_not_authorized", detail: authorization.detail }, { status: authorization.status });
 
+  let service;
+  try { service = getAtkServiceRoleClient(); }
+  catch { return Response.json({ error: "trusted_atk_backend_unavailable" }, { status: 503 }); }
+
   const { data: adjustment, error: adjustmentError } = await supabase.from("fiskalo_invoice_adjustments")
     .select("id,organization_id,original_invoice_id,original_fiscal_document_id,adjustment_type,amount,reason,status")
     .eq("id", adjustmentId).eq("organization_id", organizationId).maybeSingle();
@@ -144,6 +149,23 @@ export async function POST(request: Request) {
       Number(verification.atk_branch_id) !== Number(pos.atk_branch_id) ||
       Number(verification.pos_id) !== Number(pos.pos_id)) {
     return rejectBeforeSubmission("pos_verification_missing", "POS-i origjinal nuk ka verifikim ATK TEST të sinkronizuar në Fiskalo. Korrigjimi nuk u dërgua në ATK.");
+  }
+
+  const { data: registeredCertificate, error: certificateError } = await service.from("fiskalo_atk_pos_certificates")
+    .select("certificate_pem,spki_sha256").eq("organization_id", organizationId)
+    .eq("pos_installation_id", posInstallationId).eq("status", "active").is("revoked_at", null)
+    .order("issued_at", { ascending: false }).limit(1).maybeSingle();
+  if (certificateError || !registeredCertificate?.certificate_pem || !registeredCertificate.spki_sha256) {
+    return rejectBeforeSubmission("pos_certificate_not_registered", "Nuk ka certifikatë aktive të regjistruar në server për këtë POS.");
+  }
+  try {
+    const fingerprint = await certificateSpkiFingerprint(registeredCertificate.certificate_pem);
+    if (fingerprint !== registeredCertificate.spki_sha256 ||
+        !(await verifySignedBase64Payload(registeredCertificate.certificate_pem, details, signature))) {
+      return rejectBeforeSubmission("pos_signature_invalid", "Nënshkrimi i korrigjimit nuk përputhet me certifikatën e regjistruar për këtë POS.", 403);
+    }
+  } catch {
+    return rejectBeforeSubmission("pos_signature_invalid", "Certifikata ose nënshkrimi i korrigjimit është i pavlefshëm.", 403);
   }
 
   const [{ data: adjustmentItems, error: adjustmentItemsError }, { data: invoiceItems, error: invoiceItemsError }, { data: organization, error: organizationError }] = await Promise.all([
@@ -233,7 +255,7 @@ export async function POST(request: Request) {
   const qrPayload = details + "|" + signature;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(details));
   const payloadHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const { data: fiscalDocument, error: insertError } = await supabase.from("fiskalo_atk_fiscal_documents").insert({
+  const { data: fiscalDocument, error: insertError } = await service.from("fiskalo_atk_fiscal_documents").insert({
     organization_id: organizationId, pos_installation_id: posInstallationId,
     source_invoice_id: invoice.id, source_adjustment_id: adjustmentId,
     coupon_id: couponIdRaw, reference_coupon_id: original.coupon_id,
@@ -254,13 +276,13 @@ export async function POST(request: Request) {
   // The signed coupon is now durably stored and uniquely linked to this adjustment.
   // Audit/status writes must not prevent the actual ATK request: otherwise a saved
   // coupon can become permanently stuck without ever reaching ATK.
-  const { error: eventError } = await supabase.from("fiskalo_atk_fiscal_events").insert({
+  const { error: eventError } = await service.from("fiskalo_atk_fiscal_events").insert({
     organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
     event_type: "submission_started",
     details: { environment: "TEST", adjustmentId, adjustmentType: adjustment.adjustment_type, originalCouponId: original.coupon_id },
   });
   if (eventError) console.error("Fiskalo ATK adjustment audit event failed", eventError.message);
-  const { error: submittingError } = await supabase.from("fiskalo_atk_fiscal_documents").update({
+  const { error: submittingError } = await service.from("fiskalo_atk_fiscal_documents").update({
     status: "submitted", submission_attempts: 1, last_submitted_at: new Date().toISOString(),
   }).eq("id", fiscalDocument.id).eq("organization_id", organizationId);
   if (submittingError) console.error("Fiskalo ATK adjustment submission status update failed", submittingError.message);
@@ -280,10 +302,10 @@ export async function POST(request: Request) {
     if (!response.ok) {
       const detail = providerMessage(result, raw || "ATK returned an error.");
       const definitive = response.status >= 400 && response.status < 500;
-      await supabase.from("fiskalo_atk_fiscal_documents").update({
+      await service.from("fiskalo_atk_fiscal_documents").update({
         status: definitive ? "rejected" : "offline_pending", last_error: detail, atk_response: result,
       }).eq("id", fiscalDocument.id);
-      await supabase.from("fiskalo_atk_fiscal_events").insert({
+      await service.from("fiskalo_atk_fiscal_events").insert({
         organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
         event_type: definitive ? "rejected" : "response_unconfirmed",
         details: { httpStatus: response.status, detail, requiresReconciliation: !definitive },
@@ -298,12 +320,12 @@ export async function POST(request: Request) {
     const id = transactionId(raw);
     if (!id) {
       const detail = "ATK returned HTTP success without a valid uint64 transaction_id. Check ATK before retrying.";
-      await supabase.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail, atk_response: result }).eq("id", fiscalDocument.id);
-      await supabase.from("fiskalo_atk_fiscal_events").insert({ organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: "response_unconfirmed", details: { detail } });
+      await service.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail, atk_response: result }).eq("id", fiscalDocument.id);
+      await service.from("fiskalo_atk_fiscal_events").insert({ organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: "response_unconfirmed", details: { detail } });
       return Response.json({ error: "atk_response_unconfirmed", detail, fiscalDocumentId: fiscalDocument.id }, { status: 502 });
     }
     result.transaction_id = id;
-    const { error: acceptedError } = await supabase.from("fiskalo_atk_fiscal_documents").update({
+    const { error: acceptedError } = await service.from("fiskalo_atk_fiscal_documents").update({
       status: "accepted", atk_transaction_id: id, atk_response: result, accepted_at: new Date().toISOString(), last_error: null,
     }).eq("id", fiscalDocument.id).eq("organization_id", organizationId);
     if (acceptedError) return Response.json({ error: "accepted_status_save_failed", detail: "ATK accepted the correction, but Fiskalo could not persist its status. Do not resubmit.", fiscalDocumentId: fiscalDocument.id, transactionId: id }, { status: 500 });
@@ -313,15 +335,15 @@ export async function POST(request: Request) {
     if (adjustmentAcceptedError) {
       return Response.json({ error: "adjustment_acceptance_save_failed", detail: "ATK accepted the correction and the fiscal document is saved, but the adjustment ledger status needs reconciliation. Do not resubmit.", fiscalDocumentId: fiscalDocument.id, transactionId: id }, { status: 500 });
     }
-    await supabase.from("fiskalo_atk_fiscal_events").insert({
+    await service.from("fiskalo_atk_fiscal_events").insert({
       organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
       event_type: "accepted", details: { transactionId: id, environment: "TEST", adjustmentId },
     });
     return Response.json({ accepted: true, environment: "TEST", transactionId: id, fiscalDocumentId: fiscalDocument.id, qrPayload }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     const detail = "Could not confirm the ATK TEST response. The correction is saved for reconciliation; do not submit it again.";
-    await supabase.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail }).eq("id", fiscalDocument.id);
-    await supabase.from("fiskalo_atk_fiscal_events").insert({
+    await service.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail }).eq("id", fiscalDocument.id);
+    await service.from("fiskalo_atk_fiscal_events").insert({
       organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: "response_unconfirmed", details: { detail },
     });
     return Response.json({ error: "atk_response_unconfirmed", detail, fiscalDocumentId: fiscalDocument.id }, { status: 502 });
