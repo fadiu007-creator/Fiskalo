@@ -1,5 +1,4 @@
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { authorizeAtkOrganization, getAtkRequestContext, positiveInteger } from "@/lib/atk/server-auth";
+import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
 
 function readableProviderMessage(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value.slice(0, 800);
@@ -36,19 +35,18 @@ export async function POST(request: Request) {
   }
   const platformAdmins = (process.env.FISKALO_PLATFORM_ADMIN_EMAILS || "").split(",").map(v => v.trim().toLowerCase()).filter(Boolean);
   const isPlatformAdmin = Boolean(user.email && platformAdmins.includes(user.email.toLowerCase()));
-  let dataClient = supabase;
-  if (isPlatformAdmin) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) return Response.json({ error: "admin_backend_not_configured", detail: "Platform admin service is not configured." }, { status: 503 });
-    dataClient = createSupabaseClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } }) as typeof supabase;
-    const { data: organization, error: organizationError } = await dataClient.from("fiskalo_organizations").select("nui").eq("id", organizationId).maybeSingle();
-    if (organizationError || !organization || String(organization.nui) !== nui) {
-      return Response.json({ error: "organization_not_authorized", detail: "The taxpayer NUI does not match the selected business." }, { status: 403 });
-    }
-  } else {
+  if (!isPlatformAdmin) {
     const authorization = await authorizeAtkOrganization(supabase, user.id, organizationId, nui);
     if (!authorization.ok) return Response.json({ error: "organization_not_authorized", detail: authorization.detail }, { status: authorization.status });
+  }
+
+  let dataClient;
+  try { dataClient = getAtkServiceRoleClient(); }
+  catch { return Response.json({ error: "admin_backend_not_configured", detail: "The trusted ATK verification backend is not configured." }, { status: 503 }); }
+
+  const { data: organization, error: organizationError } = await dataClient.from("fiskalo_organizations").select("nui").eq("id", organizationId).maybeSingle();
+  if (organizationError || !organization || String(organization.nui) !== nui) {
+    return Response.json({ error: "organization_not_authorized", detail: "The taxpayer NUI does not match the selected business." }, { status: 403 });
   }
 
   const { data: pos, error: posError } = await dataClient.from("fiskalo_atk_pos_installations")
