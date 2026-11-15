@@ -341,6 +341,8 @@ export async function POST(request: Request) {
       const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
       if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("NUIKF must be 16 uppercase alphanumeric characters.", 400);
       const couponIdentity = readCouponIdentity(details);
+      const verificationNo = requiredString(body.verificationNo, "Per-coupon verification number", 16);
+      if (!/^[A-Z0-9]{16}$/.test(verificationNo)) return jsonError("Per-coupon verification number must be 16 uppercase alphanumeric characters.", 400);
       const expected: Array<[number, bigint]> = [
         [1, BigInt(business.nui as string)],
         [3, BigInt(requiredPositiveInteger(pos.branch_id, "Branch ID"))],
@@ -422,7 +424,7 @@ export async function POST(request: Request) {
         message: typeof result.message === "string" ? result.message : "",
         environment: "ATK TEST",
       };
-      const persistResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_record_atk_receipt", {
+      const persistResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_record_atk_receipt_v2", {
         method: "POST",
         headers: {
           apikey: serviceRoleKey,
