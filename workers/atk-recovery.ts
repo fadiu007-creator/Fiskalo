@@ -29,7 +29,8 @@ type FiscalDoc = {
   next_attempt_at: string | null;
 };
 type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string; status: string; created_at: string; total: number | string; subtotal: number | string; vat_total: number | string };
-type OriginalDoc = { id: string; coupon_id: number | string; atk_transaction_id: number | string; submission_state: string; document_type: number };\ntype CorrectionReservation = { business_id: string; sale_id: string; document_type: number; original_coupon_id: number | string; correction_coupon_id: number | string; created_by: string; status: string };
+type OriginalDoc = { id: string; coupon_id: number | string; atk_transaction_id: number | string; submission_state: string; document_type: number };
+type CorrectionReservation = { business_id: string; sale_id: string; document_type: number; original_coupon_id: number | string; correction_coupon_id: number | string; created_by: string; status: string };
 type Pos = { id: string; branch_id: number | string; pos_id: number | string; application_id: number | string; certificate_status: string };
 type PosCertificate = { business_id: string; pos_id: string; certificate_pem: string };
 type Business = { id: string; nui: string };
