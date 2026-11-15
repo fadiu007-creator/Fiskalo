@@ -40,7 +40,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Cloudflare scheduled recovery Worker source: certificate/signature validation, Sale/Cancel/full Return handling, 48-hour deadline and stop-on-ambiguity behavior
 - [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
 - [ ] Reconcile the 29 September 2026 unit/category DOCX and any subsequent ATK catalogue update before certification; current category dropdown is based on the May 2026 official technical annex
-- [ ] Apply and verify migration 0018 ATK catalogue constraints on the approved Fiskalo Supabase project
+- [ ] Apply and verify migration 0022 ATK catalogue constraints on the approved Fiskalo Supabase project
 - [ ] Apply and verify migrations 0014–0017 on the approved Fiskalo Supabase project; run SQL contract tests 0014–0017 and authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
 - [ ] Complete cancellation/return POS workflow using the existing correction-document factory
