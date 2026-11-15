@@ -10,3 +10,15 @@ revoke all on function public.fiskalo_basic_record_atk_correction(
 
 -- Do not allow clients to bypass the RPC boundary with direct fiscal-document inserts.
 revoke insert on table public.fiskalo_basic_fiscal_documents from anon, authenticated;
+
+-- Remove the legacy RLS insert path as well as the table privilege. A permissive
+-- policy is not itself a grant, but retaining it makes future grants unsafe.
+drop policy if exists fiskalo_basic_fiscal_insert on public.fiskalo_basic_fiscal_documents;
+
+-- Enforce one unresolved/accepted full cancellation per original document at the
+-- database boundary, including concurrent requests and multiple app instances.
+create unique index if not exists fiskalo_basic_fiscal_one_active_correction_per_parent_uidx
+  on public.fiskalo_basic_fiscal_documents(parent_document_id)
+  where parent_document_id is not null
+    and document_type = 2
+    and submission_state in ('queued','submitted','accepted','needs_reconciliation');
