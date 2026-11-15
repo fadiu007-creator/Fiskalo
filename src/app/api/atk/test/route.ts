@@ -340,6 +340,9 @@ export async function POST(request: Request) {
     if (!Array.isArray(members) || members.length !== 1 || !isRecord(members[0])) return jsonError("You do not have access to this business.", 403);
     const memberRole = members[0].role;
     const action = requiredString(body.action, "Action", 24);
+    if (["reserve-correction","correction","queue-correction"].includes(action) && memberRole !== "owner") {
+      return jsonError("Only the business owner can cancel or return a fiscalized sale.", 403);
+    }
     if ((action === "verify" || action === "sign-csr") && memberRole !== "owner") {
       return jsonError("Only the business owner can verify a POS or request its ATK certificate.", 403);
     }
