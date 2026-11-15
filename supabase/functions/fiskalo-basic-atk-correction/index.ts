@@ -1,7 +1,7 @@
 // Server-side ATK TEST correction submission.
 // The browser supplies only a signed POS coupon. It never supplies an ATK response,
 // transaction ID, environment or acceptance status.
-import { createClient } from "npm:@supabase/supabase-js@2.114.0";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.114.0";
 import {
   assertAtkCorrectionIdentity,
   assertFullCorrectionMatchesOriginal,
@@ -30,7 +30,8 @@ const baseHeaders = {
 };
 
 type JsonObject = Record<string, unknown>;
-type SupabaseAdminClient = ReturnType<typeof createClient<any>>;
+// deno-lint-ignore no-explicit-any
+type SupabaseAdminClient = SupabaseClient<any, "public", "public", any, any>;
 type SubmissionState = "accepted" | "rejected" | "needs_reconciliation";
 
 function json(status: number, body: JsonObject, origin = ""): Response {
