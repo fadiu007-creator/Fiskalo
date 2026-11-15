@@ -147,8 +147,25 @@ async function decodeOutboxRecord(raw: unknown): Promise<BrowserFiscalOutboxItem
 }
 
 export async function saveFiscalOutboxItem(item: BrowserFiscalOutboxItem): Promise<void> {
+  const existing = await readOutboxRecord(item.idempotencyKey);
+  if (existing) {
+    const current = await decodeOutboxRecord(existing);
+    if (current.detailsBase64 !== item.detailsBase64 || current.signatureBase64 !== item.signatureBase64) {
+      throw new Error("Fiscal outbox idempotency key is already bound to a different signed coupon.");
+    }
+    return;
+  }
   const encrypted = await encryptBrowserFiscalData(OUTBOX_ENCRYPTION_SCOPE, item);
-  await addOutboxRecord(item, encrypted);
+  try {
+    await addOutboxRecord(item, encrypted);
+  } catch (error) {
+    const raced = await readOutboxRecord(item.idempotencyKey);
+    if (!raced) throw error;
+    const current = await decodeOutboxRecord(raced);
+    if (current.detailsBase64 !== item.detailsBase64 || current.signatureBase64 !== item.signatureBase64) {
+      throw new Error("Fiscal outbox idempotency key is already bound to a different signed coupon.");
+    }
+  }
 }
 
 export async function listFiscalOutboxItems(businessId?: string): Promise<BrowserFiscalOutboxItem[]> {
