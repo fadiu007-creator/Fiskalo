@@ -44,6 +44,52 @@ const citizenPayload = encodeAtkBase64(encodeAtkCitizenCoupon({
 const signature = signData("sha256", Buffer.from(details), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
 const citizenSignature = signData("sha256", Buffer.from(citizenPayload), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
 
+const correctionCreatedAt = new Date().toISOString();
+const correctionUnixTime = Math.floor(Date.parse(correctionCreatedAt) / 1000);
+const correctionNuiKf = "FEDCBA9876543210";
+const correctionDetails = encodeAtkBase64(encodeAtkPosCoupon({
+  businessId: "123456789", couponId: 101, branchId: 1, location: "Ferizaj",
+  operatorId: "Operator", posId: 2, applicationId: 3, verificationNo: correctionNuiKf,
+  type: 2, unixTime: correctionUnixTime,
+  items: [{ name: "Tea", unitPriceEuro: 1, unit: "CP", quantity: 1, lineTotalCents: 118, taxRate: "E", itemType: "TT" }],
+  payments: [{ type: 1, amountCents: 118 }],
+  totalCents: 118, taxGroups, totalTaxCents: 18, totalNoTaxCents: 100,
+  referenceNo: "100", transactionNo: "987654321",
+  totalDiscountCents: 0,
+}));
+const correctionCitizenPayload = encodeAtkBase64(encodeAtkCitizenCoupon({
+  businessId: "123456789", couponId: 101, branchId: 1, posId: 2,
+  verificationNo: correctionNuiKf, type: 2, unixTime: correctionUnixTime, totalCents: 118,
+  taxGroups, totalTaxCents: 18, totalNoTaxCents: 100,
+}));
+const correctionSignature = signData("sha256", Buffer.from(correctionDetails), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
+const correctionCitizenSignature = signData("sha256", Buffer.from(correctionCitizenPayload), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
+const correctionDoc = {
+  ...doc,
+  id: "correction-doc-1",
+  coupon_id: "101",
+  idempotency_key: "123456789:1:2:101",
+  document_type: 2,
+  reference_coupon_id: "100",
+  parent_document_id: "original-doc",
+  created_at: correctionCreatedAt,
+  signed_payload: correctionDetails,
+  signature: correctionSignature,
+  nui_kf: correctionNuiKf,
+  verification_no: correctionNuiKf,
+  citizen_payload: correctionCitizenPayload,
+  citizen_signature: correctionCitizenSignature,
+  daily_number: 2,
+};
+const originalDoc = {
+  id: "original-doc",
+  coupon_id: "100",
+  atk_transaction_id: "987654321",
+  submission_state: "accepted",
+  document_type: 1,
+};
+
+
 const now = new Date();
 const doc = {
   id: "doc-1",
@@ -77,7 +123,7 @@ function response(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
 
-async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at) {
+async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at, selectedDoc = doc) {
   const calls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
@@ -86,11 +132,12 @@ async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at) {
     const body = init.body ? JSON.parse(String(init.body)) : null;
     calls.push({ url, method, body });
     if (url.includes("/fiskalo_basic_fiscal_documents?") && method === "GET") {
-      if (url.includes("submission_state=eq.queued")) return response([{ ...doc, recovery_deadline_at: deadline }]);
+      if (url.includes("id=eq.original-doc")) return response([originalDoc]);
+      if (url.includes("submission_state=eq.queued")) return response([{ ...selectedDoc, recovery_deadline_at: deadline }]);
       return response([]);
     }
     if (url.includes("/fiskalo_basic_fiscal_documents?") && method === "PATCH") return response([{ id: doc.id }]);
-    if (url.includes("/fiskalo_basic_sales?")) return response([sale]);
+    if (url.includes("/fiskalo_basic_sales?")) return response([selectedDoc.document_type===1?{...sale,status:"paid"}:{...sale,status:"fiscalized"}]);
     if (url.includes("/fiskalo_basic_pos?")) return response([pos]);
     if (url.includes("/fiskalo_basic_businesses?")) return response([business]);
     if (url.includes("/fiskalo_basic_pos_certificates?")) return response([cert]);
@@ -117,6 +164,18 @@ test("recovery worker submits a queued coupon once and persists ATK transaction"
   assert.ok(rpc);
   assert.equal(rpc.body.p_atk_transaction_id, "987654321");
   assert.equal(rpc.body.p_verification_no, doc.nui_kf);
+});
+
+
+test("recovery worker validates and records a queued ATK Cancel", async () => {
+  const calls = await runWorker(() => response({ transaction_id: "987654322", message: "cancel accepted" }),
+    correctionDoc.recovery_deadline_at, correctionDoc);
+  assert.equal(calls.filter(call => call.url.includes("/pos/coupon")).length, 1);
+  const rpc = calls.find(call => call.url.includes("server_record_atk_correction_v2"));
+  assert.ok(rpc);
+  assert.equal(rpc.body.p_document_type, 2);
+  assert.equal(rpc.body.p_original_coupon_id, "100");
+  assert.equal(rpc.body.p_correction_coupon_id, "101");
 });
 
 test("recovery worker retries only transport failures proven not delivered", async () => {
