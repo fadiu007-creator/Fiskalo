@@ -7,6 +7,34 @@ import {
 } from "../src/lib/atk/protobuf.ts";
 import { createCitizenQrSvg } from "../src/lib/atk/citizen-qr.ts";
 
+function decodeStringField(base64, wantedField) {
+  const bytes=Buffer.from(base64,"base64");
+  let offset=0;
+  const readVarint=()=>{
+    let value=0n,shift=0n;
+    while(offset<bytes.length){
+      const byte=bytes[offset++];
+      value|=BigInt(byte&127)<<shift;
+      if(!(byte&128))return value;
+      shift+=7n;
+    }
+    throw new Error("Truncated protobuf varint");
+  };
+  while(offset<bytes.length){
+    const tag=Number(readVarint());
+    const field=tag>>>3,wire=tag&7;
+    if(wire===0){readVarint();}
+    else if(wire===2){
+      const length=Number(readVarint());
+      const value=bytes.subarray(offset,offset+length);offset+=length;
+      if(field===wantedField)return value.toString("utf8");
+    }else if(wire===5)offset+=4;
+    else if(wire===1)offset+=8;
+    else throw new Error("Unsupported protobuf wire type");
+  }
+  return null;
+}
+
 const taxGroups = [{ taxRate: "E", totalForTaxCents: 100, totalTaxCents: 18 }];
 const coupon = {
   businessId: "123456789",
@@ -49,6 +77,8 @@ test("POS and CitizenCoupon protobuf totals reconcile and produce a QR SVG", asy
   assert.ok(citizenBytes.length > 0);
   assert.ok(posBase64.length > 0);
   assert.ok(citizenBase64.length > 0);
+  assert.equal(decodeStringField(posBase64,8),"1234567890123456");
+  assert.equal(decodeStringField(citizenBase64,5),"1234567890123456");
   const qr = await createCitizenQrSvg(citizenBase64 + "|" + "signature");
   assert.match(qr, /<svg/);
   assert.match(qr, /<\/svg>/);
