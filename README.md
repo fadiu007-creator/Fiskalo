@@ -28,7 +28,9 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Supabase email/password login UI
 - [x] Owner-only worker invitation and team roster source through a Supabase Edge Function; deployment and live email-delivery verification remain release gates.
 - [x] Isolated `fiskalo_basic_*` schema and owner onboarding / atomic paid-sale RPCs
-- [x] Basic product catalogue and ATK field storage (official dropdown catalogue still needs a verified ATK source)
+- [x] ATK product unit dropdown from the 29 September 2026 official catalogue; 21 codes are covered by unit tests
+- [x] ATK item/service category dropdown with 35 official May 2026 category codes and exact-code validation
+- [x] Product VAT classification validation for A/C/D/E, keeping exempt and zero-rated classes distinct
 - [x] POS checkout with stock deduction and payment recording
 - [x] Automatic ATK TEST Sale submission after payment through the authenticated Cloudflare gateway using the browser-held POS key and matching TEST certificate
 - [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
@@ -37,7 +39,8 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0017 are committed but have not been executed against the database. Treat database migration execution and authenticated RLS integration testing as separate release gates.
 - [x] Cloudflare scheduled recovery Worker source: certificate/signature validation, Sale/Cancel/full Return handling, 48-hour deadline and stop-on-ambiguity behavior
 - [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
-- [ ] Official ATK unit/category dropdown catalogue with source/version evidence
+- [ ] Reconcile the 29 September 2026 unit/category DOCX and any subsequent ATK catalogue update before certification; current category dropdown is based on the May 2026 official technical annex
+- [ ] Apply and verify migration 0018 ATK catalogue constraints on the approved Fiskalo Supabase project
 - [ ] Apply and verify migrations 0014–0017 on the approved Fiskalo Supabase project; run SQL contract tests 0014–0017 and authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
 - [ ] Complete cancellation/return POS workflow using the existing correction-document factory
