@@ -37,9 +37,9 @@ begin
      or has_function_privilege('anon',fn,'EXECUTE') then
     raise exception 'Daily number reservation RPC must be authenticated-only';
   end if;
-  select pg_get_functiondef(fn) into def;
+  select pg_get_functiondef('fiskalo_private.fiskalo_basic_reserve_offline_daily_numbers(uuid,uuid,date,integer)'::regprocedure) into def;
   if position('Europe/Belgrade' in def)=0 then
-    raise exception 'Daily reservation must enforce Kosovo business date';
+    raise exception 'Private daily reservation must enforce Kosovo business date';
   end if;
 
   fn:=to_regprocedure('public.fiskalo_basic_consume_offline_coupon_id(uuid,uuid,bigint,uuid)');
