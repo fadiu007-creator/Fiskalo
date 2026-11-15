@@ -25,6 +25,7 @@ export class CloudAtkError extends Error {
     this.transactionId = transactionId;
     this.acceptedButNotPersisted = acceptedButNotPersisted;
     this.notDelivered = notDelivered;
+    this.rejected = rejected;
     this.httpStatus = httpStatus;
   }
 }
