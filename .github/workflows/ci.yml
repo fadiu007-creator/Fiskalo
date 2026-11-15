@@ -12,6 +12,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Non-production build-only values allow static analysis/prerendering.
+    # Real project credentials are injected only by the Cloudflare deployment environment.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://fiskalo-ci-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpc2thbG8tY2ktcGxhY2Vob2xkZXIiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTYwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.c2FmZS1ub24tcHJvZC1jaS1rZXk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
