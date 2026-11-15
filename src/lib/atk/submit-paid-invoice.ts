@@ -1,6 +1,6 @@
 "use client";
 
-import { encodeAtkBase64, encodeAtkPosCoupon } from "@/lib/atk/protobuf";
+import { encodeAtkBase64, encodeAtkCitizenCoupon, encodeAtkPosCoupon } from "@/lib/atk/protobuf";
 import { ensureATKTestPosReady } from "@/lib/atk/ensure-test-pos-ready";
 import { hasBrowserPosCertificate, signAtkBase64Payload } from "@/lib/atk/browser-key-vault";
 import type { createClient } from "@/lib/supabase/client";
@@ -139,23 +139,41 @@ export async function submitPaidInvoiceToATK(
     current.totalTaxCents += Math.round(Number(line.line_vat) * 100);
     grouped.set(tax, current);
   });
+  const verificationNo = createCouponVerificationNo();
+  const unixTime = Math.floor(Date.now() / 1000);
+  const taxGroups = Array.from(grouped.entries()).map(([taxRate, values]) => ({ taxRate, ...values }));
   const payload = encodeAtkPosCoupon({
     businessId: String(org.nui), couponId, branchId: pos.atk_branch_id,
     location: pos.location || org.municipality || "",
     operatorId: auth.user.id, posId: pos.pos_id, applicationId: Number(verification.application_id),
-    verificationNo: createCouponVerificationNo(), type: 1, unixTime: Math.floor(Date.now() / 1000),
+    verificationNo, type: 1, unixTime,
     items, payments: Array.from(paymentTotals.entries()).map(([type, amountCents]) => ({ type, amountCents })), totalCents,
-    taxGroups: Array.from(grouped.entries()).map(([taxRate, values]) => ({ taxRate, ...values })),
+    taxGroups,
     totalTaxCents: Math.round(Number(invoice.vat_total) * 100),
     totalNoTaxCents: Math.round(Number(invoice.subtotal) * 100),
     totalDiscountCents: Math.round(Number(invoice.discount_total ?? 0) * 100),
   });
   const details = encodeAtkBase64(payload);
   const signature = await signAtkBase64Payload(keyId, details);
+  const citizenDetails = encodeAtkBase64(encodeAtkCitizenCoupon({
+    businessId: String(org.nui),
+    couponId,
+    branchId: pos.atk_branch_id,
+    posId: pos.pos_id,
+    verificationNo,
+    type: 1,
+    unixTime,
+    totalCents,
+    taxGroups,
+    totalTaxCents: Math.round(Number(invoice.vat_total) * 100),
+    totalNoTaxCents: Math.round(Number(invoice.subtotal) * 100),
+  }));
+  const citizenSignature = await signAtkBase64Payload(keyId, citizenDetails);
   const response = await fetch("/api/atk/test/coupon", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ organizationId, nui: String(org.nui), invoiceId, posInstallationId: pos.id,
-      couponId: String(couponId), applicationId: Number(verification.application_id), totalCents, details, signature }),
+      couponId: String(couponId), applicationId: Number(verification.application_id), totalCents,
+      details, signature, citizenDetails, citizenSignature }),
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(errorText(result, "Dërgimi i faturës në ATK dështoi. Kontrollo statusin para çdo veprimi tjetër."));
