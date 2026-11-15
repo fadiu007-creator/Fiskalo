@@ -2,7 +2,7 @@
 -- Run against a database containing the Full Fiskalo schema after applying
 -- fiskalo_full_server_trusted_fiscal_writes.sql.
 begin;
-do $
+do $$
 begin
   if not exists (
     select 1 from information_schema.columns
