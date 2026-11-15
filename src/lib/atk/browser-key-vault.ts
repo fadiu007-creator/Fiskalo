@@ -6,6 +6,8 @@
  * profile storage is not equivalent to an OS/hardware keystore and can be
  * lost or exposed by a compromised browser profile or same-origin XSS.
  */
+import { decryptJsonPayload, encryptJsonPayload, type EncryptedBrowserPayload } from "./local-storage-crypto";
+
 export type BrowserCsrIdentity = {
   businessName: string;
   nui: string;
@@ -23,8 +25,10 @@ type StoredKey = {
 };
 
 const DB_NAME = "fiskalo-atk-local";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "pos-keys";
+const STORAGE_KEY_STORE = "storage-keys";
+const STORAGE_KEY_ID = "fiskalo-local-fiscal-data-aes-gcm-v1";
 
 function requireBrowserCrypto(): Crypto {
   if (typeof window === "undefined" || !window.isSecureContext || !window.crypto?.subtle) {
@@ -40,6 +44,7 @@ function openDb(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(STORAGE_KEY_STORE)) db.createObjectStore(STORAGE_KEY_STORE, { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("Could not open local key storage."));
@@ -68,6 +73,55 @@ async function writeKey(record: StoredKey): Promise<void> {
       tx.onabort = () => reject(tx.error ?? new Error("Local POS key storage was aborted."));
     });
   } finally { db.close(); }
+}
+
+type StoredStorageKey = { id: string; key: CryptoKey; createdAt: string };
+
+async function readStorageKey(): Promise<StoredStorageKey | null> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(STORAGE_KEY_STORE, "readonly").objectStore(STORAGE_KEY_STORE).get(STORAGE_KEY_ID);
+      request.onsuccess = () => resolve((request.result as StoredStorageKey | undefined) ?? null);
+      request.onerror = () => reject(request.error ?? new Error("Could not read the local fiscal-data encryption key."));
+    });
+  } finally { db.close(); }
+}
+
+async function writeStorageKey(record: StoredStorageKey): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORAGE_KEY_STORE, "readwrite");
+      tx.objectStore(STORAGE_KEY_STORE).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("Could not persist the local fiscal-data encryption key."));
+      tx.onabort = () => reject(tx.error ?? new Error("Local fiscal-data encryption key storage was aborted."));
+    });
+  } finally { db.close(); }
+}
+
+async function getOrCreateStorageKey(): Promise<CryptoKey> {
+  const cryptoApi = requireBrowserCrypto();
+  const existing = await readStorageKey();
+  if (existing) return existing.key;
+  const key = await cryptoApi.subtle.generateKey(
+    { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"],
+  ) as CryptoKey;
+  await writeStorageKey({ id: STORAGE_KEY_ID, key, createdAt: new Date().toISOString() });
+  return (await readStorageKey())?.key ?? key;
+}
+
+export async function encryptBrowserFiscalData<T>(scope: string, value: T): Promise<EncryptedBrowserPayload> {
+  const cryptoApi = requireBrowserCrypto();
+  const key = await getOrCreateStorageKey();
+  return encryptJsonPayload(cryptoApi, key, scope, value);
+}
+
+export async function decryptBrowserFiscalData<T>(scope: string, value: EncryptedBrowserPayload): Promise<T> {
+  const cryptoApi = requireBrowserCrypto();
+  const key = await getOrCreateStorageKey();
+  return decryptJsonPayload<T>(cryptoApi, key, scope, value);
 }
 
 function concat(...parts: Uint8Array[]): Uint8Array {
