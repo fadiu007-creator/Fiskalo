@@ -1,4 +1,3 @@
-import { createCitizenQrSvg } from "../src/lib/atk/citizen-qr";
 import QRCode from "qrcode";
 type Env = {
   SUPABASE_URL: string;
@@ -322,9 +321,6 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     );
     return "retry";
   }
-
-  const qrSvg = await createCitizenQrSvg(doc.citizen_payload + "|" + doc.citizen_signature);
-  const qrSvgBase64 = encodeBase64(new TextEncoder().encode(qrSvg));
 
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
