@@ -1,0 +1,11 @@
+{
+  "name": "Fiskalo POS",
+  "short_name": "Fiskalo",
+  "description": "Fiskalo fiscal point of sale",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101b2d",
+  "theme_color": "#101b2d",
+  "lang": "sq"
+}
