@@ -585,7 +585,15 @@ export default function Home(){
           setMessage("ATK TEST nuk u arrit dhe kërkesa nuk u dërgua. Kuponi i nënshkruar u ruajt në outbox dhe do të ngarkohet në radhën cloud; Cloudflare do ta provojë sërish brenda afatit 48-orësh.");
           setCart({});setCheckoutKey("");setCheckoutAttempted(false);
           sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
-          await loadWorkspace(user!.id);
+          void loadWorkspace(user!.id).catch(()=>undefined);
+          return;
+        }
+        if(submitError instanceof CloudAtkError && submitError.rejected){
+          await updateFiscalOutboxItem(idempotencyKey,{state:"rejected",lastError:submitError.message});
+          setMessage("ATK TEST e refuzoi kuponin. Shitja mbetet e paguar, por nuk është fiskalizuar; kontrollo arsyen dhe mos e ridërgo automatikisht.");
+          setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+          sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+          if(tab==="sales")void loadSales();
           return;
         }
         throw submitError;
