@@ -123,6 +123,86 @@ export type CouponProductMapping = {
 
 export type CouponPayment = { amount: number; payment_method: string };
 
+/**
+ * Recover the immutable ATK item mapping from an already accepted original
+ * coupon for legacy invoice rows created before invoice-line snapshots existed.
+ * Matching is strict; ambiguous or incomplete matches fail closed.
+ */
+export function recoverAtkMappingsFromOriginalCoupon(
+  details: string,
+  lines: CouponInvoiceLine[],
+): CouponProductMapping[] {
+  const binary = atob(details);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const fields = parseFields(bytes);
+  const remaining = repeatedBytes(fields, 11).map((payload) => {
+    const nested = parseFields(payload);
+    return {
+      name: asString(nested, 1),
+      unitPrice: asUint(nested, 2),
+      unit: asString(nested, 3),
+      quantity: asFloat32(nested, 4),
+      tax: asString(nested, 6),
+      itemType: asString(nested, 7),
+    };
+  });
+  if (!remaining.length || remaining.length !== lines.length) {
+    throw new Error("The accepted original coupon item count does not match the saved invoice.");
+  }
+
+  const recovered = new Map<string, CouponProductMapping>();
+  for (const line of lines) {
+    if (!line.product_id) throw new Error("A legacy invoice line has no linked product.");
+    const expectedPrice = BigInt(Math.round(Number(line.unit_price) * 10000));
+    const expectedQuantity = Number(line.quantity).toFixed(3);
+    const rate = Number(line.vat_rate);
+    const matchesTax = (tax: string) => rate === 8 ? tax === "D"
+      : rate === 18 ? tax === "E"
+      : rate === 0 ? tax === "A" || tax === "C"
+      : false;
+    const candidates = remaining.map((item, index) => ({ item, index })).filter(({ item }) =>
+      item.name === line.description &&
+      item.unitPrice === expectedPrice &&
+      Number.isFinite(item.quantity) &&
+      item.quantity.toFixed(3) === expectedQuantity &&
+      matchesTax(item.tax)
+    );
+    if (!candidates.length) {
+      throw new Error("The accepted original coupon cannot be matched to a legacy invoice line.");
+    }
+    const mappingKeys = new Set(candidates.map(({ item }) =>
+      JSON.stringify([item.unit, item.tax, item.itemType])
+    ));
+    if (mappingKeys.size !== 1) {
+      throw new Error("The accepted original coupon contains ambiguous ATK mappings for a legacy invoice line.");
+    }
+    const chosen = candidates[0];
+    if (!isAtkUnitCode(chosen.item.unit) ||
+        !isAtkItemCategoryCode(chosen.item.itemType) ||
+        !["A", "C", "D", "E"].includes(chosen.item.tax)) {
+      throw new Error("The accepted original coupon contains an unsupported ATK catalogue mapping.");
+    }
+    remaining.splice(chosen.index, 1);
+    const mapping = {
+      id: line.product_id,
+      atk_unit_code: chosen.item.unit,
+      atk_tax_code: chosen.item.tax,
+      atk_item_category_code: chosen.item.itemType,
+    };
+    const previous = recovered.get(line.product_id);
+    if (previous && (
+      previous.atk_unit_code !== mapping.atk_unit_code ||
+      previous.atk_tax_code !== mapping.atk_tax_code ||
+      previous.atk_item_category_code !== mapping.atk_item_category_code
+    )) {
+      throw new Error("The accepted original coupon has inconsistent ATK mappings for one product.");
+    }
+    recovered.set(line.product_id, mapping);
+  }
+  if (remaining.length) throw new Error("The accepted original coupon contains unmatched item rows.");
+  return Array.from(recovered.values());
+}
+
 export type CouponValidationContext = {
   nui: string;
   couponId: string | number | bigint;
