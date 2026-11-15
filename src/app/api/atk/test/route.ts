@@ -621,6 +621,8 @@ export async function POST(request: Request) {
         result = await atkPost<JsonRecord>("/pos/coupon", { details, signature });
       } catch (error) {
         if (error instanceof AtkRejected) {
+          const recorded = await setTrustedSubmissionState(restOrigin, serviceRoleKey, idempotencyKey, "rejected", error.message);
+          if (!recorded) return jsonError("ATK rejected the coupon, but the trusted journal could not be updated. Reconcile before any further action.", 502);
           return NextResponse.json({ error: error.message, status: "rejected", environment: "ATK TEST" }, {
             status: 422, headers: { "Cache-Control": "no-store" },
           });
@@ -631,6 +633,8 @@ export async function POST(request: Request) {
           });
         }
         if (error instanceof AtkTransportFailure) {
+          const recorded = await setTrustedSubmissionState(restOrigin, serviceRoleKey, idempotencyKey, "needs_reconciliation", error.message);
+          if (!recorded) return jsonError("ATK delivery is ambiguous and the trusted journal could not be updated. Do not retry.", 502);
           return NextResponse.json({ error: error.message, status: "needs_reconciliation", environment: "ATK TEST" }, {
             status: 502, headers: { "Cache-Control": "no-store" },
           });
