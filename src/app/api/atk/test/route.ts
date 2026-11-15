@@ -189,6 +189,15 @@ async function supabaseRequest(path: string, token: string, anonKey: string) {
   return payload;
 }
 
+class AtkRejected extends Error {
+  readonly statusCode: number;
+  constructor(statusCode: number) {
+    super("ATK TEST rejected the coupon (HTTP " + statusCode + ").");
+    this.name = "AtkRejected";
+    this.statusCode = statusCode;
+  }
+}
+
 class AtkTransportFailure extends Error {
   readonly delivery: "not_delivered" | "unknown";
   constructor(delivery: "not_delivered" | "unknown", message: string) {
@@ -230,8 +239,9 @@ async function atkPost<T extends JsonRecord>(path: string, body: JsonRecord): Pr
   }
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    // Do not reflect ATK response bodies: they may contain identifiers or certificate data.
-    throw new Error("ATK TEST rejected the request (HTTP " + response.status + ").");
+    // A 4xx is a definite rejection; a 5xx does not prove the coupon was not processed.
+    if (response.status >= 400 && response.status < 500) throw new AtkRejected(response.status);
+    throw new AtkTransportFailure("unknown", "ATK TEST returned HTTP " + response.status + "; delivery outcome requires reconciliation.");
   }
   if (!isRecord(payload)) throw new Error("ATK TEST returned an invalid JSON response.");
   return payload as T;
@@ -557,6 +567,11 @@ export async function POST(request: Request) {
       try {
         result = await atkPost<JsonRecord>("/pos/coupon", { details, signature });
       } catch (error) {
+        if (error instanceof AtkRejected) {
+          return NextResponse.json({ error: error.message, status: "rejected", environment: "ATK TEST" }, {
+            status: 422, headers: { "Cache-Control": "no-store" },
+          });
+        }
         if (error instanceof AtkTransportFailure && error.delivery === "not_delivered") {
           return NextResponse.json({ error: error.message, notDelivered: true, environment: "ATK TEST" }, {
             status: 503, headers: { "Cache-Control": "no-store" },
