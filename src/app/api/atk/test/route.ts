@@ -625,7 +625,7 @@ export async function POST(request: Request) {
             headers: { "Cache-Control": "no-store" },
           });
         }
-        if (existingCorrections[0].submission_state !== "submitting") {
+        if (action !== "queue-correction" || existingCorrections[0].submission_state !== "submitting") {
           return jsonError("Correction already exists with status " + String(existingCorrections[0].submission_state) + ". Reconciliation is required.", 409);
         }
       }
