@@ -85,3 +85,40 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test("signed offline fiscal outbox persists and only changes state by idempotency key", async () => {
+  const { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem } =
+    await import("../src/lib/pos/browser-outbox.ts");
+  const item = {
+    idempotencyKey: "nui:1:2:123",
+    businessId: "business-1",
+    saleId: "sale-1",
+    posRecordId: "pos-1",
+    couponId: 123,
+    documentType: 1,
+    detailsBase64: "cG9z",
+    signatureBase64: "c2ln",
+    citizenPayloadBase64: "Y2l0aXplbg==",
+    citizenSignatureBase64: "c2ln",
+    citizenQrPayload: "Y2l0aXplbg==|c2ln",
+    nuiKf: "0123456789ABCDEF",
+    dailyNumber: 1,
+    qrSvg: "PHN2Zy8+",
+    issuedAtUtc: "2026-11-15T10:00:00.000Z",
+    offlineIssuedAtUtc: "2026-11-15T10:00:00.000Z",
+    recoveryDeadlineUtc: "2026-11-17T10:00:00.000Z",
+    state: "queued",
+    transactionId: null,
+    lastError: null,
+  };
+  await saveFiscalOutboxItem(item);
+  const saved = await listFiscalOutboxItems("business-1");
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].state, "queued");
+  assert.equal(saved[0].posRecordId, "pos-1");
+  await updateFiscalOutboxItem(item.idempotencyKey, { state: "accepted", transactionId: "456" });
+  const accepted = await listFiscalOutboxItems("business-1");
+  assert.equal(accepted[0].state, "accepted");
+  assert.equal(accepted[0].transactionId, "456");
+});
