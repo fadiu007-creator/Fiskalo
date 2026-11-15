@@ -27,6 +27,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:products
       - run: npm run test:payments
+      - run: npm run test:pos-outage
       - run: npm run test:atk-browser
       - run: npm run test:atk-recovery
       - run: npm run test:atk-certificates
