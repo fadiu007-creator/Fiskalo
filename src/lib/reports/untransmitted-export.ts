@@ -34,9 +34,9 @@ function csvCell(value: unknown): string {
 }
 
 /** Structured authority-requested export. Call the owner-gated RPC before building this file. */
-export function buildUntransmittedExportCsv(documents: UntransmittedExportDocument[]): string {
+export function buildUntransmittedExportCsv(documents: UntransmittedExportDocument[], authorityRequestReference = ""): string {
   const headers = [
-    "Fiscal document ID", "Sale ID", "Coupon ID", "Document type", "Reference coupon ID",
+    "Authority request reference", "Fiscal document ID", "Sale ID", "Coupon ID", "Document type", "Reference coupon ID",
     "Business", "NUI", "POS label", "Branch ID", "POS ID", "Fiscalization number",
     "Sale created at", "Document created at", "Total EUR", "ATK submission state",
     "NUIKF", "Daily number", "Offline outage start", "Recovery deadline", "ATK transaction ID",
@@ -44,7 +44,7 @@ export function buildUntransmittedExportCsv(documents: UntransmittedExportDocume
     "Citizen coupon protobuf base64", "Citizen signature base64", "ATK response JSON",
   ];
   const rows = documents.map(document => [
-    document.fiscal_document_id, document.sale_id, document.coupon_id, document.document_type,
+    authorityRequestReference, document.fiscal_document_id, document.sale_id, document.coupon_id, document.document_type,
     document.reference_coupon_id, document.business_name, document.nui, document.pos_label,
     document.branch_id, document.pos_id, document.fiscalization_number, document.sale_created_at,
     document.document_created_at, Number(document.total).toFixed(2), document.submission_state,
