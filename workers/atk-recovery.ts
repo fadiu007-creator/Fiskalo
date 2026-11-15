@@ -367,7 +367,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
       p_citizen_signature: doc.citizen_signature,
       p_daily_number: doc.daily_number,
       p_offline_issued_at: doc.offline_issued_at,
-      p_qr_svg_base64: doc.qr_svg_base64,
+      p_qr_svg_base64: qrSvgBase64,
     });
     return "accepted";
   } catch {
