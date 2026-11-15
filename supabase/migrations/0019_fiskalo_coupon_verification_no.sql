@@ -44,7 +44,7 @@ end;
 $$;
 
 revoke all on function public.fiskalo_basic_server_record_atk_receipt_v2(
-  uuid,uuid,uuid,uuid,bigint,text,text,text,numeric,jsonb,text,text,text,bigint,timestamptz,text
+  uuid,uuid,uuid,uuid,bigint,text,text,text,numeric,jsonb,text,text,text,text,bigint,timestamptz,text
 ) from public,anon,authenticated;
 grant execute on function public.fiskalo_basic_server_record_atk_receipt_v2(
   uuid,uuid,uuid,uuid,bigint,text,text,text,numeric,jsonb,text,text,text,bigint,timestamptz,text
