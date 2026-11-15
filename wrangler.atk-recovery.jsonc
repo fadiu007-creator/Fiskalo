@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fiskalo-atk-recovery",
+  "main": "workers/atk-recovery.ts",
+  "compatibility_date": "2026-11-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": {
+    "SUPABASE_URL": "https://saavqlbwffrwxingbnri.supabase.co"
+  }
+}
