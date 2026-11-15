@@ -547,7 +547,7 @@ export async function POST(request: Request) {
         return jsonError("Original ATK transaction does not match the accepted sale.", 409);
       }
       const originalCouponIdentity = readCouponIdentity(requiredString(originals[0].signed_payload, "Original accepted coupon payload", 200_000));
-      const originalApplicationId = Number(originalCouponIdentity.get(7) ?? 0n);
+      const originalApplicationId = Number(originalCouponIdentity.get(7) ?? BigInt(0));
       if (!Number.isSafeInteger(originalApplicationId) || originalApplicationId <= 0) {
         return jsonError("The original accepted coupon has no valid ATK Application ID.", 409);
       }
