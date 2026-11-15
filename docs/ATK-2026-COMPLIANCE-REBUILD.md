@@ -69,6 +69,12 @@
 - Cloudflare production-like deployment smoke tests pass with secrets injected only as Worker secrets.
 - Real ATK TEST portal evidence is captured for onboarding, certificate issuance, sale, cancel, return, offline recovery and QR verification.
 
+## ATK certification dossier and technical test
+
+The official 2026 certification procedure requires the signed standard application, applicant identity/business-registration evidence as applicable, a general solution description (functions, ATK integration and technologies), user manual/basic operating instructions, and a signed software-compliance declaration. ATK technical testing explicitly evaluates security/integrity, fiscal receipt accuracy, correct real-time reporting, secure local storage and automatic transmission after communications recover. Non-critical gaps may receive a seven-working-day correction window and retest. Certification decision is due within 15 working days; the issued certificate and SEF identifier are recorded in ATK's official registry. A functional/technical change affecting fiscal data generation, storage or transmission must be notified to ATK in advance.
+
+The ATK test guide requires test phase completion before the certification application. The web form accepts up to five PDF/DOCX/XLSX files, maximum 5 MB each, and the applicant must respond to requested supplementary information within seven days.
+
 ## Statutory operational fallback
 
 Article 45 covers complete failure of the fiscal device (distinct from an internet outage): the taxpayer uses an ATK-approved special pre-numbered fiscal coupon booklet, restores/replaces the device within 48 hours, then registers those coupons in the SEF within five days after that period for automatic ATK transmission. Fiskalo must document this fallback and provide an incident/export workflow; a browser outbox alone does not replace the approved paper booklet.
