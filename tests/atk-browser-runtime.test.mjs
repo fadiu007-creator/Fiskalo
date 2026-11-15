@@ -162,4 +162,34 @@ test("signed offline fiscal outbox persists and only changes state by idempotenc
   const accepted = await listFiscalOutboxItems("business-1");
   assert.equal(accepted[0].state, "accepted");
   assert.equal(accepted[0].transactionId, "456");
+
+  const outboxDbRequest = indexedDB.open("fiskalo-fiscal-outbox", 2);
+  const outboxDb = await new Promise((resolve, reject) => {
+    outboxDbRequest.onsuccess = () => resolve(outboxDbRequest.result);
+    outboxDbRequest.onerror = () => reject(outboxDbRequest.error);
+  });
+  const rawOutboxRecord = await new Promise((resolve, reject) => {
+    const request = outboxDb.transaction("signed-documents", "readonly")
+      .objectStore("signed-documents").get(item.idempotencyKey);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  outboxDb.close();
+  assert.equal(rawOutboxRecord.encrypted.version, 1);
+  assert.equal(rawOutboxRecord.detailsBase64, undefined);
+  assert.equal(rawOutboxRecord.signatureBase64, undefined);
+
+  const keyDbRequest = indexedDB.open("fiskalo-atk-pos-keys", 2);
+  const keyDb = await new Promise((resolve, reject) => {
+    keyDbRequest.onsuccess = () => resolve(keyDbRequest.result);
+    keyDbRequest.onerror = () => reject(keyDbRequest.error);
+  });
+  const storageKey = await new Promise((resolve, reject) => {
+    const request = keyDb.transaction("storage-keys", "readonly")
+      .objectStore("storage-keys").get("fiskalo-local-fiscal-data-aes-gcm-v1");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  keyDb.close();
+  assert.equal(storageKey.key.extractable, false);
 });
