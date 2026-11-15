@@ -291,11 +291,12 @@ export async function getOrStartPosConnectivityOutage(
 }
 
 export async function clearPosConnectivityOutage(businessId: string, posRecordId: string): Promise<void> {
+  const id = await outageKey(businessId, posRecordId);
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(OUTAGE_STORE_NAME, "readwrite", { durability: "strict" });
-      tx.objectStore(OUTAGE_STORE_NAME).delete(await outageKey(businessId, posRecordId));
+      tx.objectStore(OUTAGE_STORE_NAME).delete(id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("Could not clear the POS connectivity outage."));
       tx.onabort = () => reject(tx.error ?? new Error("POS connectivity outage clear was aborted."));
