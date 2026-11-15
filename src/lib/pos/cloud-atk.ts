@@ -11,6 +11,7 @@ export type CloudAtkSubmission = GatewayBase & {
   transactionId: string;
   message: string;
   persisted: true;
+  qrSvgBase64: string;
 };
 
 export class CloudAtkError extends Error {
@@ -89,7 +90,6 @@ export function submitCloudTestCoupon(
     citizenPayload: string;
     citizenSignature: string;
     dailyNumber: number;
-    qrSvgBase64: string;
     certificatePem: string;
     offlineIssuedAt: string | null;
   },
