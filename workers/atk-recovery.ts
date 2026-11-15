@@ -398,7 +398,7 @@ async function runRecovery(env: Env) {
       limit: String(MAX_BATCH),
     }));
   const due = docs.filter(doc => !doc.next_attempt_at || Date.parse(doc.next_attempt_at) <= now.getTime());
-  const results = { checked: due.length, accepted: 0, retried: 0, rejected: 0, reconciliation: 0, expired: 0, skipped: 0 };
+  const results = { checked: due.length, accepted: 0, retry: 0, accepted_not_persisted: 0, rejected: 0, reconciliation: 0, expired: 0, skipped: 0 };
   for (const doc of due) {
     try {
       const result = await processDocument(env, doc, now);
