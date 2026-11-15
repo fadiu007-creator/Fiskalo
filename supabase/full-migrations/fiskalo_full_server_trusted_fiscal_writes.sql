@@ -73,6 +73,53 @@ create trigger fiskalo_products_atk_catalogue_update
   before update of atk_unit_code, atk_item_category_code, atk_tax_code, vat_rate on public.fiskalo_products
   for each row execute function public.fiskalo_validate_full_product_atk_catalogue();
 
+-- Do not create a new invoice line from a legacy product whose ATK mapping is invalid.
+create or replace function public.fiskalo_validate_invoice_item_atk_catalogue()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $function$
+declare
+  product_row public.fiskalo_products%rowtype;
+begin
+  select * into product_row from public.fiskalo_products where id = new.product_id;
+  if not found then
+    raise exception 'Invoice line product was not found.' using errcode = '23503';
+  end if;
+  if product_row.atk_unit_code is null or product_row.atk_unit_code not in (
+    'EA','CP','LTR','SEC','MIN','HUR','DAY','MON','ANN','KGB','KGN',
+    'TN','GRM','M4','UDH','KMT','LM','MTS','MTV','MSK','KWH'
+  ) then
+    raise exception 'Product has an invalid ATK measurement unit code.' using errcode = '23514';
+  end if;
+  if product_row.atk_item_category_code is null or product_row.atk_item_category_code not in (
+    'TT','UR','AU','VM','KO','AP','BM','PM','PP','PE','PS','PB','BB',
+    'KB','EE','PSE','SM','SJ','ST','SK','SMK','STR','PI','PT','SEA',
+    'KS','MN','SHN','SDG','HT','SHB','STI','SHT','PBS','MPM'
+  ) then
+    raise exception 'Product has an invalid ATK item category code.' using errcode = '23514';
+  end if;
+  if not (
+    (product_row.atk_tax_code in ('A','C') and product_row.vat_rate = 0)
+    or (product_row.atk_tax_code = 'D' and product_row.vat_rate = 8)
+    or (product_row.atk_tax_code = 'E' and product_row.vat_rate = 18)
+  ) or new.vat_rate is distinct from product_row.vat_rate then
+    raise exception 'Product ATK VAT mapping does not match the invoice line.' using errcode = '23514';
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function public.fiskalo_validate_invoice_item_atk_catalogue() from public, anon, authenticated;
+drop trigger if exists fiskalo_invoice_items_atk_catalogue_insert on public.fiskalo_invoice_items;
+drop trigger if exists fiskalo_invoice_items_atk_catalogue_update on public.fiskalo_invoice_items;
+create trigger fiskalo_invoice_items_atk_catalogue_insert
+  before insert on public.fiskalo_invoice_items
+  for each row execute function public.fiskalo_validate_invoice_item_atk_catalogue();
+create trigger fiskalo_invoice_items_atk_catalogue_update
+  before update of product_id, vat_rate on public.fiskalo_invoice_items
+  for each row execute function public.fiskalo_validate_invoice_item_atk_catalogue();
+
 -- Fiscal acceptance and audit events are server-trusted facts, never browser-editable.
 drop policy if exists fiskalo_atk_docs_insert_test on public.fiskalo_atk_fiscal_documents;
 drop policy if exists fiskalo_atk_docs_update_test on public.fiskalo_atk_fiscal_documents;
