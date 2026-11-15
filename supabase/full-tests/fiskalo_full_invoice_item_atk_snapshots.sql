@@ -3,6 +3,7 @@ begin;
 do $$
 declare
   config_text text;
+  trigger_definition text;
 begin
   if not exists (
     select 1 from information_schema.columns
@@ -25,6 +26,14 @@ begin
       and tgenabled <> 'D'
   ) then
     raise exception 'Invoice-line ATK snapshot trigger is missing or disabled';
+  end if;
+
+  select pg_get_triggerdef(oid) into trigger_definition
+  from pg_trigger
+  where tgrelid='public.fiskalo_invoice_items'::regclass
+    and tgname='fiskalo_invoice_item_atk_snapshot';
+  if position('vat_rate' in trigger_definition) = 0 then
+    raise exception 'Invoice-line ATK snapshot must refresh when VAT rate changes';
   end if;
 
   if has_function_privilege('anon','fiskalo_private.fiskalo_snapshot_invoice_item_atk_mapping()','EXECUTE')
