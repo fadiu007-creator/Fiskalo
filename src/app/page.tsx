@@ -562,10 +562,6 @@ export default function Home(){
         }
         throw submitError;
       }
-        businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
-        details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,citizenPayload,citizenSignature,
-        dailyNumber:Number(sale.daily_number),offlineIssuedAt:null
-      });
       await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null,qrSvg:fiscal.qrSvgBase64});
       const receiptRecord:SaleRecord={
         ...sale,
