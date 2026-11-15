@@ -33,6 +33,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Full product editor uses the 21-code ATK unit catalogue (29.09.2026) and the 35-code May 2026 category annex; Full coupon validation rejects invalid unit/category/VAT mappings.
 - [x] Full invoice payment ledger and POS support Cash, CreditCard, Voucher, Cheque, CryptoCurrency and Other (bank transfer); repeated installments are aggregated by ATK PaymentType.
 - [x] Full ATK server routes now use a server-only Supabase client for verification and fiscal journal writes; CSR-to-certificate SPKI matching and per-POS certificate signature verification are implemented in source.
+- [x] Full Sale/Cancel/Return coupon validation uses invoice-line ATK snapshots; legacy corrections recover the exact mapping from the ATK-accepted original coupon and reject ambiguous/mismatched matches.
 - [x] Apply Full server-trusted fiscal-write migration: browser roles can read fiscal records but cannot insert/update/delete fiscal acceptance or event rows; certificates and verification records are server-only.
 - [ ] Deploy and live-test Full ATK TEST verification, certificate issuance, Sale, Cancel and Return.
 
