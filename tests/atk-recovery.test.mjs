@@ -64,23 +64,7 @@ const correctionCitizenPayload = encodeAtkBase64(encodeAtkCitizenCoupon({
 }));
 const correctionSignature = signData("sha256", Buffer.from(correctionDetails), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
 const correctionCitizenSignature = signData("sha256", Buffer.from(correctionCitizenPayload), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
-const correctionDoc = {
-  ...doc,
-  id: "correction-doc-1",
-  coupon_id: "101",
-  idempotency_key: "123456789:1:2:101",
-  document_type: 2,
-  reference_coupon_id: "100",
-  parent_document_id: "original-doc",
-  created_at: correctionCreatedAt,
-  signed_payload: correctionDetails,
-  signature: correctionSignature,
-  nui_kf: correctionNuiKf,
-  verification_no: correctionNuiKf,
-  citizen_payload: correctionCitizenPayload,
-  citizen_signature: correctionCitizenSignature,
-  daily_number: 2,
-};
+
 const originalDoc = {
   id: "original-doc",
   coupon_id: "100",
@@ -111,6 +95,24 @@ const doc = {
   attempt_count: 0,
   next_attempt_at: null,
 };
+const correctionDoc = {
+  ...doc,
+  id: "correction-doc-1",
+  coupon_id: "101",
+  idempotency_key: "123456789:1:2:101",
+  document_type: 2,
+  reference_coupon_id: "100",
+  parent_document_id: "original-doc",
+  created_at: correctionCreatedAt,
+  signed_payload: correctionDetails,
+  signature: correctionSignature,
+  nui_kf: correctionNuiKf,
+  verification_no: correctionNuiKf,
+  citizen_payload: correctionCitizenPayload,
+  citizen_signature: correctionCitizenSignature,
+  daily_number: 2,
+};
+
 const sale = {
   id: "sale-1", operator_id: "user-1", pos_id: "pos-1", coupon_id: "100", status: "paid",
   created_at: createdAt, total: 1.18, subtotal: 1, vat_total: 0.18,
