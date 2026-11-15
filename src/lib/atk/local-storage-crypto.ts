@@ -22,6 +22,12 @@ function additionalData(scope: string): Uint8Array {
   return new TextEncoder().encode("fiskalo-local-storage:" + scope + ":v1");
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 export async function encryptJsonPayload(
   cryptoApi: Crypto,
   key: CryptoKey,
@@ -31,9 +37,9 @@ export async function encryptJsonPayload(
   const iv = cryptoApi.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(value));
   const ciphertext = await cryptoApi.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: additionalData(scope), tagLength: 128 },
+    { name: "AES-GCM", iv: toArrayBuffer(iv), additionalData: toArrayBuffer(additionalData(scope)), tagLength: 128 },
     key,
-    plaintext,
+    toArrayBuffer(plaintext),
   );
   return { version: 1, iv: toBase64(iv), ciphertext: toBase64(new Uint8Array(ciphertext)) };
 }
@@ -48,9 +54,14 @@ export async function decryptJsonPayload<T>(
     throw new Error("Unsupported or malformed encrypted Fiskalo local record.");
   }
   const plaintext = await cryptoApi.subtle.decrypt(
-    { name: "AES-GCM", iv: fromBase64(encrypted.iv), additionalData: additionalData(scope), tagLength: 128 },
+    {
+      name: "AES-GCM",
+      iv: toArrayBuffer(fromBase64(encrypted.iv)),
+      additionalData: toArrayBuffer(additionalData(scope)),
+      tagLength: 128,
+    },
     key,
-    fromBase64(encrypted.ciphertext),
+    toArrayBuffer(fromBase64(encrypted.ciphertext)),
   );
   return JSON.parse(new TextDecoder().decode(plaintext)) as T;
 }
