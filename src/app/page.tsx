@@ -16,7 +16,7 @@ type AtkVerification={businessName:string;verificationCode:string;environment:"A
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;correction_type?:string|null;correction_state?:string|null;correction_transaction_id?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
@@ -125,34 +125,39 @@ export default function Home(){
       const ids=rows.map(s=>s.id);
       const [{data:itemRows,error:itemError},{data:documents,error:documentError},{data:members}]=await Promise.all([
         supabase.from("fiskalo_basic_sale_items").select("sale_id,description,quantity,unit_price,line_total,line_net,line_vat,vat_rate,atk_unit_code,atk_vat_code").in("sale_id",ids),
-        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,legacy_nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type,qr_svg_base64").in("sale_id",ids),
+        supabase.from("fiskalo_basic_fiscal_documents").select("sale_id,atk_transaction_id,nui_kf,legacy_nui_kf,daily_number,submission_state,offline_issued_at,recovery_deadline_at,document_type,qr_svg_base64,reference_coupon_id,parent_document_id,created_at").in("sale_id",ids),
         supabase.from("fiskalo_basic_members").select("user_id,operator_name").eq("business_id",business.id)
       ]);
       if(itemError)throw itemError;if(documentError)throw documentError;
       const itemsBySale=new Map<string,SaleRecord["items"]>();
       for(const item of itemRows??[]){const list=itemsBySale.get(item.sale_id)??[];list.push(item);itemsBySale.set(item.sale_id,list);}
-      const docsBySale=new Map((documents??[]).map(doc=>[doc.sale_id,doc]));
+      const docsBySale=new Map<string,typeof documents>();
+      for(const doc of documents??[]){const list=docsBySale.get(doc.sale_id)??[];list.push(doc);docsBySale.set(doc.sale_id,list);}
       const operatorNames=new Map((members??[]).map(member=>[member.user_id,member.operator_name]));
       const localOutbox=await listFiscalOutboxItems(business.id).catch(()=>[]);
-      const outboxBySale=new Map(localOutbox.map(item=>[item.saleId,item]));
+      const saleOutboxBySale=new Map(localOutbox.filter(item=>item.documentType===1).map(item=>[item.saleId,item]));
+      const correctionOutboxBySale=new Map(localOutbox.filter(item=>item.documentType!==1).map(item=>[item.saleId,item]));
       setQueueOverdueCount(localOutbox.filter(item=>item.state!=="accepted"&&Date.parse(item.recoveryDeadlineUtc)<Date.now()).length);
       setSales(rows.map(s=>{
         const pos=positions.find(p=>p.id===s.pos_id);
         const idempotencyKey=pos?business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+s.coupon_id:"";
-        const queued=outboxBySale.get(s.id);
-        const doc=docsBySale.get(s.id);
+        const saleOutbox=saleOutboxBySale.get(s.id);
+        const correctionOutbox=correctionOutboxBySale.get(s.id);
+        const saleDocs=docsBySale.get(s.id)??[];
+        const doc=saleDocs.find(item=>item.document_type===1);
+        const correctionDoc=saleDocs.filter(item=>item.document_type===2||item.document_type===3).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0];
         return {
           ...s,
           idempotency_key:idempotencyKey,
           items:itemsBySale.get(s.id)??[],
-          transaction_id:String(doc?.atk_transaction_id??queued?.transactionId??"")||null,
-          nui_kf:doc?.nui_kf??queued?.nuiKf??null,
+          transaction_id:String(doc?.atk_transaction_id??saleOutbox?.transactionId??"")||null,
+          nui_kf:doc?.nui_kf??saleOutbox?.nuiKf??null,
           legacy_nui_kf:doc?.legacy_nui_kf??null,
-          daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
-          submission_state:doc?.submission_state??(queued?.state==="prepared"?"needs_reconciliation":queued?.state==="cloud_queued"?"queued":queued?.state??null),
-          offline_issued_at:doc?.offline_issued_at??queued?.issuedAtUtc??null,
-          recovery_deadline_at:doc?.recovery_deadline_at??queued?.recoveryDeadlineUtc??null,
-          qr_svg_base64:doc?.qr_svg_base64??queued?.qrSvg??null,
+          daily_number:doc?.daily_number??s.daily_number??saleOutbox?.dailyNumber??null,
+          submission_state:doc?.submission_state??(saleOutbox?.state==="prepared"?"needs_reconciliation":queued?.state==="cloud_queued"?"queued":queued?.state??null),
+          offline_issued_at:doc?.offline_issued_at??saleOutbox?.issuedAtUtc??null,
+          recovery_deadline_at:doc?.recovery_deadline_at??saleOutbox?.recoveryDeadlineUtc??null,
+          qr_svg_base64:doc?.qr_svg_base64??saleOutbox?.qrSvg??null,
           pos_identifier:pos?.unit_number?pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id):null,
           unit_number:pos?.unit_number??null,
           business_address:pos?.location??null,
@@ -160,9 +165,12 @@ export default function Home(){
           operator_name:s.operator_name??operatorNames.get(s.operator_id)??(user?.id===s.operator_id?(operatorName||"Nuk është konfiguruar"):"Nuk është konfiguruar"),
           operator_identifier:s.operator_identifier??null,
           document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
-          is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc),
-          recovery_deadline_exceeded:!!queued&&Date.parse(queued.recoveryDeadlineUtc)<Date.now()&&queued.state!=="accepted",
-          queue_last_error:queued?.lastError??null
+          is_offline:!!(doc?.offline_issued_at??saleOutbox?.offlineIssuedAtUtc),
+          recovery_deadline_exceeded:!!saleOutbox&&Date.parse(saleOutbox.recoveryDeadlineUtc)<Date.now()&&saleOutbox.state!=="accepted",
+          queue_last_error:saleOutbox?.lastError??null,
+          correction_type:correctionDoc?.document_type===2?"ANULIM":correctionDoc?.document_type===3?"KTHIM":correctionOutbox?.documentType===2?"ANULIM":correctionOutbox?.documentType===3?"KTHIM":null,
+          correction_state:correctionDoc?.submission_state??correctionOutbox?.state??null,
+          correction_transaction_id:String(correctionDoc?.atk_transaction_id??correctionOutbox?.transactionId??"")||null
         };
       }));
     }catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua historia e shitjeve.");}
