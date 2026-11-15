@@ -32,8 +32,7 @@ const baseHeaders = {
 
 type JsonObject = Record<string, unknown>;
 // deno-lint-ignore no-explicit-any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase has no generated Database type in this repository.
-type SupabaseAdminClient = SupabaseClient<any, "public", "public", any, any>;
+type SupabaseAdminClient = SupabaseClient<any, "public", "public", any, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- Supabase has no generated Database type in this repository.
 type SubmissionState = "accepted" | "rejected" | "needs_reconciliation";
 
 function json(status: number, body: JsonObject, origin = ""): Response {
