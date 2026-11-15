@@ -439,7 +439,22 @@ export async function POST(request: Request) {
       }
 
       // ATK is the authority for acceptance. No client-supplied status or transaction ID is trusted.
-      const result = await atkPost<JsonRecord>("/pos/coupon", { details, signature });
+      let result: JsonRecord;
+      try {
+        result = await atkPost<JsonRecord>("/pos/coupon", { details, signature });
+      } catch (error) {
+        if (error instanceof AtkTransportFailure && error.delivery === "not_delivered") {
+          return NextResponse.json({ error: error.message, notDelivered: true, environment: "ATK TEST" }, {
+            status: 503, headers: { "Cache-Control": "no-store" },
+          });
+        }
+        if (error instanceof AtkTransportFailure) {
+          return NextResponse.json({ error: error.message, status: "needs_reconciliation", environment: "ATK TEST" }, {
+            status: 502, headers: { "Cache-Control": "no-store" },
+          });
+        }
+        throw error;
+      }
       const transactionId = result.transaction_id;
       const transactionIdText = typeof transactionId === "string"
         ? transactionId
