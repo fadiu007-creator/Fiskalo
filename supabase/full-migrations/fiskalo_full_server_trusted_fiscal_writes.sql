@@ -144,7 +144,6 @@ grant all on table public.fiskalo_atk_fiscal_events to service_role;
 grant all on table public.fiskalo_atk_pos_verifications to service_role;
 grant all on table public.fiskalo_atk_pos_installations to service_role;
 
-commit;
 
 
 -- Support the complete ATK PaymentType enum in Full invoices and POS.
@@ -342,3 +341,5 @@ revoke all on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, js
 grant execute on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, jsonb, numeric) to authenticated;
 revoke all on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, jsonb) from public, anon;
 grant execute on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, jsonb) to authenticated;
+
+commit;
