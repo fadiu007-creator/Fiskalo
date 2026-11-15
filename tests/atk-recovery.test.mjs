@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import recovery from "../workers/atk-recovery.ts";
 
-const originalFetch = globalThis.fetch;
 const now = new Date();
 const doc = {
   id: "doc-1",
