@@ -648,6 +648,7 @@ export async function POST(request: Request) {
           ? String(transactionId) : "";
       if (!/^[1-9][0-9]{0,19}$/.test(transactionIdText) ||
           BigInt(transactionIdText) > BigInt("18446744073709551615")) {
+        await setTrustedSubmissionState(restOrigin, serviceRoleKey, idempotencyKey, "needs_reconciliation", "ATK returned no valid uint64 transaction_id.");
         return jsonError("ATK TEST returned no valid uint64 transaction_id; the document is not marked accepted.", 502);
       }
 
@@ -687,6 +688,7 @@ export async function POST(request: Request) {
       });
       if (!persistResponse.ok) {
         // ATK has already accepted this coupon. Never let the UI retry it blindly.
+        await setTrustedSubmissionState(restOrigin, serviceRoleKey, idempotencyKey, "needs_reconciliation", "ATK accepted transaction " + transactionIdText + " but the trusted ledger update failed.");
         return NextResponse.json({
           error: "ATK accepted the coupon (transaction " + transactionIdText + "), but the trusted fiscal ledger could not persist it. Do not resubmit; reconcile this transaction.",
           status: "accepted_not_persisted",
