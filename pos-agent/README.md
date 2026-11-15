@@ -1,36 +1,14 @@
-# Fiskalo Windows POS Agent
+# Legacy Windows POS Agent — Deprecated
 
-The first ATK device runtime for Fiskalo Basic. This agent runs on the Windows register and keeps the POS private key and encrypted fiscal journal on that machine.
+This folder is retained only as a historical implementation reference and for protocol comparison tests. **The current Fiskalo web application does not use this agent, does not call localhost, and must not require a Windows companion process.**
 
-## Build and test
+The supported runtime is the Cloudflare-hosted web application:
+- Browser-held non-exportable POS key in IndexedDB
+- Browser CSR and ATK TEST certificate matching
+- Same-origin Cloudflare ATK TEST gateway
+- Supabase fiscal journal and server-side acceptance controls
+- Separate Cloudflare scheduled recovery Worker
 
-```powershell
-dotnet test pos-agent/Fiskalo.PosAgent.Tests/Fiskalo.PosAgent.Tests.csproj -c Release
-dotnet build pos-agent/Fiskalo.PosAgent.Host/Fiskalo.PosAgent.Host.csproj -c Release
-```
+Do not install or pair this legacy agent for the current web application. Its loopback API and DPAPI storage are not part of the supported Fiskalo deployment. See [Cloudflare ATK web runtime](../docs/CLOUDFLARE-ATK-WEB-RUNTIME.md).
 
-## Install
-
-Run PowerShell as the Windows user that will operate the POS:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\pos-agent\windows\Install-FiskaloPosAgent.ps1
-```
-
-Use the printed one-time pairing code to pair the browser dashboard with the local agent. Keep the code private. The agent binds only to loopback and checks allowed browser origins.
-
-## Security model
-
-- POS private key, installation profile and queue are stored locally.
-- DPAPI protects the private key, installation profile and queued fiscal records for the current Windows user/machine context.
-- ATK TEST endpoints only; no production endpoint or production credential switch is exposed by this runtime.
-- Ambiguous submissions require reconciliation; do not retry blindly.
-- Local endpoint: `http://127.0.0.1:17843`.
-
-## Current limitations
-
-- Requires Windows; no Android/iOS agent in this MVP.
-- The web checkout-to-agent paid-sale handoff still needs integration.
-- Physical Windows device testing, real printer testing, and ATK TEST Sale/Cancel/Return acceptance are still required.
-- A passing CI build is not ATK certification.
+The old C# source may be used as a protocol reference while comparing Protobuf and signature formats. It is not evidence of current ATK TEST acceptance or certification.
