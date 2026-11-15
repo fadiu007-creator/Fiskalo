@@ -76,42 +76,6 @@ begin
     where p.id=p_pos_record_id
       and p.business_id=p_business_id
       and p.application_id ~ '^[0-9]+$'
-      and p.certificate_status='verified'
-  ) then
-    raise exception 'ATK Application ID is not verified for this Basic POS';
-  end if;
-
-  update public.fiskalo_basic_pos_certificates
-  set status='superseded'
-  where business_id=p_business_id
-    and pos_id=p_pos_record_id
-    and status='active'
-    and revoked_at is null;
-
-  insert into public.fiskalo_basic_pos_certificates(
-    id,business_id,pos_id,application_id,certificate_pem,spki_sha256,
-    status,issued_at,revoked_at,updated_at
-  ) values (
-    certificate_id,p_business_id,p_pos_record_id,p_application_id,
-    p_certificate_pem,p_spki_sha256,'active',now(),null,now()
-  );
-
-  update public.fiskalo_basic_pos
-  set certificate_status='certificate_issued',
-      verified_business_name=trim(p_verified_business_name)
-  where id=p_pos_record_id and business_id=p_business_id;
-
-  return certificate_id;
-end;
-$$;
-
-revoke all on function public.fiskalo_basic_server_register_pos_certificate_v1(uuid,uuid,bigint,text,text,text)
-  from public,anon,authenticated;
-grant execute on function public.fiskalo_basic_server_register_pos_certificate_v1(uuid,uuid,bigint,text,text,text)
-  to service_role;
-
-notify pgrst, 'reload schema';
-
       and p.application_id::bigint=p_application_id
       and p.certificate_status='verified'
   ) then
