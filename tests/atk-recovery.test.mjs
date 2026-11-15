@@ -54,7 +54,7 @@ const correctionDetails = encodeAtkBase64(encodeAtkPosCoupon({
   items: [{ name: "Tea", unitPriceEuro: 1, unit: "CP", quantity: 1, lineTotalCents: 118, taxRate: "E", itemType: "TT" }],
   payments: [{ type: 1, amountCents: 118 }],
   totalCents: 118, taxGroups, totalTaxCents: 18, totalNoTaxCents: 100,
-  referenceNo: "100", transactionNo: "987654321",
+  referenceNo: "100",
   totalDiscountCents: 0,
 }));
 const correctionCitizenPayload = encodeAtkBase64(encodeAtkCitizenCoupon({
