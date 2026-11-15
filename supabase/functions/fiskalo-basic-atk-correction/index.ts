@@ -1,6 +1,7 @@
 // Server-side ATK TEST correction submission.
 // The browser supplies only a signed POS coupon. It never supplies an ATK response,
 // transaction ID, environment or acceptance status.
+// deno-lint-ignore no-import-prefix -- Supabase Edge Functions pin and resolve npm modules at runtime.
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.114.0";
 import {
   assertAtkCorrectionIdentity,
