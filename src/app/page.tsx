@@ -388,8 +388,6 @@ export default function Home(){
       const result=await issueCloudTestCertificate(supabase,{businessId:business.id,posRecordId:pos.id,verificationCode:pos.verification_no,applicationId:Number(pos.application_id),csrPem});
       await installPosCertificate(identity,result.signedCertificate);
       if(!await hasMatchingPosCertificate(identity))throw new Error("Certifikata ATK nuk përputhet me çelësin privat të ruajtur në këtë shfletues.");
-      const {error}=await supabase.from("fiskalo_basic_pos").update({certificate_status:"certificate_issued"}).eq("id",pos.id);
-      if(error)throw error;
       await loadWorkspace(user!.id);
       setMessage(existingKey?"Certifikata TEST u instalua dhe çelësi ekzistues i POS-it u verifikua.":"Certifikata TEST u instalua. Çelësi privat nuk u dërgua në cloud.");
     }catch(e){setMessage(e instanceof Error?e.message:"Lëshimi i certifikatës dështoi.");}
