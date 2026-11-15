@@ -52,6 +52,7 @@ migrations=(
   "0030_fiskalo_basic_atk_catalogue_constraints.sql"
   "0031_fiskalo_basic_split_tender.sql"
   "0032_fiskalo_basic_owner_sales_report.sql"
+  "0033_fiskalo_basic_authority_export.sql"
 )
 
 for migration in "${migrations[@]}"; do
@@ -71,6 +72,7 @@ for migration in "${migrations[@]}"; do
     0017_fiskalo_atomic_purchase_rpc.sql) run_test "0016_fiskalo_business_operations.sql" ;;
     0031_fiskalo_basic_split_tender.sql) run_test "0031_fiskalo_basic_split_tender.sql" ;;
     0032_fiskalo_basic_owner_sales_report.sql) run_test "0032_fiskalo_basic_owner_sales_report.sql" ;;
+    0033_fiskalo_basic_authority_export.sql) run_test "0033_fiskalo_basic_authority_export.sql" ;;
   esac
 done
 
