@@ -345,6 +345,13 @@ export async function POST(request: Request) {
       }
       if (couponIdentity.get(2) !== BigInt(couponId)) return jsonError("Signed coupon number does not match the paid sale.", 409);
       if (couponIdentity.get(8) !== String(pos.verification_no)) return jsonError("Signed coupon verification number does not match the saved POS.", 409);
+      const expectedUnixTime = BigInt(Math.floor(new Date(String(sales[0].created_at)).getTime() / 1000));
+      if (couponIdentity.get(9) !== BigInt(1) || couponIdentity.get(10) !== expectedUnixTime ||
+          couponIdentity.get(13) !== BigInt(Math.round(Number(sales[0].total) * 100)) ||
+          couponIdentity.get(15) !== BigInt(Math.round(Number(sales[0].vat_total) * 100)) ||
+          couponIdentity.get(16) !== BigInt(Math.round(Number(sales[0].subtotal) * 100))) {
+        return jsonError("Signed POS coupon type, timestamp or totals do not match the paid sale.", 409);
+      }
 
       const idempotencyKey = requiredString(body.idempotencyKey, "Fiscal idempotency key", 256);
       const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
