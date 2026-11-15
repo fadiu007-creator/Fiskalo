@@ -11,6 +11,8 @@
 - Administrative-instruction portal: https://www.atk-ks.org/en/legislation/administrative-instructions/
 - ATK EDI notice: Unique Fiscalization Code is a prerequisite for SEF use: https://www.atk-ks.org/en/notice-to-taxpayers-new-version-of-the-edi-electronic-system-published/
 
+The May 2026 requirements are supplemented by the ATK amendment signed 22 June 2026. The amendment requires SEF to support installation/use on at least one suitable device class (PC, laptop, tablet, mobile phone or other suitable electronic device); protected transaction storage; automatic sending of locally stored transactions when the connection returns; and export of untransmitted data in CSV/PDF only on ATK or other competent authority request.
+
 ## Non-negotiable release policy
 
 1. A passing build, a generated QR, or a successful isolated test is not evidence of ATK acceptance or certification.
@@ -92,6 +94,10 @@ The feature branch now:
 - supports all ATK PaymentType values and mixed/partial invoice payments.
 
 The additive SQL is drafted in `supabase/full-migrations/fiskalo_full_server_trusted_fiscal_writes.sql`. It has **not** yet been applied to `zikos`. Until it is applied and the new Full routes are deployed together, the Full application must not be described as server-trusted ATK compliant. The migration intentionally leaves legacy products in place, allows non-fiscal stock/metadata updates, and blocks new invoice lines from products with invalid ATK codes.
+
+## Protocol mapping requiring ATK confirmation
+
+The official sample integration repository demonstrates the POS `details`/`signature` Protobuf contract and its published `PosCoupon` fields currently end at field 19. Administrative Instruction MF No. 01/2026, Article 35(8)-(12), additionally requires the developer NUI and unique SEF/software code to be integrated and registered as part of each fiscalization. The published Protobuf sample does not show where those identifiers are carried. Do not invent fields or overload `ApplicationId`; this mapping needs explicit ATK confirmation or an updated official schema before production certification.
 
 ## Current blockers that cannot be solved by code alone
 
