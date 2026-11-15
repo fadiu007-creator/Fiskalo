@@ -136,8 +136,9 @@ export class OfflineCheckoutJournal {
       .sort((a, b) => a.createdAtUtc.localeCompare(b.createdAtUtc));
   }
   private assertSameSale(existing: OfflineSaleRecord, candidate: OfflineSaleRecord): OfflineSaleRecord {
-    const { updatedAtUtc: _u, cloudSyncState: _c, fiscalState: _f, serverSaleId: _s,
-      couponId: _n, atkTransactionId: _t, atkEnvironment: _e, lastError: _l, ...stable } = existing;
+    const mutableFields = ["updatedAtUtc", "cloudSyncState", "fiscalState", "serverSaleId",
+      "couponId", "atkTransactionId", "atkEnvironment", "lastError"];
+    const stable = Object.fromEntries(Object.entries(existing).filter(([key]) => !mutableFields.includes(key)));
     if (!equal(stable, candidate))
       throw new OfflineSaleConflictError("The offline idempotency key already belongs to different sale content.");
     return existing;
