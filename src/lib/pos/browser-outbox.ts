@@ -5,6 +5,7 @@ export type BrowserFiscalOutboxItem = {
   idempotencyKey: string;
   businessId: string;
   saleId: string;
+  posRecordId: string;
   couponId: number;
   documentType: 1 | 2 | 3;
   detailsBase64: string;
@@ -16,6 +17,7 @@ export type BrowserFiscalOutboxItem = {
   dailyNumber: number;
   qrSvg: string;
   issuedAtUtc: string;
+  offlineIssuedAtUtc: string | null;
   recoveryDeadlineUtc: string;
   state: "prepared" | "accepted" | "queued" | "needs_reconciliation" | "rejected";
   transactionId: string | null;
