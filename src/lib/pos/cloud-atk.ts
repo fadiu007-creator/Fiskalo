@@ -87,6 +87,7 @@ export function submitCloudTestCoupon(
     details: string;
     signature: string;
     nuiKf: string;
+    verificationNo: string;
     citizenPayload: string;
     citizenSignature: string;
     dailyNumber: number;
