@@ -51,23 +51,84 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-async function readKey(id: string): Promise<StoredKey | null> {
+type PersistedKey = {
+  id: string;
+  privateKey: CryptoKey;
+  encryptedMetadata: EncryptedBrowserPayload;
+  createdAt: string;
+};
+
+type PosKeyMetadata = {
+  publicKeySpkiBase64: string;
+  csrPem: string;
+  certificatePem?: string;
+};
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(value: string): ArrayBuffer {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes.buffer;
+}
+
+async function readRawKey(id: string): Promise<unknown | null> {
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
       const request = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(id);
-      request.onsuccess = () => resolve((request.result as StoredKey | undefined) ?? null);
+      request.onsuccess = () => resolve(request.result ?? null);
       request.onerror = () => reject(request.error ?? new Error("Could not read the local POS key."));
     });
   } finally { db.close(); }
 }
 
+async function readKey(id: string): Promise<StoredKey | null> {
+  const raw = await readRawKey(id);
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Partial<PersistedKey & StoredKey>;
+  if (record.encryptedMetadata) {
+    const metadata = await decryptBrowserFiscalData<PosKeyMetadata>("pos-key-metadata:" + id, record.encryptedMetadata);
+    return {
+      id,
+      privateKey: record.privateKey as CryptoKey,
+      publicKeySpki: base64ToArrayBuffer(metadata.publicKeySpkiBase64),
+      csrPem: metadata.csrPem,
+      certificatePem: metadata.certificatePem,
+      createdAt: String(record.createdAt ?? ""),
+    };
+  }
+  // One-time migration for older profiles that stored CSR/certificate metadata in plaintext.
+  const legacy = raw as StoredKey;
+  if (!legacy.privateKey || !legacy.publicKeySpki || !legacy.csrPem) {
+    throw new Error("Unrecognized local POS key record. Do not clear browser data; contact Fiskalo support.");
+  }
+  await writeKey(legacy);
+  return legacy;
+}
+
 async function writeKey(record: StoredKey): Promise<void> {
+  const encryptedMetadata = await encryptBrowserFiscalData<PosKeyMetadata>("pos-key-metadata:" + record.id, {
+    publicKeySpkiBase64: bytesToBase64(new Uint8Array(record.publicKeySpki)),
+    csrPem: record.csrPem,
+    certificatePem: record.certificatePem,
+  });
+  const persisted: PersistedKey = {
+    id: record.id,
+    privateKey: record.privateKey,
+    encryptedMetadata,
+    createdAt: record.createdAt,
+  };
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).put(record);
+      tx.objectStore(STORE_NAME).put(persisted);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("Could not save the local POS key."));
       tx.onabort = () => reject(tx.error ?? new Error("Local POS key storage was aborted."));
