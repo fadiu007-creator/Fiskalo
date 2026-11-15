@@ -95,6 +95,9 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     });
     db.close();
     assert.equal(stored.privateKey.extractable, false);
+  assert.equal(stored.encryptedMetadata.version, 1);
+  assert.equal(stored.csrPem, undefined);
+  assert.equal(stored.certificatePem, undefined);
 
     const caKey = join(dir, "ca.key");
     const caCert = join(dir, "ca.pem");
