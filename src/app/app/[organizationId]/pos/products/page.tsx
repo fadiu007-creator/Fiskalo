@@ -37,6 +37,13 @@ export default function PosProductsPage() {
   const legacyItemCategoryCodes = Array.from(new Set(products.map(p => p.atk_item_category_code)
     .filter((v): v is string => Boolean(v) && !isAtkItemCategoryCode(v)))).sort();
   const itemCategoryCodes = [...ATK_ITEM_CATEGORIES.map((category) => category.code), ...legacyItemCategoryCodes];
+  const nonCompliantProducts = products.filter((product) =>
+    !product.atk_unit_code || !isAtkUnitCode(product.atk_unit_code) ||
+    !product.atk_item_category_code || !isAtkItemCategoryCode(product.atk_item_category_code) ||
+    !((["A","C"].includes(String(product.atk_tax_code)) && Number(product.vat_rate) === 0) ||
+      (product.atk_tax_code === "D" && Number(product.vat_rate) === 8) ||
+      (product.atk_tax_code === "E" && Number(product.vat_rate) === 18))
+  );
 
   const load = useCallback(async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -181,7 +188,12 @@ export default function PosProductsPage() {
     <Link href={"/app/" + organizationId + "/pos"} style={{ color: "var(--brand)", fontWeight: 750 }}>← Kthehu te arka</Link>
     <h1 style={{ margin: "12px 0 4px", fontSize: 27 }}>Produktet dhe shërbimet</h1>
     <p style={{ color: "var(--muted)", fontSize: 13 }}>Katalogu i artikujve që shiten në arkë. TVSH-ja caktohet vetëm një herë; kodi përkatës ATK plotësohet automatikisht.</p>
-    {planInfo && <div style={{ background: "white", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", margin: "12px 0 16px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><div><strong>Paketa {planInfo.plan_package.charAt(0).toUpperCase()+planInfo.plan_package.slice(1)}</strong><div style={{ color: "var(--muted)", fontSize: 12, marginTop: 3 }}>Produkte të përdorura: {products.length} nga {planInfo.product_limit}</div></div><strong style={{ alignSelf: "center" }}>{products.length}/{planInfo.product_limit}</strong></div>}
+    {nonCompliantProducts.length > 0 && <section role="alert" style={{ background: "#fff7e8", border: "1px solid #e4c58c", color: "#6d4a10", borderRadius: 10, padding: 13, margin: "12px 0 16px" }}>
+       <strong>{nonCompliantProducts.length} produkte kanë kode ATK që duhen korrigjuar</strong>
+       <p style={{ fontSize: 12, margin: "5px 0 8px" }}>Përputhi njësinë, kategorinë dhe TVSH-në me katalogun zyrtar përpara shitjes. Fiskalo do të bllokojë faturat e reja që përdorin këto produkte derisa kodet të jenë valide.</p>
+       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{nonCompliantProducts.map(product => <span key={product.id} style={{ background: "#fff", border: "1px solid #e4c58c", borderRadius: 6, padding: "4px 7px", fontSize: 11 }}>{product.name}</span>)}</div>
+     </section>}
+     {planInfo && <div style={{ background: "white", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", margin: "12px 0 16px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><div><strong>Paketa {planInfo.plan_package.charAt(0).toUpperCase()+planInfo.plan_package.slice(1)}</strong><div style={{ color: "var(--muted)", fontSize: 12, marginTop: 3 }}>Produkte të përdorura: {products.length} nga {planInfo.product_limit}</div></div><strong style={{ alignSelf: "center" }}>{products.length}/{planInfo.product_limit}</strong></div>}
     {error && <div role="alert" style={{ background: "#fff0ef", color: "#982d25", padding: 12, borderRadius: 9, marginBottom: 12 }}>{error}</div>}
     {notice && <div role="status" style={{ background: "#edf7f1", color: "#155c3c", padding: 12, borderRadius: 9, marginBottom: 12 }}>{notice}</div>}
     <form onSubmit={save} style={{ background: "white", border: "1px solid var(--line)", borderRadius: 13, padding: 16, display: "grid", gap: 11, marginBottom: 18 }}>
