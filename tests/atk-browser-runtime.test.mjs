@@ -77,7 +77,7 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     assert.equal(verifySignature(
       "sha256",
       Buffer.from(payload, "utf8"),
-      { key: x509.publicKey, dsaEncoding: "der" },
+      { key: x509.publicKey, dsaEncoding: "ieee-p1363" },
       Buffer.from(signature, "base64"),
     ), true);
     assert.match(generateNuiKf(), /^[A-Z0-9]{16}$/);
@@ -99,6 +99,7 @@ test("signed offline fiscal outbox persists and only changes state by idempotenc
     documentType: 1,
     detailsBase64: "cG9z",
     signatureBase64: "c2ln",
+    certificatePem: "-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----",
     citizenPayloadBase64: "Y2l0aXplbg==",
     citizenSignatureBase64: "c2ln",
     citizenQrPayload: "Y2l0aXplbg==|c2ln",
