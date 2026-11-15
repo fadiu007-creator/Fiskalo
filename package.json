@@ -19,6 +19,7 @@
     "test:pos-outage": "node --experimental-strip-types --test tests/pos-connectivity-outage.test.mjs",
     "test:reports": "node --experimental-strip-types --test tests/sales-report.test.mjs",
     "test:untransmitted-export": "node --experimental-strip-types --test tests/untransmitted-export.test.mjs",
+    "test:local-storage-crypto": "node --experimental-strip-types --test tests/local-storage-crypto.test.mjs",
     "cf-build:atk-recovery": "wrangler deploy --dry-run --config wrangler.atk-recovery.jsonc",
     "deploy:atk-recovery": "wrangler deploy --config wrangler.atk-recovery.jsonc"
   },
