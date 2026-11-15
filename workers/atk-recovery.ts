@@ -257,22 +257,25 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
   const pos = poses[0];
   const businesses = await dbGet<Business>(env, "fiskalo_basic_businesses",
     postgrestQuery({ select: "id,nui", id: "eq." + doc.business_id, limit: "1" }));
-  const certificates = await dbGet<PosCertificate>(env, "fiskalo_basic_pos_certificates",
-    postgrestQuery({ select: "business_id,pos_id,certificate_pem", business_id: "eq." + doc.business_id, pos_id: "eq." + pos.id, limit: "1" }));
-  if (businesses.length !== 1 || certificates.length !== 1) {
-    await markNeedsReconciliation(env, doc, "Business identity or server-registered ATK certificate is missing.");
+  if (businesses.length !== 1) {
+    await markNeedsReconciliation(env, doc, "Business identity is missing.");
     return "reconciliation";
   }
   const business = businesses[0];
-  const certificatePem = certificates[0].certificate_pem;
   let recoveryActorId = sale.operator_id;
   try {
     const posFields = parseCouponFields(doc.signed_payload);
     const citizenFields = parseCouponFields(doc.citizen_payload);
     const originalDocs = doc.document_type === 1 ? [] : await dbGet<OriginalDoc>(env, "fiskalo_basic_fiscal_documents",
-      postgrestQuery({ select: "id,coupon_id,atk_transaction_id,submission_state,document_type", id: "eq." + doc.parent_document_id, business_id: "eq." + doc.business_id, limit: "1" }));
+      postgrestQuery({ select: "id,coupon_id,atk_transaction_id,submission_state,document_type,signed_payload", id: "eq." + doc.parent_document_id, business_id: "eq." + doc.business_id, limit: "1" }));
     const original = originalDocs[0];
     if (doc.document_type !== 1 && (!original || original.document_type !== 1 || original.submission_state !== "accepted" || String(original.coupon_id) !== String(doc.reference_coupon_id) || String(original.coupon_id) !== String(sale.coupon_id))) throw new Error("Original accepted ATK sale is missing for this correction.");
+    const originalApplicationId = doc.document_type === 1
+      ? BigInt(pos.application_id)
+      : (original ? parseCouponFields(original.signed_payload).get(7) : undefined);
+    if (typeof originalApplicationId !== "bigint" || originalApplicationId <= BigInt(0)) {
+      throw new Error("Original ATK Application ID is missing from the accepted coupon.");
+    }
     const correctionReservations = doc.document_type === 1 ? [] : await dbGet<CorrectionReservation>(env, "fiskalo_basic_correction_reservations",
       postgrestQuery({ select: "business_id,sale_id,document_type,original_coupon_id,correction_coupon_id,created_by,status", idempotency_key: "eq." + doc.idempotency_key, business_id: "eq." + doc.business_id, limit: "1" }));
     const correctionReservation = correctionReservations[0];
@@ -286,7 +289,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     const unixTime = BigInt(Math.floor(new Date(doc.document_type === 1 ? sale.created_at : doc.created_at).getTime() / 1000));
     const expectedPos: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
-      [6,BigInt(pos.pos_id)],[7,BigInt(pos.application_id)],[9,BigInt(doc.document_type)],
+      [6,BigInt(pos.pos_id)],[7,originalApplicationId],[9,BigInt(doc.document_type)],
       [13,BigInt(Math.round(Number(sale.total)*100))],[15,BigInt(Math.round(Number(sale.vat_total)*100))],
       [16,BigInt(Math.round(Number(sale.subtotal)*100))],
     ];
