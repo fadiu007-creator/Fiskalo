@@ -45,12 +45,14 @@ for migration in "${migrations[@]}"; do
   run_migration "supabase/migrations/$migration"
 
   case "$migration" in
-    0004_fiskalo_basic_security_hardening.sql) run_test "0004_fiskalo_basic_security_hardening.sql" ;;
     0005_fiskalo_basic_offline_receipts.sql) run_test "0005_fiskalo_basic_offline_receipts.sql" ;;
     0006_fiskalo_basic_business_tax_profile.sql) run_test "0006_fiskalo_basic_business_tax_profile.sql" ;;
     0007_fiskalo_basic_operator_identity.sql) run_test "0007_fiskalo_basic_operator_identity.sql" ;;
     0008_fiskalo_basic_operator_snapshot.sql) run_test "0008_fiskalo_basic_operator_snapshot.sql" ;;
-    0014_fiskalo_basic_checkout_idempotency.sql) run_test "0014_fiskalo_basic_checkout_idempotency.sql" ;;
+    0014_fiskalo_basic_checkout_idempotency.sql)
+      run_test "0004_fiskalo_basic_security_hardening.sql"
+      run_test "0014_fiskalo_basic_checkout_idempotency.sql"
+      ;;
     0015_fiskalo_basic_atk_corrections.sql) run_test "0015_fiskalo_basic_atk_corrections.sql" ;;
     0016_fiskalo_business_operations.sql) run_test "0016_fiskalo_business_operations.sql" ;;
     0022_fiskalo_atk_server_side_correction_acceptance.sql) run_test "0022_fiskalo_atk_server_side_correction_acceptance.sql" ;;
