@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { webcrypto, sign as signData } from "node:crypto";
+import { webcrypto, sign as signData, createHash, X509Certificate } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +22,7 @@ openssl(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", keyPath]
 openssl(["req", "-new", "-x509", "-key", keyPath, "-out", certPath, "-subj", "/CN=Fiskalo Test POS", "-days", "1"]);
 const privateKeyPem = readFileSync(keyPath);
 const certificatePem = readFileSync(certPath, "utf8");
+const certificateSpkiSha256 = createHash("sha256").update(new X509Certificate(certificatePem).publicKey.export({ format: "der", type: "spki" })).digest("hex");
 
 const createdAt = "2026-11-15T12:00:00.000Z";
 const unixTime = Math.floor(Date.parse(createdAt) / 1000);
@@ -119,7 +120,7 @@ const sale = {
 };
 const pos = { id: "pos-1", branch_id: 1, pos_id: 2, application_id: 3, certificate_status: "certificate_issued" };
 const business = { id: "business-1", nui: "123456789" };
-const cert = { business_id: "business-1", pos_id: "pos-1", certificate_pem: certificatePem };
+const cert = { business_id: "business-1", pos_id: "pos-1", application_id: 3, certificate_pem: certificatePem, spki_sha256: certificateSpkiSha256, status: "active" };
 
 function response(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
