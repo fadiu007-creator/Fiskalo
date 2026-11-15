@@ -130,22 +130,25 @@ begin
       'citizen_payload', c.citizen_payload,
       'citizen_signature', c.citizen_signature,
       'atk_response', c.atk_response
-    ) order by coalesce(c.offline_issued_at, c.document_created_at), c.document_created_at, c.fiscal_document_id), '[]'::jsonb),
+    ) order by coalesce(c.offline_issued_at, c.document_created_at), c.document_created_at, c.fiscal_document_id)
+      filter (where c.fiscal_document_id is not null), '[]'::jsonb),
     total_count.value
   into result, row_count
-  from candidates c
-  cross join total_count;
+  from total_count
+  left join candidates c on true
+  group by total_count.value;
 
   insert into fiskalo_private.fiskalo_basic_authority_exports(
     business_id, requested_by, authority_request_reference, document_count
   ) values (
-    p_business_id, caller_id, trim(p_authority_request_reference), row_count
+    p_business_id, caller_id, trim(p_authority_request_reference), jsonb_array_length(result)
   );
 
   return jsonb_build_object(
     'documents', result,
-    'count', row_count,
-    'truncated', row_count >= p_limit,
+    'count', jsonb_array_length(result),
+    'total_count', row_count,
+    'truncated', row_count > p_limit,
     'authority_request_reference', trim(p_authority_request_reference),
     'exported_at', now()
   );
