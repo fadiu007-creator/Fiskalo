@@ -57,7 +57,12 @@ export function validateNewOfflineSale(input: NewOfflineSale): void {
 }
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 export class OfflineCheckoutJournal {
-  constructor(private readonly storage: OfflineSaleStorage, private readonly now = () => new Date()) {}
+  private readonly storage: OfflineSaleStorage;
+  private readonly now: () => Date;
+  constructor(storage: OfflineSaleStorage, now = () => new Date()) {
+    this.storage = storage;
+    this.now = now;
+  }
   async recordSale(input: NewOfflineSale): Promise<OfflineSaleRecord> {
     validateNewOfflineSale(input);
     const record: OfflineSaleRecord = { ...structuredClone(input), updatedAtUtc: this.now().toISOString(),
@@ -150,7 +155,8 @@ const DB_VERSION = 1;
 const STORE = "sales";
 export class IndexedDbOfflineSaleStorage implements OfflineSaleStorage {
   private database?: Promise<IDBDatabase>;
-  constructor(private readonly factory: IDBFactory = indexedDB) {}
+  private readonly factory: IDBFactory;
+  constructor(factory: IDBFactory = indexedDB) { this.factory = factory; }
   private open(): Promise<IDBDatabase> {
     if (!this.database) this.database = new Promise((resolve, reject) => {
       const request = this.factory.open(DB_NAME, DB_VERSION);
