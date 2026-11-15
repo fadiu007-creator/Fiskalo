@@ -7,7 +7,17 @@ on:
     paths:
       - "workers/atk-recovery.ts"
       - "wrangler.atk-recovery.jsonc"
-      - "supabase/migrations/0020_fiskalo_atk_recovery_queue.sql"
+      - "wrangler.jsonc"
+      - "src/app/api/atk/test/route.ts"
+      - "src/app/page.tsx"
+      - "src/lib/atk/**"
+      - "src/lib/pos/**"
+      - "supabase/migrations/0018_*.sql"
+      - "supabase/migrations/0019_*.sql"
+      - "supabase/migrations/0020_*.sql"
+      - "supabase/migrations/0021_*.sql"
+      - "supabase/migrations/0022_*.sql"
+      - "supabase/migrations/0023_*.sql"
       - ".github/workflows/deploy-atk-recovery.yml"
 
 permissions:
@@ -33,6 +43,11 @@ jobs:
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY" && exit 1)
           printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --name fiskalo
           printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.atk-recovery.jsonc
+      - name: Deploy Fiskalo web application Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
       - name: Deploy scheduled recovery Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
