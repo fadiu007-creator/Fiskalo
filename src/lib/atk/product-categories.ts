@@ -47,8 +47,8 @@ export const ATK_ITEM_CATEGORIES = [
 
 export type AtkItemCategoryCode = (typeof ATK_ITEM_CATEGORIES)[number]["code"];
 
-export function isAtkItemCategoryCode(value: string): value is AtkItemCategoryCode {
-  return ATK_ITEM_CATEGORIES.some((category) => category.code === value);
+export function isAtkItemCategoryCode(value: string | null | undefined): value is AtkItemCategoryCode {
+  return typeof value === "string" && ATK_ITEM_CATEGORIES.some((category) => category.code === value);
 }
 
 export function getAtkItemCategoryLabel(value: string): string | null {
