@@ -683,7 +683,12 @@ internal sealed record AtkSignCsrRequest(
     [property: JsonPropertyName("posId")] ulong PosId,
     [property: JsonPropertyName("applicationId")] ulong ApplicationId);
 
-internal sealed record AtkCorrectionPrepareRequest(\n    [property: JsonPropertyName("originalIdempotencyKey")] string OriginalIdempotencyKey,\n    [property: JsonPropertyName("correctionCouponId")] ulong CorrectionCouponId,\n    [property: JsonPropertyName("documentType")] int DocumentType);\n\ninternal sealed record AtkCouponRequest(
+internal sealed record AtkCorrectionPrepareRequest(
+    [property: JsonPropertyName("originalIdempotencyKey")] string OriginalIdempotencyKey,
+    [property: JsonPropertyName("correctionCouponId")] ulong CorrectionCouponId,
+    [property: JsonPropertyName("documentType")] int DocumentType);
+
+internal sealed record AtkCouponRequest(
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
     [property: JsonPropertyName("coupon")] PosCouponInput Coupon);
 
