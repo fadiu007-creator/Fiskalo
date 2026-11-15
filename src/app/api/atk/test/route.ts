@@ -587,6 +587,34 @@ export async function POST(request: Request) {
         return jsonError("This fiscal document already exists in the journal and requires reconciliation before another submission.", 409);
       }
 
+      const beginResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_begin_atk_submission_v2", {
+        method: "POST",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: "Bearer " + serviceRoleKey,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          p_actor_id: user.id,
+          p_business_id: businessId,
+          p_sale_id: saleId,
+          p_pos_record_id: posRecordId,
+          p_coupon_id: couponId,
+          p_idempotency_key: idempotencyKey,
+          p_signed_payload: details,
+          p_signature: signature,
+          p_nui_kf: nuiKf,
+          p_verification_no: verificationNo,
+          p_citizen_payload: citizenPayload,
+          p_citizen_signature: citizenSignature,
+          p_daily_number: dailyNumber,
+          p_qr_svg_base64: qrSvgBase64,
+        }),
+        cache: "no-store",
+      });
+      if (!beginResponse.ok) return jsonError("Signed coupon could not be reserved in the trusted fiscal journal; no ATK request was sent.", 409);
+
       // ATK is the authority for acceptance. No client-supplied status or transaction ID is trusted.
       let result: JsonRecord;
       try {
