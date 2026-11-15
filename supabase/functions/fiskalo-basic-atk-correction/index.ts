@@ -73,8 +73,8 @@ Deno.serve(async (req) => {
   const idempotencyKey = body.idempotencyKey;
   const details = body.detailsBase64;
   const signature = body.signatureBase64;
-  if (!uuid(businessId) || !uuid(saleId) || !uint64(String(originalCouponId)) ||
-      !uint64(String(correctionCouponId)) || originalCouponId === correctionCouponId ||
+  if (!uuid(businessId) || !uuid(saleId) || typeof originalCouponId !== "string" || !uint64(originalCouponId) ||
+      typeof correctionCouponId !== "string" || !uint64(correctionCouponId) || originalCouponId === correctionCouponId ||
       (documentType !== 2 && documentType !== 3) ||
       typeof idempotencyKey !== "string" || idempotencyKey.length < 8 || idempotencyKey.length > 200 ||
       !b64(details) || !b64(signature)) {
@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
   const { data: original, error: originalError } = await admin.from("fiskalo_basic_fiscal_documents")
     .select("id,business_id,sale_id,coupon_id,document_type,submission_state,atk_transaction_id")
     .eq("business_id", businessId).eq("sale_id", saleId)
-    .eq("coupon_id", Number(originalCouponId)).eq("document_type", 1)
+    .eq("coupon_id", originalCouponId).eq("document_type", 1)
     .eq("submission_state", "accepted").maybeSingle();
   if (originalError) return json(500, { error: "original_coupon_lookup_failed" }, origin);
   if (!original || !original.atk_transaction_id || Number(original.atk_transaction_id) <= 0) {
@@ -140,20 +140,24 @@ Deno.serve(async (req) => {
     return json(502, { error: "atk_unreachable", accepted: false, reconciliationRequired: true }, origin);
   }
   let atkBody: Record<string, unknown>;
+  let rawTransactionId: string | null = null;
   try {
     const parsed = JSON.parse(responseText);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("bad_response");
     atkBody = parsed;
+    // Preserve the exact uint64 JSON token; JavaScript Number would round large IDs.
+    const match = /"transaction_id"\\s*:\\s*(?:"([0-9]+)"|([0-9]+))/.exec(responseText);
+    rawTransactionId = match?.[1] ?? match?.[2] ?? null;
   } catch {
     return json(502, { error: "atk_invalid_response", accepted: false, reconciliationRequired: true }, origin);
   }
   if (!atkResponse.ok) {
     return json(422, { error: "atk_rejected_coupon", atkStatus: atkResponse.status, details: atkBody.error ?? "ATK rejected the correction" }, origin);
   }
-  if (!uint64(String(atkBody.transaction_id))) {
+  if (!rawTransactionId || !uint64(rawTransactionId)) {
     return json(502, { error: "atk_response_missing_valid_transaction_id", accepted: false, reconciliationRequired: true }, origin);
   }
-  const transactionId = String(atkBody.transaction_id);
+  const transactionId = rawTransactionId;
   const verifiedResponse = {
     status: "accepted",
     transactionId,
@@ -167,10 +171,10 @@ Deno.serve(async (req) => {
     .insert({
       business_id: businessId,
       sale_id: saleId,
-      coupon_id: Number(correctionCouponId),
+      coupon_id: correctionCouponId,
       idempotency_key: idempotencyKey,
       document_type: documentType,
-      reference_coupon_id: Number(originalCouponId),
+      reference_coupon_id: originalCouponId,
       parent_document_id: original.id,
       signed_payload: details,
       signature,
