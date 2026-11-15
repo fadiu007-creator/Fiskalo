@@ -27,6 +27,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:products
       - run: npm run test:atk-browser
+      - run: npm run test:atk-recovery
       - run: npm run lint
       - run: npm run build
       - uses: actions/setup-dotnet@v4
@@ -35,3 +36,4 @@ jobs:
       - run: dotnet test pos-agent/Fiskalo.PosAgent.Tests/Fiskalo.PosAgent.Tests.csproj --configuration Release
       - run: dotnet build pos-agent/Fiskalo.PosAgent.Host/Fiskalo.PosAgent.Host.csproj --configuration Release
       - run: npm run cf-build
+      - run: npm run cf-build:atk-recovery
