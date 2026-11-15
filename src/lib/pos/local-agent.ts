@@ -67,3 +67,20 @@ export type LocalQueueReconcileResult={
 export async function reconcileLocalAgentQueue(token:string,idempotencyKey:string,input:LocalQueueReconcileInput){
   return call<LocalQueueReconcileResult>("/api/v1/queue/reconcile",token,{idempotencyKey,...input});
 }
+
+export type AtkCorrectionPrepareResult={
+  detailsBase64:string;
+  signatureBase64:string;
+  nuiKf:string;
+  originalCouponId:string;
+  correctionCouponId:string;
+  documentType:2|3;
+  environment:"ATK TEST";
+  productionEnabled:false;
+};
+export async function prepareLocalTestCorrection(
+  token:string,
+  input:{originalIdempotencyKey:string;correctionCouponId:string;documentType:2|3}
+){
+  return call<AtkCorrectionPrepareResult>("/api/v1/atk/test/correction/prepare",token,input);
+}
