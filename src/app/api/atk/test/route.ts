@@ -232,6 +232,9 @@ export async function POST(request: Request) {
     }
 
     if (action === "coupon") {
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!serviceRoleKey) return jsonError("Server-side fiscal ledger is not configured. Coupon submission is disabled until SUPABASE_SERVICE_ROLE_KEY is set as a Cloudflare secret.", 503);
+
       const details = requiredString(body.details, "Signed coupon details", 200_000);
       const signature = requiredString(body.signature, "Coupon signature", 256);
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) return jsonError("Coupon signature is not valid base64.", 400);
@@ -245,6 +248,22 @@ export async function POST(request: Request) {
       const poses = await supabaseRequest(restOrigin + "fiskalo_basic_pos?" + posQuery.toString(), token, anonKey);
       if (!Array.isArray(poses) || poses.length !== 1 || !isRecord(poses[0])) return jsonError("POS does not belong to this business.", 403);
       const pos = poses[0];
+
+      const saleId = requiredString(body.saleId, "Sale ID", 64);
+      const couponId = requiredPositiveInteger(body.couponId, "Coupon ID");
+      const saleQuery = new URLSearchParams({
+        select: "id,coupon_id,pos_id,status",
+        id: "eq." + saleId,
+        business_id: "eq." + businessId,
+        pos_id: "eq." + posRecordId,
+        limit: "1",
+      });
+      const sales = await supabaseRequest(restOrigin + "fiskalo_basic_sales?" + saleQuery.toString(), token, anonKey);
+      if (!Array.isArray(sales) || sales.length !== 1 || !isRecord(sales[0]) ||
+          Number(sales[0].coupon_id) !== couponId || !["paid", "fiscalized"].includes(String(sales[0].status))) {
+        return jsonError("Sale does not belong to the selected business and POS, or is not payable.", 409);
+      }
+
       const couponIdentity = readCouponIdentity(details);
       const expected: Array<[number, bigint]> = [
         [1, BigInt(business.nui as string)],
@@ -255,20 +274,90 @@ export async function POST(request: Request) {
       for (const [field, value] of expected) {
         if (couponIdentity.get(field) !== value) return jsonError("Signed coupon identifiers do not match the selected business and POS.", 409);
       }
+      if (couponIdentity.get(2) !== BigInt(couponId)) return jsonError("Signed coupon number does not match the paid sale.", 409);
       if (couponIdentity.get(8) !== String(pos.verification_no)) return jsonError("Signed coupon verification number does not match the saved POS.", 409);
-      // ATK is the authority for acceptance. A browser-supplied status or transaction ID is never used.
+
+      const idempotencyKey = requiredString(body.idempotencyKey, "Fiscal idempotency key", 256);
+      const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
+      const citizenPayload = requiredString(body.citizenPayload, "Signed CitizenCoupon payload", 200_000);
+      const citizenSignature = requiredString(body.citizenSignature, "CitizenCoupon signature", 256);
+      const dailyNumber = requiredPositiveInteger(body.dailyNumber, "Daily coupon number");
+      const qrSvgBase64 = requiredString(body.qrSvgBase64, "CitizenCoupon QR SVG", 1_500_000);
+      const offlineIssuedAt = body.offlineIssuedAt == null ? null : requiredString(body.offlineIssuedAt, "Offline issue timestamp", 64);
+      if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("NUIKF must be 16 uppercase alphanumeric characters.", 400);
+
+      const existingQuery = new URLSearchParams({
+        select: "submission_state,atk_transaction_id",
+        idempotency_key: "eq." + idempotencyKey,
+        limit: "1",
+      });
+      const existingDocs = await supabaseRequest(restOrigin + "fiskalo_basic_fiscal_documents?" + existingQuery.toString(), token, anonKey);
+      if (Array.isArray(existingDocs) && existingDocs.length === 1 && isRecord(existingDocs[0])) {
+        const existing = existingDocs[0];
+        if (existing.submission_state === "accepted" && existing.atk_transaction_id != null) {
+          return jsonError("This fiscal document is already accepted by ATK. Do not submit it again.", 409);
+        }
+        return jsonError("This fiscal document already exists in the journal and requires reconciliation before another submission.", 409);
+      }
+
+      // ATK is the authority for acceptance. No client-supplied status or transaction ID is trusted.
       const result = await atkPost<JsonRecord>("/pos/coupon", { details, signature });
       const transactionId = result.transaction_id;
-      const parsedTransactionId = typeof transactionId === "string" || typeof transactionId === "number"
-        ? Number(transactionId) : 0;
-      if (!Number.isSafeInteger(parsedTransactionId) || parsedTransactionId <= 0) {
-        return jsonError("ATK TEST returned no valid transaction_id; coupon is not marked accepted.", 502);
+      const transactionIdText = typeof transactionId === "string"
+        ? transactionId
+        : typeof transactionId === "number" && Number.isSafeInteger(transactionId)
+          ? String(transactionId) : "";
+      if (!/^[1-9][0-9]{0,19}$/.test(transactionIdText) ||
+          BigInt(transactionIdText) > BigInt("18446744073709551615")) {
+        return jsonError("ATK TEST returned no valid uint64 transaction_id; the document is not marked accepted.", 502);
       }
-      return NextResponse.json({
+
+      const trustedResponse = {
         status: "accepted",
-        transactionId: String(parsedTransactionId),
+        transactionId: transactionIdText,
         message: typeof result.message === "string" ? result.message : "",
         environment: "ATK TEST",
+      };
+      const persistResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_record_atk_receipt", {
+        method: "POST",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: "Bearer " + serviceRoleKey,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          p_actor_id: user.id,
+          p_business_id: businessId,
+          p_sale_id: saleId,
+          p_pos_record_id: posRecordId,
+          p_coupon_id: couponId,
+          p_idempotency_key: idempotencyKey,
+          p_signed_payload: details,
+          p_signature: signature,
+          p_atk_transaction_id: transactionIdText,
+          p_atk_response: trustedResponse,
+          p_nui_kf: nuiKf,
+          p_citizen_payload: citizenPayload,
+          p_citizen_signature: citizenSignature,
+          p_daily_number: dailyNumber,
+          p_offline_issued_at: offlineIssuedAt,
+          p_qr_svg_base64: qrSvgBase64,
+        }),
+        cache: "no-store",
+      });
+      if (!persistResponse.ok) {
+        // ATK has already accepted this coupon. Never let the UI retry it blindly.
+        return NextResponse.json({
+          error: "ATK accepted the coupon (transaction " + transactionIdText + "), but the trusted fiscal ledger could not persist it. Do not resubmit; reconcile this transaction.",
+          status: "accepted_not_persisted",
+          transactionId: transactionIdText,
+          environment: "ATK TEST",
+        }, { status: 502, headers: { "Cache-Control": "no-store" } });
+      }
+      return NextResponse.json({
+        ...trustedResponse,
+        persisted: true,
         productionEnabled: false,
       }, { headers: { "Cache-Control": "no-store" } });
     }
