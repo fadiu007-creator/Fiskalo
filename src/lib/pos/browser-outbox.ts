@@ -8,6 +8,8 @@ export type BrowserFiscalOutboxItem = {
   posRecordId: string;
   couponId: number;
   documentType: 1 | 2 | 3;
+  originalCouponId?: number;
+  originalTransactionId?: string;
   detailsBase64: string;
   signatureBase64: string;
   certificatePem: string;
