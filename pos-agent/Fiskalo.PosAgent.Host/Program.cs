@@ -482,9 +482,16 @@ app.MapPost(AtkCorrectionPreparePath, async (AtkCorrectionPrepareRequest request
             ? AtkCorrectionCouponFactory.CreateFullCancellation(acceptedSale, request.CorrectionCouponId, nuiKf, issuedAt)
             : AtkCorrectionCouponFactory.CreateFullReturn(acceptedSale, request.CorrectionCouponId, nuiKf, issuedAt);
         var signed = AtkCouponSigner.SignPosCoupon(correction, key);
+        var citizen = AtkCouponSigner.SignCitizenCoupon(AtkCouponSigner.CreateCitizenCoupon(correction), key);
+        var citizenQrPayload = FiscalReceiptIdentity.BuildCitizenQrPayload(citizen);
+        var qrSvgBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(FiscalReceiptQrCode.CreateSvgData(citizenQrPayload)));
         return Results.Ok(new {
             detailsBase64 = signed.DetailsBase64,
             signatureBase64 = signed.SignatureBase64,
+            citizenPayloadBase64 = citizen.DetailsBase64,
+            citizenSignatureBase64 = citizen.SignatureBase64,
+            citizenQrPayload,
+            qrSvgBase64,
             nuiKf,
             originalCouponId = acceptedSale.CouponId.ToString(),
             correctionCouponId = request.CorrectionCouponId.ToString(),
