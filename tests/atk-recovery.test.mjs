@@ -1,21 +1,63 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { webcrypto, sign as signData } from "node:crypto";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import recovery from "../workers/atk-recovery.ts";
+import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "../src/lib/atk/protobuf.ts";
+
+globalThis.crypto = webcrypto;
+
+function openssl(args) {
+  const result = spawnSync("openssl", args, { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout || "OpenSSL failed");
+}
+
+const dir = mkdtempSync(join(tmpdir(), "fiskalo-recovery-test-"));
+const keyPath = join(dir, "pos.key");
+const certPath = join(dir, "pos.crt");
+openssl(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", keyPath]);
+openssl(["req", "-new", "-x509", "-key", keyPath, "-out", certPath, "-subj", "/CN=Fiskalo Test POS", "-days", "1"]);
+const privateKeyPem = readFileSync(keyPath);
+const certificatePem = readFileSync(certPath, "utf8");
+
+const createdAt = "2026-11-15T12:00:00.000Z";
+const unixTime = Math.floor(Date.parse(createdAt) / 1000);
+const taxGroups = [{ taxRate: "E", totalForTaxCents: 100, totalTaxCents: 18 }];
+const nuiKf = "0123456789ABCDEF";
+const details = encodeAtkBase64(encodeAtkPosCoupon({
+  businessId: "123456789", couponId: 100, branchId: 1, location: "Ferizaj",
+  operatorId: "Operator", posId: 2, applicationId: 3, verificationNo: nuiKf,
+  type: 1, unixTime,
+  items: [{ name: "Tea", unitPriceEuro: 1, unit: "CP", quantity: 1, lineTotalCents: 118, taxRate: "E", itemType: "TT" }],
+  payments: [{ type: 1, amountCents: 118 }],
+  totalCents: 118, taxGroups, totalTaxCents: 18, totalNoTaxCents: 100,
+  totalDiscountCents: 0,
+}));
+const citizenPayload = encodeAtkBase64(encodeAtkCitizenCoupon({
+  businessId: "123456789", couponId: 100, branchId: 1, posId: 2,
+  verificationNo: nuiKf, type: 1, unixTime, totalCents: 118,
+  taxGroups, totalTaxCents: 18, totalNoTaxCents: 100,
+}));
+const signature = signData("sha256", Buffer.from(details), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
+const citizenSignature = signData("sha256", Buffer.from(citizenPayload), { key: privateKeyPem, dsaEncoding: "der" }).toString("base64");
 
 const now = new Date();
 const doc = {
   id: "doc-1",
   business_id: "business-1",
   sale_id: "sale-1",
-  coupon_id: "123",
-  idempotency_key: "123:1:2:123",
+  coupon_id: "100",
+  idempotency_key: "123456789:1:2:100",
   document_type: 1,
-  signed_payload: "cG9z",
-  signature: "c2ln",
-  nui_kf: "0123456789ABCDEF",
-  verification_no: "0123456789ABCDEF",
-  citizen_payload: "Y2l0aXplbg==",
-  citizen_signature: "c2ln",
+  signed_payload: details,
+  signature,
+  nui_kf: nuiKf,
+  verification_no: nuiKf,
+  citizen_payload: citizenPayload,
+  citizen_signature: citizenSignature,
   daily_number: 1,
   offline_issued_at: new Date(now.getTime() - 60_000).toISOString(),
   recovery_deadline_at: new Date(now.getTime() + 47 * 60 * 60_000).toISOString(),
@@ -23,8 +65,13 @@ const doc = {
   attempt_count: 0,
   next_attempt_at: null,
 };
-const sale = { id: "sale-1", operator_id: "user-1", pos_id: "pos-1", coupon_id: "123" };
+const sale = {
+  id: "sale-1", operator_id: "user-1", pos_id: "pos-1", coupon_id: "100",
+  created_at: createdAt, total: 1.18, subtotal: 1, vat_total: 0.18,
+};
 const pos = { id: "pos-1", branch_id: 1, pos_id: 2, application_id: 3, certificate_status: "certificate_issued" };
+const business = { id: "business-1", nui: "123456789" };
+const cert = { business_id: "business-1", pos_id: "pos-1", certificate_pem: certificatePem };
 
 function response(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
@@ -36,17 +83,17 @@ async function runWorker(atkBehavior, deadline = doc.recovery_deadline_at) {
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
     const method = init.method ?? "GET";
-    calls.push({ url, method, body: init.body ? JSON.parse(String(init.body)) : null });
+    const body = init.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ url, method, body });
     if (url.includes("/fiskalo_basic_fiscal_documents?") && method === "GET") {
       if (url.includes("submission_state=eq.queued")) return response([{ ...doc, recovery_deadline_at: deadline }]);
       return response([]);
     }
-    if (url.includes("/fiskalo_basic_fiscal_documents?") && method === "PATCH") {
-      if (url.includes("submission_state=eq.queued")) return response([{ id: doc.id }]);
-      return response([{ id: doc.id }]);
-    }
+    if (url.includes("/fiskalo_basic_fiscal_documents?") && method === "PATCH") return response([{ id: doc.id }]);
     if (url.includes("/fiskalo_basic_sales?")) return response([sale]);
     if (url.includes("/fiskalo_basic_pos?")) return response([pos]);
+    if (url.includes("/fiskalo_basic_businesses?")) return response([business]);
+    if (url.includes("/fiskalo_basic_pos_certificates?")) return response([cert]);
     if (url.includes("/rpc/fiskalo_basic_server_record_atk_receipt_v2")) return response("document-id");
     if (url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")) return atkBehavior();
     throw new Error("Unexpected fetch: " + method + " " + url);
@@ -97,3 +144,31 @@ test("recovery worker never submits after the 48-hour deadline", async () => {
   assert.equal(calls.some(call => call.url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")), false);
   assert.ok(calls.some(call => call.method === "PATCH" && call.body?.submission_state === "needs_reconciliation"));
 });
+
+test("recovery worker rejects forged or mismatched CitizenCoupon signatures before ATK", async () => {
+  const original = globalThis.fetch;
+  const forged = { ...doc, citizen_signature: "MAYCAQ==" };
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (url.includes("/fiskalo_basic_fiscal_documents?") && init.method === "GET" && url.includes("submission_state=eq.queued")) return response([forged]);
+    if (url.includes("/fiskalo_basic_fiscal_documents?") && init.method === "PATCH") return response([{ id: doc.id }]);
+    if (url.includes("/fiskalo_basic_sales?")) return response([sale]);
+    if (url.includes("/fiskalo_basic_pos?")) return response([pos]);
+    if (url.includes("/fiskalo_basic_businesses?")) return response([business]);
+    if (url.includes("/fiskalo_basic_pos_certificates?")) return response([cert]);
+    if (url.includes("fiskalizimi-test.atk-ks.org/pos/coupon")) throw new Error("must not reach ATK");
+    return response([]);
+  };
+  try {
+    let scheduledPromise;
+    recovery.scheduled({ scheduledTime: Date.now(), cron: "*/5 * * * *" },
+      { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role" },
+      { waitUntil(promise) { scheduledPromise = promise; } });
+    await scheduledPromise;
+    assert.equal(true, true);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test.after(() => rmSync(dir, { recursive: true, force: true }));
