@@ -1,6 +1,6 @@
 "use client";
 
-import { encodeAtkBase64, encodeAtkPosCoupon } from "@/lib/atk/protobuf";
+import { encodeAtkBase64, encodeAtkCitizenCoupon, encodeAtkPosCoupon } from "@/lib/atk/protobuf";
 import { recoverAtkMappingsFromOriginalCoupon } from "@/lib/atk/validate-coupon-payload";
 import { hasBrowserPosCertificate, signAtkBase64Payload } from "@/lib/atk/browser-key-vault";
 import type { createClient } from "@/lib/supabase/client";
@@ -207,6 +207,9 @@ export async function submitInvoiceAdjustmentToATK(
     taxGroups.set(tax, current);
   });
   const paymentType: Record<RefundMethod, number> = { cash: 1, card: 2, voucher: 3, cheque: 4, crypto: 5, bank_transfer: 6 };
+  const verificationNoValue = verificationNo();
+  const unixTime = Math.floor(Date.now() / 1000);
+  const taxGroupRows = Array.from(taxGroups.entries()).map(([taxRate, values]) => ({ taxRate, ...values }));
   const coupon = encodeAtkPosCoupon({
     businessId: String(organization.nui),
     couponId: String(couponId),
@@ -215,13 +218,13 @@ export async function submitInvoiceAdjustmentToATK(
     operatorId: auth.user.id,
     posId: pos.pos_id,
     applicationId: originalApplicationId,
-    verificationNo: verificationNo(),
+    verificationNo: verificationNoValue,
     type: adjustment.adjustment_type === "cancel" ? 2 : 3,
-    unixTime: Math.floor(Date.now() / 1000),
+    unixTime,
     items,
     payments: [{ type: paymentType[refundPaymentMethod], amountCents: totalCents }],
     totalCents,
-    taxGroups: Array.from(taxGroups.entries()).map(([taxRate, values]) => ({ taxRate, ...values })),
+    taxGroups: taxGroupRows,
     totalTaxCents: vatCents,
     totalNoTaxCents: subtotalCents,
     totalDiscountCents,
@@ -229,6 +232,20 @@ export async function submitInvoiceAdjustmentToATK(
   });
   const details = encodeAtkBase64(coupon);
   const signature = await signAtkBase64Payload(keyId, details);
+  const citizenDetails = encodeAtkBase64(encodeAtkCitizenCoupon({
+    businessId: String(organization.nui),
+    couponId: String(couponId),
+    branchId: pos.atk_branch_id,
+    posId: pos.pos_id,
+    verificationNo: verificationNoValue,
+    type: adjustment.adjustment_type === "cancel" ? 2 : 3,
+    unixTime,
+    totalCents,
+    taxGroups: taxGroupRows,
+    totalTaxCents: vatCents,
+    totalNoTaxCents: subtotalCents,
+  }));
+  const citizenSignature = await signAtkBase64Payload(keyId, citizenDetails);
   const response = await fetch("/api/atk/test/adjustment", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -243,6 +260,8 @@ export async function submitInvoiceAdjustmentToATK(
       refundPaymentMethod,
       details,
       signature,
+      citizenDetails,
+      citizenSignature,
     }),
   });
   const result = await response.json().catch(() => ({}));
