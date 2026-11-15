@@ -359,37 +359,25 @@ export async function POST(request: Request) {
       if (!equalBytes(getCsrSpki(csrPem), getCertificateSpki(result.signed_certificate))) {
         return jsonError("ATK TEST certificate public key does not match the submitted browser CSR. Certificate was not registered.", 502);
       }
-      const certificatePersist = await fetch(restOrigin + "fiskalo_basic_pos_certificates?on_conflict=pos_id", {
+      const certificatePersist = await fetch(restOrigin + "rpc/fiskalo_basic_server_register_pos_certificate_v1", {
         method: "POST",
         headers: {
           apikey: serviceRoleKey,
           Authorization: "Bearer " + serviceRoleKey,
           "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates,return=minimal",
+          Accept: "application/json",
         },
         body: JSON.stringify({
-          business_id: businessId,
-          pos_id: posRecordId,
-          certificate_pem: result.signed_certificate,
+          p_business_id: businessId,
+          p_pos_record_id: posRecordId,
+          p_certificate_pem: result.signed_certificate,
+          p_verified_business_name: String(pos.verified_business_name || business.name || ""),
         }),
         cache: "no-store",
       });
-      if (!certificatePersist.ok) return jsonError("ATK issued the certificate, but Fiskalo could not persist its public certificate record. Do not repeat CSR issuance; reconcile the certificate.", 502);
-      const posPersist = await fetch(restOrigin + "fiskalo_basic_pos?id=eq." + encodeURIComponent(posRecordId) + "&business_id=eq." + encodeURIComponent(businessId), {
-        method: "PATCH",
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: "Bearer " + serviceRoleKey,
-          "Content-Type": "application/json",
-          Prefer: "return=minimal",
-        },
-        body: JSON.stringify({
-          certificate_status: "certificate_issued",
-          verified_business_name: String(pos.verified_business_name || business.name || ""),
-        }),
-        cache: "no-store",
-      });
-      if (!posPersist.ok) return jsonError("ATK issued the certificate and the public certificate was stored, but the POS status could not be updated. Reconcile before requesting another certificate.", 502);
+      if (!certificatePersist.ok) {
+        return jsonError("ATK issued the certificate, but atomic POS certificate registration failed. Reconcile this certificate before requesting another.", 502);
+      }
       return NextResponse.json({
         signedCertificate: result.signed_certificate,
         environment: "ATK TEST",
