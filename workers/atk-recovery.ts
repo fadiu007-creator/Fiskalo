@@ -132,11 +132,6 @@ async function verifyPayload(certificatePem: string, payload: string, signature:
     { name: "ECDSA", hash: "SHA-256" }, key, Uint8Array.from(derSignatureToRaw(signature)).buffer, new TextEncoder().encode(payload),
   );
 }
-function encodeBase64(bytes: Uint8Array) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
 
 function headers(env: Env) {
   return {
@@ -372,7 +367,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
       p_citizen_signature: doc.citizen_signature,
       p_daily_number: doc.daily_number,
       p_offline_issued_at: doc.offline_issued_at,
-      p_qr_svg_base64: qrSvgBase64,
+      p_qr_svg_base64: doc.qr_svg_base64,
     });
     return "accepted";
   } catch {
