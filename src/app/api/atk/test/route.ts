@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
+import { encodeAtkBase64 } from "@/lib/atk/protobuf";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,73 @@ function jsonError(message: string, status: number) {
     status,
     headers: { "Cache-Control": "no-store" },
   });
+}
+
+function readDerNode(bytes: Uint8Array, offset: number) {
+  if (offset + 2 > bytes.length) throw new Error("Invalid DER data.");
+  const tag = bytes[offset];
+  let cursor = offset + 1;
+  let length = bytes[cursor++];
+  if (length & 0x80) {
+    const count = length & 0x7f;
+    if (!count || count > 4 || cursor + count > bytes.length) throw new Error("Invalid DER length.");
+    length = 0;
+    for (let i = 0; i < count; i++) length = length * 256 + bytes[cursor++];
+  }
+  const end = cursor + length;
+  if (end > bytes.length) throw new Error("Truncated DER data.");
+  return { tag, start: offset, contentStart: cursor, end };
+}
+
+function getCertificateSpki(certificatePem: string): Uint8Array {
+  const body = certificatePem.replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s/g, "");
+  const binary = atob(body);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  const cert = readDerNode(bytes, 0);
+  if (cert.tag !== 0x30) throw new Error("POS certificate is not a DER sequence.");
+  const tbs = readDerNode(bytes, cert.contentStart);
+  if (tbs.tag !== 0x30) throw new Error("POS certificate has no TBSCertificate.");
+  let cursor = tbs.contentStart;
+  let node = readDerNode(bytes, cursor);
+  if (node.tag === 0xa0) { cursor = node.end; node = readDerNode(bytes, cursor); }
+  for (let i = 0; i < 5; i++) { cursor = node.end; node = readDerNode(bytes, cursor); }
+  if (node.tag !== 0x30) throw new Error("POS certificate has no SubjectPublicKeyInfo.");
+  return bytes.slice(node.start, node.end);
+}
+
+function derSignatureToP1363(signatureBase64: string): Uint8Array {
+  const binary = atob(signatureBase64);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  const sequence = readDerNode(bytes, 0);
+  if (sequence.tag !== 0x30 || sequence.end !== bytes.length) throw new Error("ECDSA signature must be a DER sequence.");
+  const r = readDerNode(bytes, sequence.contentStart);
+  const s = readDerNode(bytes, r.end);
+  if (r.tag !== 0x02 || s.tag !== 0x02 || s.end !== sequence.end) throw new Error("ECDSA DER signature is malformed.");
+  const normalize = (node: {contentStart:number;end:number}) => {
+    let value = bytes.slice(node.contentStart, node.end);
+    while (value.length > 32 && value[0] === 0) value = value.slice(1);
+    if (value.length > 32) throw new Error("ECDSA signature integer is too large.");
+    const result = new Uint8Array(32);
+    result.set(value, 32 - value.length);
+    return result;
+  };
+  const raw = new Uint8Array(64);
+  raw.set(normalize(r), 0);
+  raw.set(normalize(s), 32);
+  return raw;
+}
+
+async function verifySignedBase64Payload(certificatePem: string, payloadBase64: string, signatureBase64: string) {
+  const spki = getCertificateSpki(certificatePem);
+  const publicKey = await crypto.subtle.importKey(
+    "spki", spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
+  );
+  return crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    publicKey,
+    derSignatureToP1363(signatureBase64),
+    new TextEncoder().encode(payloadBase64),
+  );
 }
 
 function readProtoVarint(bytes: Uint8Array, state: { offset: number }): bigint {
