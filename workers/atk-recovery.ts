@@ -29,6 +29,7 @@ type FiscalDoc = {
   next_attempt_at: string | null;
 };
 type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string; status: string; created_at: string; total: number | string; subtotal: number | string; vat_total: number | string };
+type OriginalDoc = { id: string; coupon_id: number | string; atk_transaction_id: number | string; submission_state: string; document_type: number };
 type Pos = { id: string; branch_id: number | string; pos_id: number | string; application_id: number | string; certificate_status: string };
 type PosCertificate = { business_id: string; pos_id: string; certificate_pem: string };
 type Business = { id: string; nui: string };
@@ -259,15 +260,20 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
   try {
     const posFields = parseCouponFields(doc.signed_payload);
     const citizenFields = parseCouponFields(doc.citizen_payload);
-    const originalDocs = doc.document_type === 1 ? [] : await dbGet<OriginalDoc>(env, "fiskalo_basic_fiscal_documents",\n      postgrestQuery({ select: "id,coupon_id,atk_transaction_id,submission_state,document_type", id: "eq." + doc.parent_document_id, business_id: "eq." + doc.business_id, limit: "1" }));\n    const original = originalDocs[0];\n    if (doc.document_type !== 1 && (!original || original.document_type !== 1 || original.submission_state !== "accepted" || String(original.coupon_id) !== String(doc.reference_coupon_id) || String(original.coupon_id) !== String(sale.coupon_id))) throw new Error("Original accepted ATK sale is missing for this correction.");\n    const unixTime = BigInt(Math.floor(new Date(doc.document_type === 1 ? sale.created_at : doc.created_at).getTime() / 1000));
+    const originalDocs = doc.document_type === 1 ? [] : await dbGet<OriginalDoc>(env, "fiskalo_basic_fiscal_documents",
+      postgrestQuery({ select: "id,coupon_id,atk_transaction_id,submission_state,document_type", id: "eq." + doc.parent_document_id, business_id: "eq." + doc.business_id, limit: "1" }));
+    const original = originalDocs[0];
+    if (doc.document_type !== 1 && (!original || original.document_type !== 1 || original.submission_state !== "accepted" || String(original.coupon_id) !== String(doc.reference_coupon_id) || String(original.coupon_id) !== String(sale.coupon_id))) throw new Error("Original accepted ATK sale is missing for this correction.");
+    const unixTime = BigInt(Math.floor(new Date(doc.document_type === 1 ? sale.created_at : doc.created_at).getTime() / 1000));
     const expectedPos: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
-      [6,BigInt(pos.pos_id)],[7,BigInt(pos.application_id)],[9,BigInt(1)],[10,unixTime],
+      [6,BigInt(pos.pos_id)],[7,BigInt(pos.application_id)],[9,BigInt(doc.document_type)],[10,unixTime],
       [13,BigInt(Math.round(Number(sale.total)*100))],[15,BigInt(Math.round(Number(sale.vat_total)*100))],
       [16,BigInt(Math.round(Number(sale.subtotal)*100))],
     ];
     for (const [field,value] of expectedPos) if (posFields.get(field)!==value) throw new Error("POS coupon identity or totals mismatch.");
-    if (posFields.get(8)!==doc.nui_kf || doc.verification_no!==doc.nui_kf) throw new Error("POS coupon NUIKF/VerificationNo mismatch.");\n    if (doc.document_type !== 1 && (posFields.get(17)!==BigInt(doc.reference_coupon_id!) || posFields.get(18)!==BigInt(original!.atk_transaction_id))) throw new Error("Correction reference coupon or original ATK transaction does not match.");
+    if (posFields.get(8)!==doc.nui_kf || doc.verification_no!==doc.nui_kf) throw new Error("POS coupon NUIKF/VerificationNo mismatch.");
+    if (doc.document_type !== 1 && (posFields.get(17)!==BigInt(doc.reference_coupon_id!) || posFields.get(18)!==BigInt(original!.atk_transaction_id))) throw new Error("Correction reference coupon or original ATK transaction does not match.");
     const expectedCitizen: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
       [4,BigInt(pos.pos_id)],[6,BigInt(doc.document_type)],[7,unixTime],
