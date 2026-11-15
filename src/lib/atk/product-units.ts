@@ -32,8 +32,8 @@ export const ATK_MEASUREMENT_UNITS = [
 
 export type AtkUnitCode = (typeof ATK_MEASUREMENT_UNITS)[number]["code"];
 
-export function isAtkUnitCode(value: string): value is AtkUnitCode {
-  return ATK_MEASUREMENT_UNITS.some((unit) => unit.code === value);
+export function isAtkUnitCode(value: string | null | undefined): value is AtkUnitCode {
+  return typeof value === "string" && ATK_MEASUREMENT_UNITS.some((unit) => unit.code === value);
 }
 
 export function normalizeAtkUnitCode(value: string): AtkUnitCode | null {
