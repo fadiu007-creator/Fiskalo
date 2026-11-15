@@ -340,3 +340,5 @@ revoke all on function public.fiskalo_record_payment(uuid, numeric, text, text) 
 grant execute on function public.fiskalo_record_payment(uuid, numeric, text, text) to authenticated;
 revoke all on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, jsonb, numeric) from public, anon;
 grant execute on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, jsonb, numeric) to authenticated;
+revoke all on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, jsonb) from public, anon;
+grant execute on function public.fiskalo_create_pos_sale(uuid, uuid, uuid, text, jsonb) to authenticated;
