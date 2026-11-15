@@ -79,6 +79,20 @@ The ATK test guide requires test phase completion before the certification appli
 
 Article 45 covers complete failure of the fiscal device (distinct from an internet outage): the taxpayer uses an ATK-approved special pre-numbered fiscal coupon booklet, restores/replaces the device within 48 hours, then registers those coupons in the SEF within five days after that period for automatic ATK transmission. Fiskalo must document this fallback and provide an incident/export workflow; a browser outbox alone does not replace the approved paper booklet.
 
+## Full application implementation gates
+
+The Full application uses the pre-existing `fiskalo_*` schema in the shared `zikos` project. The audit found that authenticated business roles currently have direct INSERT/UPDATE privileges on `fiskalo_atk_fiscal_documents`, INSERT on `fiskalo_atk_fiscal_events`, and write privileges on `fiskalo_atk_pos_verifications` and POS installation status. This permits browser-side spoofing of verification or fiscal acceptance unless the write path is hardened.
+
+The feature branch now:
+- moves verification, fiscal journal and event writes to the server-only Supabase service role;
+- registers the ATK-issued public certificate against the exact POS after verifying that its SPKI matches the submitted CSR;
+- verifies each Sale and correction signature against the active server-registered POS certificate before sending it to ATK;
+- removes browser-controlled POS activation;
+- restricts Full product creation/fiscal-field edits and invoice-line creation to official unit/category/VAT mappings;
+- supports all ATK PaymentType values and mixed/partial invoice payments.
+
+The additive SQL is drafted in `supabase/full-migrations/fiskalo_full_server_trusted_fiscal_writes.sql`. It has **not** yet been applied to `zikos`. Until it is applied and the new Full routes are deployed together, the Full application must not be described as server-trusted ATK compliant. The migration intentionally leaves legacy products in place, allows non-fiscal stock/metadata updates, and blocks new invoice lines from products with invalid ATK codes.
+
 ## Current blockers that cannot be solved by code alone
 
 - ATK must issue/confirm the developer and SEF registration identifiers and grant access to the relevant test/production environment.
