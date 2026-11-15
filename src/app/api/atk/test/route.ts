@@ -630,7 +630,7 @@ export async function POST(request: Request) {
         }
       }
 
-      const beginResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_begin_atk_correction_v1", {
+      const beginResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_begin_atk_correction_v2", {
         method: "POST",
         headers: { apikey: serviceRoleKey, Authorization: "Bearer " + serviceRoleKey, "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
