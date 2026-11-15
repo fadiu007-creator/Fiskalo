@@ -93,10 +93,16 @@ async function writeStorageKey(record: StoredStorageKey): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORAGE_KEY_STORE, "readwrite");
-      tx.objectStore(STORAGE_KEY_STORE).put(record);
+      tx.objectStore(STORAGE_KEY_STORE).add(record);
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("Could not persist the local fiscal-data encryption key."));
-      tx.onabort = () => reject(tx.error ?? new Error("Local fiscal-data encryption key storage was aborted."));
+      tx.onerror = () => {
+        if (tx.error?.name === "ConstraintError") resolve();
+        else reject(tx.error ?? new Error("Could not persist the local fiscal-data encryption key."));
+      };
+      tx.onabort = () => {
+        if (tx.error?.name === "ConstraintError") resolve();
+        else reject(tx.error ?? new Error("Local fiscal-data encryption key storage was aborted."));
+      };
     });
   } finally { db.close(); }
 }
