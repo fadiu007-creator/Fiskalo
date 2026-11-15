@@ -9,6 +9,12 @@ export type AtkCorrectionIdentity = {
   verificationNo: string;
   type: number;
   referenceNo: string;
+  location?: string;
+  operatorId?: string;
+  time?: string;
+  totalCents?: string;
+  totalTaxCents?: string;
+  totalNoTaxCents?: string;
 };
 
 export function isUuid(value: unknown): value is string {
@@ -248,14 +254,12 @@ export function extractAtkTransactionId(responseText: string): string | null {
       if (found) throw new Error("ATK response contains duplicate transaction_id fields.");
       found = true;
       const raw = responseText.slice(offset, valueEnd);
-      const value = raw.startsWith('"') ? JSON.parse(raw) as unknown : raw;
-      if (typeof value === "string" && isUint64String(value)) transactionId = value;
-      else if (typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value) && isUint64String(value)) transactionId = value;
-      else if (typeof value === "string" && isUint64String(value)) transactionId = value;
-      else if (typeof value === "string") transactionId = null;
-      else if (typeof value === "string" || typeof value === "number") transactionId = null;
-      else if (/^[1-9][0-9]{0,19}$/.test(raw) && isUint64String(raw)) transactionId = raw;
-      else transactionId = null;
+      if (raw.startsWith('"')) {
+        const value = JSON.parse(raw) as unknown;
+        transactionId = typeof value === "string" && isUint64String(value) ? value : null;
+      } else {
+        transactionId = /^[1-9][0-9]{0,19}$/.test(raw) && isUint64String(raw) ? raw : null;
+      }
     }
 
     offset = skipJsonWhitespace(responseText, valueEnd);
