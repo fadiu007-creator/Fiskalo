@@ -1,6 +1,7 @@
-type ProtoValue = bigint | Uint8Array;
 import { isAtkUnitCode } from "@/lib/atk/product-units";
 import { isAtkItemCategoryCode } from "@/lib/atk/product-categories";
+
+type ProtoValue = bigint | Uint8Array;
 type ProtoField = { number: number; wire: number; value: ProtoValue };
 
 function readVarint(bytes: Uint8Array, start: number): { value: bigint; next: number } {
