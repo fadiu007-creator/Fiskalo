@@ -72,11 +72,14 @@ Existing:
 - Cloud checkout idempotency and offline fiscal-document persistence RPCs.
 
 Still required for true full-offline operation:
-- Checkout currently depends on a successful cloud sale before local fiscalization handoff.
+- Checkout now writes an immutable IndexedDB snapshot before its first network-dependent operation. It preserves the same checkout idempotency key after network failure and can restore the most recent pending snapshot after a browser restart.
+- When cloud checkout succeeds, the local journal records the server sale/coupon linkage. Fiscal queue state is tracked separately and is updated from the local agent's ATK submission outcome.
+- **Still not full offline fiscal checkout:** the current POS flow still needs a cloud-created sale/coupon ID and database-assigned daily number before it can construct the signed ATK coupon. When internet is unavailable, Fiskalo preserves the checkout intent locally but does not yet issue a signed fiscal receipt. The UI must not present this as a completed or ATK-fiscalized sale.
 - The browser bridge calls `http://127.0.0.1:17843`; this is a device-local signing bridge, not a Cloudflare endpoint. It must be treated as an explicit local-runtime integration, not replaced with a cloud API.
 - Durable local daily coupon-number allocation/reservation under ATK's exact numbering rules.
+- Device-side, ATK-approved daily coupon-number and coupon-ID reservation that is collision-safe against cloud-issued numbers.
 - Link and persist a signed offline document to its local sale before reporting fiscal completion.
-- Reconnection workflow to upload original sale and signed document idempotently.
+- Reconnection workflow to upload the original sale and signed document idempotently; current browser journal only restores the checkout for an operator retry and does not yet auto-create the cloud sale.
 - Android/iOS secure keystore/runtime; current agent targets Windows.
 - Explicit handling/tests for IndexedDB eviction/quota, clock manipulation, concurrent tabs, and device loss.
 - Official ATK TEST verification and formal certification for offline workflow.
