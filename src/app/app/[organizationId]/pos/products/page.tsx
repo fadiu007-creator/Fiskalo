@@ -33,10 +33,6 @@ export default function PosProductsPage() {
   const [scanMessage, setScanMessage] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const [planInfo, setPlanInfo] = useState<{ plan_package: string; product_limit: number } | null>(null);
-  const legacyUnitCodes = Array.from(new Set(products.map(p => p.atk_unit_code).filter((v): v is string => Boolean(v) && !isAtkUnitCode(v)))).sort();
-  const legacyItemCategoryCodes = Array.from(new Set(products.map(p => p.atk_item_category_code)
-    .filter((v): v is string => Boolean(v) && !isAtkItemCategoryCode(v)))).sort();
-  const itemCategoryCodes = [...ATK_ITEM_CATEGORIES.map((category) => category.code), ...legacyItemCategoryCodes];
   const nonCompliantProducts = products.filter((product) =>
     !product.atk_unit_code || !isAtkUnitCode(product.atk_unit_code) ||
     !product.atk_item_category_code || !isAtkItemCategoryCode(product.atk_item_category_code) ||
@@ -213,8 +209,8 @@ export default function PosProductsPage() {
       <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
         <strong style={{ fontSize: 13 }}>Kodet fiskale ATK</strong><p style={{ color: "var(--muted)", fontSize: 12, margin: "4px 0 0" }}>Njësia matëse dhe kategoria e artikullit caktohen vetëm një herë këtu. Njësitë përdorin listën e publikuar nga ATK.</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginTop: 8 }}>
-          <label style={{ fontSize: 12 }}>Njësia matëse — kodi ATK<select required value={form.atk_unit_code} onChange={e=>setForm(v=>({...v,atk_unit_code:e.target.value,unit:e.target.value}))} style={field}>{ATK_MEASUREMENT_UNITS.map(({code,label})=><option key={code} value={code}>{code} — {label}{code === "CP" ? " (Parazgjedhur)" : ""}</option>)}{legacyUnitCodes.map(code=><option key={code} value={code}>{code} — kod ekzistues</option>)}</select></label>
-<label style={{ fontSize: 12 }}>Kategoria e artikullit — kodi ATK<select required value={form.atk_item_category_code} onChange={e=>setForm(v=>({...v,atk_item_category_code:e.target.value}))} style={field}>{itemCategoryCodes.map(code=>{const category=ATK_ITEM_CATEGORIES.find(item=>item.code===code);return <option key={code} value={code}>{category ? code+" — "+category.label : code+" — kod ekzistues"}</option>;})}</select></label>
+          <label style={{ fontSize: 12 }}>Njësia matëse — kodi ATK<select required value={form.atk_unit_code} onChange={e=>setForm(v=>({...v,atk_unit_code:e.target.value,unit:e.target.value}))} style={field}>{ATK_MEASUREMENT_UNITS.map(({code,label})=><option key={code} value={code}>{code} — {label}{code === "CP" ? " (Parazgjedhur)" : ""}</option>)}</select></label>
+<label style={{ fontSize: 12 }}>Kategoria e artikullit — kodi ATK<select required value={form.atk_item_category_code} onChange={e=>setForm(v=>({...v,atk_item_category_code:e.target.value}))} style={field}>{ATK_ITEM_CATEGORIES.map(category=><option key={category.code} value={category.code}>{category.code} — {category.label}</option>)}</select></label>
         </div>
         <p style={{ color: "var(--muted)", fontSize: 11, marginTop: 6 }}>Lista e njësive matëse përdor katalogun zyrtar ATK të 29.09.2026 (21 kode). Kategoritë përdorin 35 kodet e aneksit teknik ATK, maj 2026; kodet historike ruhen vetëm për identifikim dhe nuk lejohen në artikujt e rinj fiskalë.</p>
       </div>
