@@ -48,5 +48,10 @@ grant select on table public.fiskalo_atk_fiscal_documents to authenticated;
 grant select on table public.fiskalo_atk_fiscal_events to authenticated;
 grant select on table public.fiskalo_atk_pos_verifications to authenticated;
 grant select, insert on table public.fiskalo_atk_pos_installations to authenticated;
+grant all on table public.fiskalo_atk_pos_certificates to service_role;
+grant all on table public.fiskalo_atk_fiscal_documents to service_role;
+grant all on table public.fiskalo_atk_fiscal_events to service_role;
+grant all on table public.fiskalo_atk_pos_verifications to service_role;
+grant all on table public.fiskalo_atk_pos_installations to service_role;
 
 commit;
