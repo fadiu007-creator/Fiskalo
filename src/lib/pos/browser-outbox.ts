@@ -193,9 +193,12 @@ export function outageRecoveryDeadline(startedAt: string): string {
   return new Date(timestamp + 48 * 60 * 60 * 1000).toISOString();
 }
 
-function outageKey(businessId: string, posRecordId: string): string {
+async function outageKey(businessId: string, posRecordId: string): Promise<string> {
   if (!businessId || !posRecordId) throw new Error("Business and POS are required to track a connectivity outage.");
-  return businessId + ":" + posRecordId;
+  if (!globalThis.crypto?.subtle) throw new Error("Secure browser cryptography is required for outage storage.");
+  const input = new TextEncoder().encode(businessId + ":" + posRecordId);
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", input));
+  return "outage-" + Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function readOutageRecord(id: string): Promise<unknown | null> {
@@ -248,7 +251,7 @@ export async function getOrStartPosConnectivityOutage(
   detectedAt = new Date().toISOString(),
 ): Promise<PosConnectivityOutage> {
   if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
-  const id = outageKey(businessId, posRecordId);
+  const id = await outageKey(businessId, posRecordId);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const raw = await readOutageRecord(id);
     let existing: PosConnectivityOutage | null = null;
@@ -292,7 +295,7 @@ export async function clearPosConnectivityOutage(businessId: string, posRecordId
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(OUTAGE_STORE_NAME, "readwrite", { durability: "strict" });
-      tx.objectStore(OUTAGE_STORE_NAME).delete(outageKey(businessId, posRecordId));
+      tx.objectStore(OUTAGE_STORE_NAME).delete(await outageKey(businessId, posRecordId));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("Could not clear the POS connectivity outage."));
       tx.onabort = () => reject(tx.error ?? new Error("POS connectivity outage clear was aborted."));
