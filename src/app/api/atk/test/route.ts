@@ -607,6 +607,27 @@ export async function POST(request: Request) {
       if (!posSignatureValid || !citizenSignatureValid) return jsonError("Correction POS or CitizenCoupon signature is invalid.", 400);
       const qrSvg = await createCitizenQrSvg(citizenPayload + "|" + citizenSignature);
       const qrSvgBase64 = encodeAtkBase64(new TextEncoder().encode(qrSvg));
+      const existingCorrectionQuery = new URLSearchParams({
+        select: "submission_state,recovery_deadline_at",
+        business_id: "eq." + businessId,
+        idempotency_key: "eq." + idempotencyKey,
+        limit: "1",
+      });
+      const existingCorrectionResponse = await fetch(restOrigin + "fiskalo_basic_fiscal_documents?" + existingCorrectionQuery.toString(), {
+        headers: adminHeaders, cache: "no-store",
+      });
+      if (!existingCorrectionResponse.ok) return jsonError("Could not verify the existing correction journal state.", 502);
+      const existingCorrections: unknown = await existingCorrectionResponse.json();
+      if (Array.isArray(existingCorrections) && existingCorrections.length === 1 && isRecord(existingCorrections[0])) {
+        if (existingCorrections[0].submission_state === "queued" && action === "queue-correction") {
+          return NextResponse.json({ status: "queued", recoveryDeadlineAt: existingCorrections[0].recovery_deadline_at, environment: "ATK TEST", productionEnabled: false }, {
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
+        if (existingCorrections[0].submission_state !== "submitting") {
+          return jsonError("Correction already exists with status " + String(existingCorrections[0].submission_state) + ". Reconciliation is required.", 409);
+        }
+      }
 
       const beginResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_begin_atk_correction_v1", {
         method: "POST",
