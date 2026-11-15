@@ -5,6 +5,17 @@ alter table public.fiskalo_invoice_items
   add column if not exists atk_tax_code text,
   add column if not exists atk_item_category_code text;
 
+-- Normalize only exact legacy labels observed in the live Fiskalo catalogue.
+-- "cope" is the old free-text label for ATK unit CP; "Tjera" is the old
+-- free-text label for official item category TT. No fuzzy remapping is done.
+update public.fiskalo_products
+set atk_unit_code='CP'
+where lower(btrim(atk_unit_code)) in ('cope','copë');
+
+update public.fiskalo_products
+set atk_item_category_code='TT'
+where lower(btrim(atk_item_category_code))='tjera';
+
 -- Keep product master values within the published ATK catalogues while allowing
 -- legacy/unmapped products to remain editable until they are configured.
 do $$
@@ -57,7 +68,13 @@ begin
         'KS','MN','SHN','SDG','HT','SHB','STI','SHT','PBS','MPM'
       )) not valid;
   end if;
-end $$;
+  alter table public.fiskalo_products validate constraint fiskalo_products_atk_unit_2026_check;
+  alter table public.fiskalo_products validate constraint fiskalo_products_atk_tax_2026_check;
+  alter table public.fiskalo_products validate constraint fiskalo_products_atk_category_2026_check;
+  alter table public.fiskalo_invoice_items validate constraint fiskalo_invoice_items_atk_unit_2026_check;
+  alter table public.fiskalo_invoice_items validate constraint fiskalo_invoice_items_atk_tax_2026_check;
+  alter table public.fiskalo_invoice_items validate constraint fiskalo_invoice_items_atk_category_2026_check;
+end $;
 
 create or replace function fiskalo_private.fiskalo_snapshot_invoice_item_atk_mapping()
 returns trigger
