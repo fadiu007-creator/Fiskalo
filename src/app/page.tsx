@@ -435,7 +435,7 @@ export default function Home(){
         group.tax+=cents(line.line_vat??(line.line_total-(line.line_net??(line.line_total/(1+(Number(line.vat_rate??0)/100))))));
         grouped.set(taxRate,group);
       }
-      const taxGroups=Array.from(grouped.values());
+      const taxGroups=Array.from(grouped.values()).map(group=>({taxRate:group.taxRate,totalForTaxCents:group.base,totalTaxCents:group.tax}));
       if(!taxGroups.length)throw new Error("Shitja origjinale nuk ka grupe të vlefshme TVSH-je.");
       const paymentType=sale.payment_method==="cash"?1:sale.payment_method==="card"?2:6;
       const coupon={
