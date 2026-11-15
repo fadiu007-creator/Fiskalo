@@ -3,11 +3,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
-import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, signAtkBase64Payload, generateNuiKf } from "@/lib/atk/browser-runtime";
+import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
+import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, CloudAtkError } from "@/lib/pos/cloud-atk";
+import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
+import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem } from "@/lib/pos/browser-outbox";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 
 type Business={id:string;name:string;nui:string;vat_number:string|null};
+type AtkVerification={businessName:string;verificationCode:string;environment:"ATK TEST";productionEnabled:false};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
@@ -71,9 +76,6 @@ export default function Home(){
   const [fiscalizationNumber,setFiscalizationNumber]=useState("");
   const [applicationId,setApplicationId]=useState("");
   const [selectedPos,setSelectedPos]=useState("");
-  const [agentToken,setAgentToken]=useState("");
-  const [pairCode,setPairCode]=useState("");
-  const [agentStatus,setAgentStatus]=useState<AgentStatus|null>(null);
   const [verification,setVerification]=useState<AtkVerification|null>(null);
   const [cart,setCart]=useState<Record<string,CartLine>>({});
   const [checkoutKey,setCheckoutKey]=useState("");
@@ -131,26 +133,26 @@ export default function Home(){
       for(const item of itemRows??[]){const list=itemsBySale.get(item.sale_id)??[];list.push(item);itemsBySale.set(item.sale_id,list);}
       const docsBySale=new Map((documents??[]).map(doc=>[doc.sale_id,doc]));
       const operatorNames=new Map((members??[]).map(member=>[member.user_id,member.operator_name]));
-      const queue=agentToken?await getLocalAgentQueue(agentToken).catch(()=>null):null;
-      setQueueOverdueCount(queue?.overdueCount??0);
-      const queueByKey=new Map((queue?.items??[]).map(item=>[item.idempotencyKey,item]));
+      const localOutbox=await listFiscalOutboxItems(business.id).catch(()=>[]);
+      const outboxBySale=new Map(localOutbox.map(item=>[item.saleId,item]));
+      setQueueOverdueCount(localOutbox.filter(item=>item.state!=="accepted"&&Date.parse(item.recoveryDeadlineUtc)<Date.now()).length);
       setSales(rows.map(s=>{
         const pos=positions.find(p=>p.id===s.pos_id);
         const idempotencyKey=pos?business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+s.coupon_id:"";
-        const queued=queueByKey.get(idempotencyKey);
+        const queued=outboxBySale.get(s.id);
         const doc=docsBySale.get(s.id);
         return {
           ...s,
           idempotency_key:idempotencyKey,
           items:itemsBySale.get(s.id)??[],
-          transaction_id:String(doc?.atk_transaction_id??queued?.atkTransactionId??"")||null,
-          nui_kf:doc?.nui_kf??(queued?.nuiKf&&/^[A-Z0-9]{16}$/.test(queued.nuiKf)?queued.nuiKf:null),
-          legacy_nui_kf:doc?.legacy_nui_kf??queued?.legacyNuiKf??(queued?.nuiKf&&!/^[A-Z0-9]{16}$/.test(queued.nuiKf)?queued.nuiKf:null),
+          transaction_id:String(doc?.atk_transaction_id??queued?.transactionId??"")||null,
+          nui_kf:doc?.nui_kf??queued?.nuiKf??null,
+          legacy_nui_kf:doc?.legacy_nui_kf??null,
           daily_number:doc?.daily_number??s.daily_number??queued?.dailyNumber??null,
-          submission_state:queued?.status?.toLowerCase()==="accepted"?"accepted":doc?.submission_state??queued?.status??null,
-          offline_issued_at:doc?.offline_issued_at??queued?.offlineIssuedAtUtc??null,
+          submission_state:doc?.submission_state??(queued?.state==="prepared"?"needs_reconciliation":queued?.state??null),
+          offline_issued_at:doc?.offline_issued_at??queued?.issuedAtUtc??null,
           recovery_deadline_at:doc?.recovery_deadline_at??queued?.recoveryDeadlineUtc??null,
-          qr_svg_base64:doc?.qr_svg_base64??queued?.qrSvgBase64??null,
+          qr_svg_base64:doc?.qr_svg_base64??queued?.qrSvg??null,
           pos_identifier:pos?.unit_number?pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id):null,
           unit_number:pos?.unit_number??null,
           business_address:pos?.location??null,
@@ -159,13 +161,13 @@ export default function Home(){
           operator_identifier:s.operator_identifier??null,
           document_type:doc?.document_type===2?"ANULIM":doc?.document_type===3?"KTHIM":"SHITJE",
           is_offline:!!(doc?.offline_issued_at??queued?.offlineIssuedAtUtc),
-          recovery_deadline_exceeded:!!queued?.recoveryDeadlineExceeded,
+          recovery_deadline_exceeded:!!queued&&Date.parse(queued.recoveryDeadlineUtc)<Date.now()&&queued.state!=="accepted",
           queue_last_error:queued?.lastError??null
         };
       }));
     }catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua historia e shitjeve.");}
     finally{setBusy(false);}
-  },[supabase,business,agentToken,positions,user]);
+  },[supabase,business,positions,user,operatorName]);
 
   const syncAcceptedQueue=useCallback(async()=>{
     if(!supabase||!business||!agentToken)return;
