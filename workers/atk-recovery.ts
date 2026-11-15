@@ -29,7 +29,7 @@ type FiscalDoc = {
   next_attempt_at: string | null;
 };
 type Sale = { id: string; operator_id: string; pos_id: string; coupon_id: number | string; status: string; created_at: string; total: number | string; subtotal: number | string; vat_total: number | string };
-type OriginalDoc = { id: string; coupon_id: number | string; atk_transaction_id: number | string; submission_state: string; document_type: number };
+type OriginalDoc = { id: string; coupon_id: number | string; atk_transaction_id: number | string; submission_state: string; document_type: number };\ntype CorrectionReservation = { business_id: string; sale_id: string; document_type: number; original_coupon_id: number | string; correction_coupon_id: number | string; created_by: string; status: string };
 type Pos = { id: string; branch_id: number | string; pos_id: number | string; application_id: number | string; certificate_status: string };
 type PosCertificate = { business_id: string; pos_id: string; certificate_pem: string };
 type Business = { id: string; nui: string };
@@ -266,6 +266,16 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
       postgrestQuery({ select: "id,coupon_id,atk_transaction_id,submission_state,document_type", id: "eq." + doc.parent_document_id, business_id: "eq." + doc.business_id, limit: "1" }));
     const original = originalDocs[0];
     if (doc.document_type !== 1 && (!original || original.document_type !== 1 || original.submission_state !== "accepted" || String(original.coupon_id) !== String(doc.reference_coupon_id) || String(original.coupon_id) !== String(sale.coupon_id))) throw new Error("Original accepted ATK sale is missing for this correction.");
+    const correctionReservations = doc.document_type === 1 ? [] : await dbGet<CorrectionReservation>(env, "fiskalo_basic_correction_reservations",
+      postgrestQuery({ select: "business_id,sale_id,document_type,original_coupon_id,correction_coupon_id,created_by,status", idempotency_key: "eq." + doc.idempotency_key, business_id: "eq." + doc.business_id, limit: "1" }));
+    const correctionReservation = correctionReservations[0];
+    if (doc.document_type !== 1 && (!correctionReservation || correctionReservation.status !== "queued" ||
+      correctionReservation.sale_id !== doc.sale_id || correctionReservation.document_type !== doc.document_type ||
+      String(correctionReservation.original_coupon_id) !== String(doc.reference_coupon_id) ||
+      String(correctionReservation.correction_coupon_id) !== String(doc.coupon_id) || !correctionReservation.created_by)) {
+      throw new Error("Correction reservation does not match the queued fiscal document.");
+    }
+    const recoveryActorId = doc.document_type === 1 ? sale.operator_id : correctionReservation!.created_by;
     const unixTime = BigInt(Math.floor(new Date(doc.document_type === 1 ? sale.created_at : doc.created_at).getTime() / 1000));
     const expectedPos: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
@@ -394,7 +404,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
       });
     } else {
       await dbRpc(env, "fiskalo_basic_server_record_atk_correction_v2", {
-        p_actor_id: sale.operator_id,
+        p_actor_id: recoveryActorId,
         p_business_id: doc.business_id,
         p_sale_id: doc.sale_id,
         p_original_coupon_id: doc.reference_coupon_id,
