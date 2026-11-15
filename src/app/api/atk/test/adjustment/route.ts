@@ -1,6 +1,6 @@
 import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
 import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
-import { validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
+import { recoverAtkMappingsFromOriginalCoupon, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 import { isPaymentMethod } from "@/lib/atk/payment-allocation";
 
 export const runtime = "nodejs";
@@ -181,6 +181,15 @@ export async function POST(request: Request) {
     return rejectBeforeSubmission("adjustment_ledger_unavailable", "Të dhënat e faturës ose të artikujve nuk mund të lexohen. Korrigjimi nuk u dërgua në ATK.", 500);
   }
   if (String(organization.nui) !== nui) return rejectBeforeSubmission("nui_mismatch", "NUI nuk përputhet me biznesin. Korrigjimi nuk u dërgua në ATK.");
+  let recoveredMappings: Map<string, { id: string; atk_unit_code: string; atk_tax_code: string; atk_item_category_code: string }>;
+  try {
+    recoveredMappings = new Map(recoverAtkMappingsFromOriginalCoupon(
+      String(original.pos_coupon_base64 || ""),
+      invoiceItems
+    ).map((mapping) => [mapping.id, mapping]));
+  } catch {
+    return rejectBeforeSubmission("original_coupon_mapping_unavailable", "Kodet ATK të kuponit origjinal nuk mund të verifikohen. Korrigjimi nuk u dërgua.");
+  }
   const invoiceItemMap = new Map(invoiceItems.map((line) => [line.id, line]));
   const adjustedLines = adjustmentItems.map((item) => {
     const originalLine = invoiceItemMap.get(item.original_invoice_item_id);
@@ -193,9 +202,9 @@ export async function POST(request: Request) {
       line_subtotal: Number(item.net_amount),
       line_vat: Number(item.vat_amount),
       vat_rate: Number(originalLine.vat_rate),
-      atk_unit_code: originalLine.atk_unit_code,
-      atk_tax_code: originalLine.atk_tax_code,
-      atk_item_category_code: originalLine.atk_item_category_code,
+      atk_unit_code: originalLine.atk_unit_code || recoveredMappings.get(originalLine.product_id || "")?.atk_unit_code || null,
+      atk_tax_code: originalLine.atk_tax_code || recoveredMappings.get(originalLine.product_id || "")?.atk_tax_code || null,
+      atk_item_category_code: originalLine.atk_item_category_code || recoveredMappings.get(originalLine.product_id || "")?.atk_item_category_code || null,
     };
   });
   if (adjustedLines.some((line) => !line)) return rejectBeforeSubmission("adjustment_item_mismatch", "Artikujt e korrigjimit nuk përputhen me faturën origjinale. Korrigjimi nuk u dërgua.");
