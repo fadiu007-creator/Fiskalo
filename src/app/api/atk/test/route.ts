@@ -103,7 +103,12 @@ export async function POST(request: Request) {
       limit: "1",
     });
     const members = await supabaseRequest(restOrigin + "fiskalo_basic_members?" + memberQuery.toString(), token, anonKey);
-    if (!Array.isArray(members) || members.length !== 1) return jsonError("You do not have access to this business.", 403);
+    if (!Array.isArray(members) || members.length !== 1 || !isRecord(members[0])) return jsonError("You do not have access to this business.", 403);
+    const memberRole = members[0].role;
+    const action = requiredString(body.action, "Action", 24);
+    if ((action === "verify" || action === "sign-csr") && memberRole !== "owner") {
+      return jsonError("Only the business owner can verify a POS or request its ATK certificate.", 403);
+    }
 
     const businessQuery = new URLSearchParams({
       select: "id,name,nui",
@@ -115,8 +120,6 @@ export async function POST(request: Request) {
       return jsonError("Business record was not found.", 404);
     }
     const business = businesses[0];
-    const action = requiredString(body.action, "Action", 24);
-
     if (action === "verify") {
       const nui = requiredPositiveInteger(business.nui, "Business NUI");
       const posRecordId = requiredString(body.posRecordId, "POS record ID", 64);
