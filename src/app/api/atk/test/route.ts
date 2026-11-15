@@ -372,8 +372,7 @@ export async function POST(request: Request) {
       const nuiKf = requiredString(body.nuiKf, "NUIKF", 16);
       if (!/^[A-Z0-9]{16}$/.test(nuiKf)) return jsonError("NUIKF must be 16 uppercase alphanumeric characters.", 400);
       const couponIdentity = readCouponIdentity(details);
-      const verificationNo = requiredString(body.verificationNo, "Per-coupon verification number", 16);
-      if (!/^[A-Z0-9]{16}$/.test(verificationNo) || verificationNo !== nuiKf) return jsonError("Per-coupon VerificationNo must equal the 16-character NUIKF.", 400);
+      const verificationNo = nuiKf;
       const expected: Array<[number, bigint]> = [
         [1, BigInt(business.nui as string)],
         [3, BigInt(requiredPositiveInteger(pos.branch_id, "Branch ID"))],
