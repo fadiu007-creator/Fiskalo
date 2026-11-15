@@ -80,10 +80,19 @@ set search_path = pg_catalog, public
 as $function$
 declare
   product_row public.fiskalo_products%rowtype;
+  invoice_organization_id uuid;
 begin
+  select organization_id into invoice_organization_id
+    from public.fiskalo_invoices where id = new.invoice_id;
+  if invoice_organization_id is null then
+    raise exception 'Invoice line parent invoice was not found.' using errcode = '23503';
+  end if;
   select * into product_row from public.fiskalo_products where id = new.product_id;
   if not found then
     raise exception 'Invoice line product was not found.' using errcode = '23503';
+  end if;
+  if product_row.organization_id is distinct from invoice_organization_id or not product_row.is_active then
+    raise exception 'Invoice line product is inactive or belongs to another business.' using errcode = '23514';
   end if;
   if product_row.atk_unit_code is null or product_row.atk_unit_code not in (
     'EA','CP','LTR','SEC','MIN','HUR','DAY','MON','ANN','KGB','KGN',
