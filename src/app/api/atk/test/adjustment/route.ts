@@ -1,6 +1,7 @@
 import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
 import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
 import { validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
+import { isPaymentMethod } from "@/lib/atk/payment-allocation";
 
 export const runtime = "nodejs";
 
@@ -80,7 +81,6 @@ export async function POST(request: Request) {
   const applicationId = positiveInteger(body.applicationId);
   const totalCents = positiveInteger(body.totalCents);
   const refundPaymentMethod = typeof body.refundPaymentMethod === "string" ? body.refundPaymentMethod : "";
-  const paymentType: Record<string, number> = { cash: 1, card: 2, voucher: 3, cheque: 4, crypto: 5, bank_transfer: 6 };
   if (!organizationId || !adjustmentId || !/^\d{9}$/.test(nui)) {
     return Response.json({ error: "invalid_adjustment_request", detail: "A valid organization, adjustment and nine-digit NUI are required." }, { status: 400 });
   }
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
 
   if (!posInstallationId || couponId <= BigInt(0) || couponId > BigInt("18446744073709551615") ||
       !applicationId || totalCents === null || !isBase64(details) || !isBase64(signature) ||
-      !paymentType[refundPaymentMethod]) {
+      !isPaymentMethod(refundPaymentMethod)) {
     return rejectBeforeSubmission("invalid_adjustment_request", "Të dhënat e POS-it, kuponit ose nënshkrimit janë të pavlefshme. Korrigjimi nuk u dërgua në ATK.", 400);
   }
 
