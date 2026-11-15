@@ -30,22 +30,22 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Isolated `fiskalo_basic_*` schema and owner onboarding / atomic paid-sale RPCs
 - [x] Basic product catalogue and ATK field storage (official dropdown catalogue still needs a verified ATK source)
 - [x] POS checkout with stock deduction and payment recording
-- [x] Automatic ATK TEST Sale submission after payment when a verified POS, matching TEST certificate and paired local POS Agent are available
+- [x] Automatic ATK TEST Sale submission after payment through the authenticated Cloudflare gateway using the browser-held POS key and matching TEST certificate
 - [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
-- [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and thermal printer support
-- [x] Browser-session restoration for the paired local POS Agent
+- [x] Browser POS runtime: non-exportable per-POS P-256 keys in IndexedDB, CSR creation, certificate/SPKI matching, and POS/CitizenCoupon signing
+- [x] Durable browser IndexedDB fiscal outbox with authenticated upload to the Cloudflare/Supabase recovery queue
 - [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0017 are committed but have not been executed against the database. Treat database migration execution and authenticated RLS integration testing as separate release gates.
-- [x] Correction coupon factory and durable accepted-correction journal/RPC source (migration 0015 committed; not applied; cancellation/return UI and end-to-end submission tests remain open)
+- [x] Cloudflare scheduled recovery Worker source: certificate/signature validation, Sale/Cancel/full Return handling, 48-hour deadline and stop-on-ambiguity behavior
 - [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
 - [ ] Official ATK unit/category dropdown catalogue with source/version evidence
 - [ ] Apply and verify migrations 0014–0017 on the approved Fiskalo Supabase project; run SQL contract tests 0014–0017 and authenticated tenant-isolation tests
 - [ ] Complete ambiguous-submission reconciliation UI and authority-request export
 - [ ] Complete cancellation/return POS workflow using the existing correction-document factory
 - [ ] Deploy `supabase/functions/fiskalo-basic-workers` to the approved Supabase project and verify owner-only worker invitation/listing with real Auth email delivery
-- [ ] Verify physical POS installation, printer, offline recovery and ATK TEST acceptance
+- [ ] Deploy the Cloudflare recovery Worker and verify scheduled recovery with a real pre-delivery failure and reconnection
 - [ ] Cloudflare deployment and live smoke tests
 
-The app currently supports a TEST sale submission path only. Cancel/Return UI, official catalogue dropdowns, authority exports, Android support, live deployment and production submission are not complete. Basic inventory, purchases and expenses are implemented in source but remain unavailable until migrations 0016–0017 are applied and verified. Migrations 0004–0006 are documented as applied to the existing `zikos` project; migrations 0014–0017 are committed but not executed there. All Basic objects use the isolated `fiskalo_basic_*` namespace and do not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
+The web-only ATK TEST runtime, browser signing, authenticated Cloudflare gateway, trusted acceptance journal, correction reservations and scheduled recovery Worker are implemented in PR #12. CI and live ATK TEST acceptance remain release gates; formal ATK certification and production submission are not claimed. Partial returns are not supported. Basic inventory, purchases and expenses are implemented in source but remain unavailable until migrations 0016–0017 are applied and verified. Migrations 0004–0006 are documented as applied to the existing `zikos` project; migrations 0014–0017 are committed but not executed there. All Basic objects use the isolated `fiskalo_basic_*` namespace and do not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
 
 A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued.
 
