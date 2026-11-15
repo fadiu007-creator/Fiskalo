@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { ATK_MEASUREMENT_UNITS, isAtkUnitCode } from "@/lib/atk/product-units";
+import { ATK_ITEM_CATEGORIES, isAtkItemCategoryCode } from "@/lib/atk/product-categories";
 
 type Product = {
   id: string; name: string; sku: string | null; item_type: string; unit: string; pos_category: string; image_url: string | null;
@@ -12,49 +14,6 @@ type Product = {
 };
 const blank = { name: "", sku: "", item_type: "product", unit: "CP", pos_category: "TT", image_url: "", unit_price: "0", price_includes_vat: true, vat_rate: "18",
   stock_quantity: "0", track_stock: false, atk_unit_code: "CP", atk_tax_code: "E", atk_item_category_code: "TT" };
-const ATK_UNITS = [
-  ["EA", "Një (njësi)"], ["CP", "Copë"], ["LTR", "Litër"], ["SEC", "Sekondë"], ["MIN", "Minutë"], ["HUR", "Orë"], ["DAY", "Ditë"], ["MON", "Muaj"], ["ANN", "Vit"],
-  ["KGB", "Kilogram bruto"], ["KGN", "Kilogram neto"], ["TN", "Ton"], ["GRM", "Gram"], ["M4", "Vlerë monetare"], ["UDH", "Udhëtim"], ["KMT", "Kilometër"],
-  ["LM", "Metër linear"], ["MTS", "Metër katror"], ["MTV", "Metër kub"], ["MSK", "Metër për sekondë katror"], ["KËH", "Kilovat-orë"], ["NFJ", "Numër fjalësh"],
-  ["NFQ", "Numër faqesh"], ["PRQ", "Përqindje"], ["DP", "Ditë pune"], ["OP", "Orë pune"], ["PRD", "Përdorim"], ["PAL", "Palë"], ["XBX", "Kuti"], ["PK", "Pako"], ["SET", "Set"]
-] as const;
-const ATK_CATEGORIES = [
-  ["TT", "Të tjera"],
-  ["UR", "Ushqime restoranti"],
-  ["AU", "Artikuj ushqimorë"],
-  ["VM", "Veshmbathje"],
-  ["KO", "Kozmetikë"],
-  ["AP", "Autopjesë"],
-  ["BM", "Barna mjekësore"],
-  ["PM", "Pajisje mjekësore"],
-  ["PP", "Pemë dhe perime"],
-  ["PE", "Pajisje elektronike"],
-  ["PS", "Pajisje shtëpiake"],
-  ["PB", "Pajisje bujqësore"],
-  ["BB", "Barna bujqësore"],
-  ["KB", "Karburante"],
-  ["EE", "Energji elektrike"],
-  ["PSE", "Pajisje speciale elektrike"],
-  ["SM", "Shërbime mjekësore"],
-  ["SJ", "Shërbime juridike"],
-  ["ST", "Shërbime të tjera"],
-  ["SK", "Shërbime të kontabilitetit"],
-  ["SMK", "Shërbime mekanike"],
-  ["STR", "Shërbime transporti"],
-  ["PI", "Pajisje industriale"],
-  ["PT", "Pajisje transporti"],
-  ["SEA", "Shërbime edukative dhe arsimore"],
-  ["KS", "Klube sportive"],
-  ["MN", "Materiale ndërtimore"],
-  ["SHN", "Shërbime ndërtimore"],
-  ["SDG", "Shtyp dhe dizajn grafik"],
-  ["HT", "Hotele dhe turizëm"],
-  ["SHB", "Shërbime bankare"],
-  ["STI", "Shërbime të TI-së"],
-  ["SHT", "Shërbime të telekomunikimit"],
-  ["PBS", "Prodhimi bimor dhe shtazor"],
-  ["MPM", "Mish dhe produkte të mishit"],
-] as const;
 const field: React.CSSProperties = { width: "100%", border: "1px solid var(--line)", borderRadius: 9, padding: "10px 11px", background: "white", color: "var(--ink)" };
 const primary: React.CSSProperties = { border: 0, borderRadius: 9, padding: "11px 15px", background: "var(--brand)", color: "white", fontWeight: 750, cursor: "pointer" };
 
@@ -74,10 +33,10 @@ export default function PosProductsPage() {
   const [scanMessage, setScanMessage] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const [planInfo, setPlanInfo] = useState<{ plan_package: string; product_limit: number } | null>(null);
-  const legacyUnitCodes = Array.from(new Set(products.map(p => p.atk_unit_code).filter((v): v is string => Boolean(v) && !ATK_UNITS.some(([code]) => code === v)))).sort();
+  const legacyUnitCodes = Array.from(new Set(products.map(p => p.atk_unit_code).filter((v): v is string => Boolean(v) && !isAtkUnitCode(v)))).sort();
   const legacyItemCategoryCodes = Array.from(new Set(products.map(p => p.atk_item_category_code)
-    .filter((v): v is string => Boolean(v) && !ATK_CATEGORIES.some(([code]) => code === v)))).sort();
-  const itemCategoryCodes = [...ATK_CATEGORIES.map(([code]) => code), ...legacyItemCategoryCodes];
+    .filter((v): v is string => Boolean(v) && !isAtkItemCategoryCode(v)))).sort();
+  const itemCategoryCodes = [...ATK_ITEM_CATEGORIES.map((category) => category.code), ...legacyItemCategoryCodes];
 
   const load = useCallback(async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -159,7 +118,7 @@ export default function PosProductsPage() {
     event.preventDefault(); setBusy(true); setError(""); setNotice("");
     const enteredPrice = Number(form.unit_price), vat = Number(form.vat_rate), stock = Number(form.stock_quantity);
     const price = form.price_includes_vat ? enteredPrice / (1 + vat / 100) : enteredPrice;
-    if (!form.name.trim() || !form.atk_unit_code.trim() || !form.atk_item_category_code.trim() || !Number.isFinite(enteredPrice) || enteredPrice < 0 || ![0, 8, 18].includes(vat) ||
+    if (!form.name.trim() || !isAtkUnitCode(form.atk_unit_code) || !isAtkItemCategoryCode(form.atk_item_category_code) || !Number.isFinite(enteredPrice) || enteredPrice < 0 || ![0, 8, 18].includes(vat) ||
         (form.item_type === "product" && form.track_stock && (!Number.isFinite(stock) || stock < 0))) {
       setBusy(false); setError("Kontrollo emrin, çmimin, TVSH-në (0, 8 ose 18) dhe stokun."); return;
     }
@@ -242,10 +201,10 @@ export default function PosProductsPage() {
       <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
         <strong style={{ fontSize: 13 }}>Kodet fiskale ATK</strong><p style={{ color: "var(--muted)", fontSize: 12, margin: "4px 0 0" }}>Njësia matëse dhe kategoria e artikullit caktohen vetëm një herë këtu. Njësitë përdorin listën e publikuar nga ATK.</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginTop: 8 }}>
-          <label style={{ fontSize: 12 }}>Njësia matëse — kodi ATK<select required value={form.atk_unit_code} onChange={e=>setForm(v=>({...v,atk_unit_code:e.target.value,unit:e.target.value}))} style={field}>{ATK_UNITS.map(([code,label])=><option key={code} value={code}>{code} — {label}{code === "CP" ? " (Parazgjedhur)" : ""}</option>)}{legacyUnitCodes.map(code=><option key={code} value={code}>{code} — kod ekzistues</option>)}</select></label>
-<label style={{ fontSize: 12 }}>Kategoria e artikullit — kodi ATK<select required value={form.atk_item_category_code} onChange={e=>setForm(v=>({...v,atk_item_category_code:e.target.value}))} style={field}>{itemCategoryCodes.map(code=>{const category=ATK_CATEGORIES.find(([officialCode])=>officialCode===code);return <option key={code} value={code}>{category ? code+" — "+category[1] : code+" — kod ekzistues"}</option>;})}</select></label>
+          <label style={{ fontSize: 12 }}>Njësia matëse — kodi ATK<select required value={form.atk_unit_code} onChange={e=>setForm(v=>({...v,atk_unit_code:e.target.value,unit:e.target.value}))} style={field}>{ATK_MEASUREMENT_UNITS.map(({code,label})=><option key={code} value={code}>{code} — {label}{code === "CP" ? " (Parazgjedhur)" : ""}</option>)}{legacyUnitCodes.map(code=><option key={code} value={code}>{code} — kod ekzistues</option>)}</select></label>
+<label style={{ fontSize: 12 }}>Kategoria e artikullit — kodi ATK<select required value={form.atk_item_category_code} onChange={e=>setForm(v=>({...v,atk_item_category_code:e.target.value}))} style={field}>{itemCategoryCodes.map(code=>{const category=ATK_ITEM_CATEGORIES.find(item=>item.code===code);return <option key={code} value={code}>{category ? code+" — "+category.label : code+" — kod ekzistues"}</option>;})}</select></label>
         </div>
-        <p style={{ color: "var(--muted)", fontSize: 11, marginTop: 6 }}>Lista përmban 31 njësi matëse dhe 35 kategori zyrtare të mallrave/shërbimeve nga dokumenti teknik ATK. Kodet historike të produkteve ruhen për editim, por nuk shtohen në listën e kodeve të reja.</p>
+        <p style={{ color: "var(--muted)", fontSize: 11, marginTop: 6 }}>Lista e njësive matëse përdor katalogun zyrtar ATK të 29.09.2026 (21 kode). Kategoritë përdorin 35 kodet e aneksit teknik ATK, maj 2026; kodet historike ruhen vetëm për identifikim dhe nuk lejohen në artikujt e rinj fiskalë.</p>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button disabled={busy} type="submit" style={primary}>{busy ? "Duke ruajtur..." : editingId ? "Ruaj ndryshimet" : planInfo && products.length >= planInfo.product_limit ? "Limiti i paketës u arrit" : "Shto produktin"}</button>{editingId && <button type="button" onClick={reset} style={{ ...primary, background: "white", color: "var(--ink)", border: "1px solid var(--line)" }}>Anulo</button>}</div>
     </form>
