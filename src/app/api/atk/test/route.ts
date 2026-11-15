@@ -48,6 +48,31 @@ function getCertificateSpki(certificatePem: string): Uint8Array {
   return bytes.slice(node.start, node.end);
 }
 
+function getCsrSpki(csrPem: string): Uint8Array {
+  const body = csrPem.replace(/-----BEGIN CERTIFICATE REQUEST-----|-----END CERTIFICATE REQUEST-----|\s/g, "");
+  const binary = atob(body);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  const request = readDerNode(bytes, 0);
+  if (request.tag !== 0x30) throw new Error("PKCS#10 request is not a DER sequence.");
+  const info = readDerNode(bytes, request.contentStart);
+  if (info.tag !== 0x30) throw new Error("PKCS#10 request has no CertificationRequestInfo.");
+  let cursor = info.contentStart;
+  let node = readDerNode(bytes, cursor); // version
+  cursor = node.end;
+  node = readDerNode(bytes, cursor); // subject
+  cursor = node.end;
+  node = readDerNode(bytes, cursor); // SubjectPublicKeyInfo
+  if (node.tag !== 0x30) throw new Error("PKCS#10 request has no SubjectPublicKeyInfo.");
+  return bytes.slice(node.start, node.end);
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
+  return difference === 0;
+}
+
 function derSignatureToP1363(signatureBase64: string): Uint8Array {
   const binary = atob(signatureBase64);
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
@@ -318,6 +343,7 @@ export async function POST(request: Request) {
       const applicationId = requiredPositiveInteger(pos.application_id, "Application ID");
       if (String(body.applicationId) !== String(applicationId)) return jsonError("Application ID does not match the saved POS configuration.", 409);
       if (String(body.verificationCode) !== String(pos.verification_no)) return jsonError("ATK verification code does not match the saved POS verification.", 409);
+      const csrPem = requiredString(body.csrPem, "Browser-generated CSR", 32_000);
       const result = await atkPost<JsonRecord>("/ca/signcsr", {
         business_name: requiredString(pos.verified_business_name || business.name, "Verified business name", 256),
         business_id: requiredPositiveInteger(business.nui, "Business NUI"),
@@ -325,10 +351,13 @@ export async function POST(request: Request) {
         verification_no: requiredString(pos.verification_no, "ATK verification code", 16),
         pos_id: requiredPositiveInteger(pos.pos_id, "POS ID"),
         application_id: applicationId,
-        csr: requiredString(body.csrPem, "Browser-generated CSR", 32_000),
+        csr: csrPem,
       });
       if (typeof result.signed_certificate !== "string" || !result.signed_certificate.includes("BEGIN CERTIFICATE")) {
         return jsonError("ATK TEST returned no valid signed certificate.", 502);
+      }
+      if (!equalBytes(getCsrSpki(csrPem), getCertificateSpki(result.signed_certificate))) {
+        return jsonError("ATK TEST certificate public key does not match the submitted browser CSR. Certificate was not registered.", 502);
       }
       const certificatePersist = await fetch(restOrigin + "fiskalo_basic_pos_certificates?on_conflict=pos_id", {
         method: "POST",
