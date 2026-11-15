@@ -10,7 +10,19 @@ export type CloudAtkSubmission = GatewayBase & {
   status: "accepted";
   transactionId: string;
   message: string;
+  persisted: true;
 };
+
+export class CloudAtkError extends Error {
+  readonly transactionId: string | null;
+  readonly acceptedButNotPersisted: boolean;
+  constructor(message: string, transactionId: string | null = null, acceptedButNotPersisted = false) {
+    super(message);
+    this.name = "CloudAtkError";
+    this.transactionId = transactionId;
+    this.acceptedButNotPersisted = acceptedButNotPersisted;
+  }
+}
 
 async function callGateway<T>(
   supabase: SupabaseClient,
@@ -32,10 +44,13 @@ async function callGateway<T>(
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    const message = typeof payload === "object" && payload !== null &&
-      "error" in payload && typeof payload.error === "string"
-      ? payload.error : "Cloud ATK TEST request failed (" + response.status + ").";
-    throw new Error(message);
+    const record = typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {};
+    const message = typeof record.error === "string" ? record.error : "Cloud ATK TEST request failed (" + response.status + ").";
+    throw new CloudAtkError(
+      message,
+      typeof record.transactionId === "string" ? record.transactionId : null,
+      record.status === "accepted_not_persisted",
+    );
   }
   return payload as T;
 }
@@ -62,7 +77,21 @@ export function issueCloudTestCertificate(
 
 export function submitCloudTestCoupon(
   supabase: SupabaseClient,
-  input: { businessId: string; details: string; signature: string },
+  input: {
+    businessId: string;
+    posRecordId: string;
+    saleId: string;
+    couponId: number;
+    idempotencyKey: string;
+    details: string;
+    signature: string;
+    nuiKf: string;
+    citizenPayload: string;
+    citizenSignature: string;
+    dailyNumber: number;
+    qrSvgBase64: string;
+    offlineIssuedAt: string | null;
+  },
 ) {
   return callGateway<CloudAtkSubmission>(supabase, { action: "coupon", ...input });
 }
