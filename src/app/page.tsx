@@ -524,15 +524,15 @@ export default function Home(){
       const fiscal=await submitCloudTestCoupon(supabase,{
         businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
         details:detailsBase64,signature:signatureBase64,nuiKf,citizenPayload,citizenSignature,
-        dailyNumber:Number(sale.daily_number),qrSvgBase64,certificatePem,offlineIssuedAt:null
+        dailyNumber:Number(sale.daily_number),certificatePem,offlineIssuedAt:null
       });
-      await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null});
+      await updateFiscalOutboxItem(idempotencyKey,{state:"accepted",transactionId:fiscal.transactionId,lastError:null,qrSvg:fiscal.qrSvgBase64});
       const receiptRecord:SaleRecord={
         ...sale,
         items:(lines??[]).map(line=>({description:line.description,quantity:line.quantity,unit_price:line.unit_price,line_total:line.line_total,line_net:line.line_net,line_vat:line.line_vat,vat_rate:line.vat_rate,atk_unit_code:line.atk_unit_code,atk_vat_code:line.atk_vat_code})),
         transaction_id:fiscal.transactionId,nui_kf:nuiKf,daily_number:Number(sale.daily_number),
         submission_state:"accepted",offline_issued_at:null,recovery_deadline_at:null,
-        qr_svg_base64:qrSvgBase64,pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+        qr_svg_base64:fiscal.qrSvgBase64,pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
         unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,unit_name:pos.label,
         business_address:pos.location,operator_name:sale.operator_name??operatorName.trim(),
         operator_identifier:sale.operator_identifier??null,document_type:"SHITJE",is_offline:false
