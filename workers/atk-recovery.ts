@@ -235,7 +235,9 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
 
   const sales = await dbGet<Sale>(env, "fiskalo_basic_sales",
     postgrestQuery({ select: "id,operator_id,pos_id,coupon_id,status,created_at,total,subtotal,vat_total", id: "eq." + doc.sale_id, business_id: "eq." + doc.business_id, limit: "1" }));
-  if (sales.length !== 1 || !sales[0].operator_id || sales[0].status !== "paid" || String(sales[0].coupon_id) !== String(doc.coupon_id)) {
+  const expectedSaleCouponId = doc.document_type === 1 ? doc.coupon_id : doc.reference_coupon_id;
+  const expectedSaleStatus = doc.document_type === 1 ? "paid" : "fiscalized";
+  if (sales.length !== 1 || !sales[0].operator_id || sales[0].status !== expectedSaleStatus || String(sales[0].coupon_id) !== String(expectedSaleCouponId)) {
     await markNeedsReconciliation(env, doc, "Sale identity could not be verified for automatic ATK recovery.");
     return "reconciliation";
   }
