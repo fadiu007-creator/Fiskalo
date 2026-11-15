@@ -30,6 +30,7 @@ jobs:
       - run: npm run test:atk-browser
       - run: npm run test:atk-recovery
       - run: npm run test:atk-certificates
+      - run: npm run test:atk-coupon-validation
       - run: npm run lint
       - run: npm run build
       - run: npm run cf-build
