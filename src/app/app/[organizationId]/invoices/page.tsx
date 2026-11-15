@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ArrowLeft, ArrowUpRight, FileText } from "lucide-react";
+import { paymentMethodLabel } from "@/lib/atk/payment-allocation";
 
 type Props = { params: Promise<{ organizationId: string }> };
 const money = (value: number) => new Intl.NumberFormat("sq-XK", { style: "currency", currency: "EUR" }).format(value);
@@ -26,7 +27,7 @@ export default async function InvoiceListPage({ params }: Props) {
     </header>
     <section style={{background:"white",border:"1px solid var(--line)",borderRadius:15,padding:17}}>
       {error ? <p role="alert" style={{color:"#a33f36",fontSize:13}}>Faturat nuk u ngarkuan: {error.message}</p> : invoices?.length ? <div style={{overflowX:"auto"}}><table className="data-table" style={{minWidth:760}}><thead><tr><th>Numri</th><th>Data</th><th>Pagesa</th><th>Fiskalizimi</th><th>Totali</th><th></th></tr></thead><tbody>
-        {invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoice_number || "Draft"}</strong><small>{invoice.status === "issued" ? "E lëshuar" : invoice.status}</small></td><td>{new Date(invoice.issue_date+"T12:00:00").toLocaleDateString("sq-XK")}</td><td>{paymentLabels[invoice.payment_status] ?? invoice.payment_status}<small>{invoice.payment_method || "—"}</small></td><td>{fiscalLabels[invoice.fiscalization_status] ?? invoice.fiscalization_status}</td><td><strong>{money(Number(invoice.total))}</strong></td><td><Link href={"/app/"+organizationId+"/invoices/"+invoice.id} style={{color:"var(--brand)",fontWeight:800,fontSize:12}}>Hap faturën</Link></td></tr>)}
+        {invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.invoice_number || "Draft"}</strong><small>{invoice.status === "issued" ? "E lëshuar" : invoice.status}</small></td><td>{new Date(invoice.issue_date+"T12:00:00").toLocaleDateString("sq-XK")}</td><td>{paymentLabels[invoice.payment_status] ?? invoice.payment_status}<small>{invoice.payment_method === "credit" ? "Me afat" : paymentMethodLabel(invoice.payment_method || "")}</small></td><td>{fiscalLabels[invoice.fiscalization_status] ?? invoice.fiscalization_status}</td><td><strong>{money(Number(invoice.total))}</strong></td><td><Link href={"/app/"+organizationId+"/invoices/"+invoice.id} style={{color:"var(--brand)",fontWeight:800,fontSize:12}}>Hap faturën</Link></td></tr>)}
       </tbody></table></div> : <div style={{padding:"38px 12px",textAlign:"center"}}><FileText size={28} color="var(--brand)"/><h2 style={{fontSize:16}}>Ende nuk ka fatura</h2><p style={{fontSize:13,color:"var(--muted)"}}>Faturat e shitjeve do të shfaqen këtu.</p><Link href={"/app/"+organizationId+"/pos"} style={{color:"var(--brand)",fontWeight:800,fontSize:13}}>Hap arkën</Link></div>}
     </section>
   </main>;
