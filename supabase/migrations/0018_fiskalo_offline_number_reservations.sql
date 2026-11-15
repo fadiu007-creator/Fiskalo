@@ -55,8 +55,8 @@ begin
   if auth.uid() is null then raise exception 'Authentication required'; end if;
   if p_count is null or p_count<1 or p_count>500 then raise exception 'Reservation count must be between 1 and 500'; end if;
   if not exists(select 1 from public.fiskalo_basic_members m
-    where m.business_id=p_business_id and m.user_id=auth.uid()) then
-    raise exception 'Not a member of this business';
+    where m.business_id=p_business_id and m.user_id=auth.uid() and m.role='owner') then
+    raise exception 'Business owner access required';
   end if;
   if not exists(select 1 from public.fiskalo_basic_pos p
     where p.id=p_pos_id and p.business_id=p_business_id
@@ -97,8 +97,8 @@ begin
     raise exception 'Offline daily numbers may only be reserved for the current Kosovo business date';
   end if;
   if not exists(select 1 from public.fiskalo_basic_members m
-    where m.business_id=p_business_id and m.user_id=auth.uid()) then
-    raise exception 'Not a member of this business';
+    where m.business_id=p_business_id and m.user_id=auth.uid() and m.role='owner') then
+    raise exception 'Business owner access required';
   end if;
   if not exists(select 1 from public.fiskalo_basic_pos p
     where p.id=p_pos_id and p.business_id=p_business_id
@@ -137,8 +137,8 @@ declare v_row public.fiskalo_basic_coupon_reservations%rowtype;
 begin
   if auth.uid() is null or p_idempotency_key is null then raise exception 'Authentication and idempotency key are required'; end if;
   if not exists(select 1 from public.fiskalo_basic_members m
-    where m.business_id=p_business_id and m.user_id=auth.uid()) then
-    raise exception 'Not a member of this business';
+    where m.business_id=p_business_id and m.user_id=auth.uid() and m.role='owner') then
+    raise exception 'Business owner access required';
   end if;
   select * into v_row from public.fiskalo_basic_coupon_reservations r
     where r.business_id=p_business_id and r.pos_id=p_pos_id and r.coupon_id=p_coupon_id
