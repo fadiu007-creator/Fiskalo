@@ -6,6 +6,7 @@ import BusinessOperations from "@/components/business-operations";
 import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
+import { OfflineCheckoutJournal, IndexedDbOfflineSaleStorage } from "@/lib/pos/offline-ledger";
 
 type Business={id:string;name:string;nui:string;vat_number:string|null};
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
@@ -438,6 +439,34 @@ export default function Home(){
     }catch{}
     setBusy(true);setMessage("");
     try{
+      // Persist the exact cart before any network-dependent operation. This is
+      // a local checkout intent, not an ATK fiscal receipt or proof of acceptance.
+      const offlineStorage=new IndexedDbOfflineSaleStorage();
+      const offlineJournal=new OfflineCheckoutJournal(offlineStorage);
+      const previousOffline=await offlineStorage.get(checkoutIdempotencyKey);
+      const snapshotLines=cartLines.map(line=>{
+        const netMinor=Math.round(line.product.price*line.quantity*100);
+        const vatMinor=Math.round(netMinor*line.product.vat_rate/100);
+        return {
+          productId:line.product.id,description:line.product.name,
+          quantityMilli:Math.round(line.quantity*1000),
+          unitPriceMinor:Math.round(line.product.price*100),
+          vatRateBasisPoints:Math.round(line.product.vat_rate*100),
+          atkUnitCode:line.product.atk_unit_code,
+          atkCategoryCode:line.product.atk_item_category_code,
+          atkVatCode:line.product.atk_vat_code,
+          lineNetMinor:netMinor,lineVatMinor:vatMinor,lineTotalMinor:netMinor+vatMinor
+        };
+      });
+      const offlineSubtotal=snapshotLines.reduce((sum,line)=>sum+line.lineNetMinor,0);
+      const offlineVat=snapshotLines.reduce((sum,line)=>sum+line.lineVatMinor,0);
+      await offlineJournal.recordSale({
+        idempotencyKey:checkoutIdempotencyKey,businessId:business.id,posId:selectedPos,
+        operatorId:user!.id,createdAtUtc:previousOffline?.createdAtUtc??new Date().toISOString(),
+        paymentMethod:payment as "cash"|"card"|"bank_transfer",currency:"EUR",
+        subtotalMinor:offlineSubtotal,vatTotalMinor:offlineVat,totalMinor:offlineSubtotal+offlineVat,
+        lines:snapshotLines
+      });
       const {error:operatorError}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(operatorError)throw operatorError;
       if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id)throw new Error("Ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk u regjistrua.");
       const agent=await getLocalAgentStatus(agentToken);
@@ -534,11 +563,15 @@ export default function Home(){
         .select("id").eq("business_id",business.id)
         .eq("checkout_idempotency_key",checkoutIdempotencyKey).maybeSingle();
       if(!lookupError&&!existingSale){
-        setCheckoutKey("");setCheckoutAttempted(false);
-        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+        // Keep the original key and local snapshot so the identical checkout can
+        // be retried safely after connectivity returns.
+        setCheckoutKey(checkoutIdempotencyKey);setCheckoutAttempted(false);
       }
       try{await loadWorkspace(user!.id)}catch{}
-      setMessage(e instanceof Error?e.message:"Shitja/fiskalizimi dështoi. Kontrollo radhën lokale para çdo riprovimi.");
+      setMessage((!navigator.onLine
+        ?"Lidhja me internetin mungon. Shporta dhe fotografia e shitjes u ruajtën lokalisht, por kjo NUK është ende kupon fiskal ATK. Rikthe lidhjen dhe provo përsëri të njëjtën shitje. "
+        :"Shitja/fiskalizimi dështoi. Shporta dhe fotografia lokale u ruajtën; përdor të njëjtin checkout për riprovim. ")+
+        (e instanceof Error?e.message:"Kontrollo radhën lokale para çdo riprovimi."));
     }finally{setBusy(false);}
   }
 
