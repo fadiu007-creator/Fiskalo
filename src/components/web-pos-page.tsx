@@ -247,6 +247,10 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
 
   async function completeSale() {
     setError(""); setNotice(""); setIssuedInvoiceId(""); setIssuedNumber(""); setIssuedQrPayload(""); setIssuedFiscalStatus("");
+    if (!navigator.onLine) {
+      setError("Lidhja e internetit mungon. Fiskalo Full ende nuk ka regjistër lokal dhe numërim të rezervuar për shitje offline. Mos e shëno pagesën si të pranuar në aplikacion derisa lidhja të rikthehet; ndiq procedurën e autorizuar të ATK-së.");
+      return;
+    }
     const valid = lines.filter((line) => Number.isFinite(line.quantity) && line.quantity > 0);
     if (!valid.length || valid.length !== lines.length) { setError("Shto artikuj dhe kontrollo sasitë."); return; }
     if (!Number.isFinite(Number(discountPercent)) || Number(discountPercent) < 0 || Number(discountPercent) > 99.99) { setError("Zbritja duhet të jetë nga 0% deri në 99.99%."); return; }
