@@ -18,6 +18,12 @@ on:
       - "supabase/migrations/0021_*.sql"
       - "supabase/migrations/0022_*.sql"
       - "supabase/migrations/0023_*.sql"
+      - "supabase/migrations/0024_*.sql"
+      - "supabase/migrations/0025_*.sql"
+      - "supabase/migrations/0026_*.sql"
+      - "supabase/migrations/0027_*.sql"
+      - "supabase/migrations/0028_*.sql"
+      - "supabase/migrations/0029_*.sql"
       - ".github/workflows/deploy-atk-recovery.yml"
 
 permissions:
