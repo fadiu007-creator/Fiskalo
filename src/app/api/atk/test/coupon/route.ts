@@ -119,11 +119,14 @@ export async function POST(request: Request) {
   }
 
   const { data: registeredCertificate, error: certificateError } = await service.from("fiskalo_atk_pos_certificates")
-    .select("certificate_pem,spki_sha256").eq("organization_id", organizationId)
+    .select("certificate_pem,spki_sha256,application_id").eq("organization_id", organizationId)
     .eq("pos_installation_id", posInstallationId).eq("status", "active").is("revoked_at", null)
     .order("issued_at", { ascending: false }).limit(1).maybeSingle();
   if (certificateError || !registeredCertificate?.certificate_pem || !registeredCertificate.spki_sha256) {
     return Response.json({ error: "pos_certificate_not_registered", detail: "No active server-registered ATK certificate exists for this exact POS." }, { status: 409 });
+  }
+  if (Number(registeredCertificate.application_id) !== applicationId) {
+    return Response.json({ error: "certificate_application_id_mismatch", detail: "The active ATK certificate belongs to a different Application ID. Re-verify and issue a matching certificate before creating new coupons." }, { status: 409 });
   }
   try {
     const fingerprint = await certificateSpkiFingerprint(registeredCertificate.certificate_pem);
