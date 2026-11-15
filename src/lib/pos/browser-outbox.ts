@@ -67,7 +67,7 @@ export async function listFiscalOutboxItems(businessId?: string): Promise<Browse
 
 export async function updateFiscalOutboxItem(
   idempotencyKey: string,
-  patch: Partial<Pick<BrowserFiscalOutboxItem, "state" | "transactionId" | "lastError">>,
+  patch: Partial<Pick<BrowserFiscalOutboxItem, "state" | "transactionId" | "lastError" | "qrSvg">>,
 ): Promise<void> {
   const db = await openDb();
   try {
