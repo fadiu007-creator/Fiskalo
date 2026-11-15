@@ -10,7 +10,8 @@
     "cf-build": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs"
+    "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs",
+    "test:atk-browser": "node --experimental-strip-types --test tests/atk-browser-runtime.test.mjs tests/atk-protobuf.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
@@ -31,6 +32,7 @@
     "@eslint/eslintrc": "3.3.1",
     "@opennextjs/cloudflare": "1.20.16",
     "wrangler": "^4.148.0",
-    "@types/qrcode": "^1.5.5"
+    "@types/qrcode": "^1.5.5",
+    "fake-indexeddb": "^6.2.4"
   }
 }
