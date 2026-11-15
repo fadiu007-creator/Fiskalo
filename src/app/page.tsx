@@ -554,15 +554,21 @@ export default function Home(){
         if (submitError instanceof CloudAtkError && submitError.notDelivered) {
           const offlineIssuedAtUtc=new Date().toISOString();
           const offlineDeadline=new Date(Date.parse(offlineIssuedAtUtc)+48*60*60*1000).toISOString();
-          const {error:queueError}=await supabase.rpc("fiskalo_basic_store_offline_receipt_v2",{
-            p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,p_idempotency_key:idempotencyKey,
-            p_signed_payload:detailsBase64,p_signature:signatureBase64,p_nui_kf:nuiKf,
-            p_citizen_payload:citizenPayload,p_citizen_signature:citizenSignature,
-            p_daily_number:Number(sale.daily_number),p_offline_issued_at:offlineIssuedAtUtc,p_qr_svg_base64:qrSvgBase64
-          });
+          let cloudQueued=false;
+          let queueErrorMessage=submitError.message;
+          try {
+            await queueCloudTestCoupon(supabase,{
+              businessId:business.id,posRecordId:pos.id,saleId,couponId:Number(sale.coupon_id),idempotencyKey,
+              details:detailsBase64,signature:signatureBase64,certificatePem,nuiKf,verificationNo:nuiKf,
+              citizenPayload,citizenSignature,dailyNumber:Number(sale.daily_number),offlineIssuedAt:offlineIssuedAtUtc
+            });
+            cloudQueued=true;
+          } catch (queueError) {
+            queueErrorMessage=queueError instanceof Error?queueError.message:queueErrorMessage;
+          }
           await updateFiscalOutboxItem(idempotencyKey,{
-            state:queueError?"queued":"cloud_queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,
-            lastError:queueError?queueError.message:submitError.message
+            state:cloudQueued?"cloud_queued":"queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,
+            lastError:cloudQueued?null:queueErrorMessage
           });
           const offlineReceipt:SaleRecord={
             ...sale,
@@ -575,7 +581,7 @@ export default function Home(){
             operator_identifier:sale.operator_identifier??null,document_type:"SHITJE",is_offline:true
           };
           setReceipt(offlineReceipt);
-          setMessage("ATK TEST nuk u arrit dhe kërkesa nuk u dërgua. Kuponi i nënshkruar u ruajt në radhën cloud; Cloudflare do ta provojë sërish brenda afatit 48-orësh.");
+          setMessage("ATK TEST nuk u arrit dhe kërkesa nuk u dërgua. Kuponi i nënshkruar u ruajt në outbox dhe do të ngarkohet në radhën cloud; Cloudflare do ta provojë sërish brenda afatit 48-orësh.");
           setCart({});setCheckoutKey("");setCheckoutAttempted(false);
           sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
           await loadWorkspace(user!.id);
