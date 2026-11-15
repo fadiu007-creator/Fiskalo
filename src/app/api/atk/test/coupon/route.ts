@@ -260,10 +260,10 @@ export async function POST(request: Request) {
       const definitiveRejection = response.status >= 400 && response.status < 500;
       const fiscalStatus = definitiveRejection ? "rejected" : "offline_pending";
       const eventType = definitiveRejection ? "rejected" : "response_unconfirmed";
-      await supabase.from("fiskalo_atk_fiscal_documents").update({
+      await service.from("fiskalo_atk_fiscal_documents").update({
         status: fiscalStatus, last_error: detail, atk_response: result,
       }).eq("id", fiscalDocument.id);
-      await supabase.from("fiskalo_atk_fiscal_events").insert({
+      await service.from("fiskalo_atk_fiscal_events").insert({
         organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: eventType,
         details: { httpStatus: response.status, detail, requiresReconciliation: !definitiveRejection },
       });
@@ -275,8 +275,8 @@ export async function POST(request: Request) {
     const transactionId = parseATKTransactionId(raw);
     if (!transactionId) {
       const detail = "ATK returned HTTP success but its response did not contain a valid uint64 transaction_id. Check ATK before retrying.";
-      await supabase.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail, atk_response: result }).eq("id", fiscalDocument.id);
-      await supabase.from("fiskalo_atk_fiscal_events").insert({ organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: "response_unconfirmed", details: { detail, httpStatus: response.status } });
+      await service.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail, atk_response: result }).eq("id", fiscalDocument.id);
+      await service.from("fiskalo_atk_fiscal_events").insert({ organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: "response_unconfirmed", details: { detail, httpStatus: response.status } });
       return Response.json({ error: "atk_response_unconfirmed", detail, fiscalDocumentId: fiscalDocument.id }, { status: 502 });
     }
     // Persist the exact decimal digits as a string so neither JS nor JSON serialization rounds the uint64.
@@ -288,15 +288,15 @@ export async function POST(request: Request) {
     if (acceptedUpdateError) {
       return Response.json({ error: "accepted_status_save_failed", detail: "ATK accepted the coupon, but Fiskalo could not save the acceptance status. Do not resubmit this invoice.", fiscalDocumentId: fiscalDocument.id, transactionId }, { status: 500 });
     }
-    await supabase.from("fiskalo_atk_fiscal_events").insert({
+    await service.from("fiskalo_atk_fiscal_events").insert({
       organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
       event_type: "accepted", details: { transactionId, environment: "TEST" },
     });
     return Response.json({ accepted: true, environment: "TEST", transactionId, fiscalDocumentId: fiscalDocument.id, qrPayload, message: result.message ?? "ATK accepted the TEST coupon." }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const detail = error instanceof Error && error.name === "TimeoutError" ? "ATK TEST request timed out; check ATK before retrying to avoid a duplicate." : "Could not reach ATK TEST. Check the fiscal document before retrying.";
-    await supabase.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail }).eq("id", fiscalDocument.id);
-    await supabase.from("fiskalo_atk_fiscal_events").insert({ organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: "offline_saved", details: { detail } });
+    await service.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail }).eq("id", fiscalDocument.id);
+    await service.from("fiskalo_atk_fiscal_events").insert({ organization_id: organizationId, fiscal_document_id: fiscalDocument.id, event_type: "offline_saved", details: { detail } });
     return Response.json({ error: "atk_unreachable", detail, fiscalDocumentId: fiscalDocument.id }, { status: 502 });
   }
 }
