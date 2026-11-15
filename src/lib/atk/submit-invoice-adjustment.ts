@@ -5,7 +5,7 @@ import { hasBrowserPosCertificate, signAtkBase64Payload } from "@/lib/atk/browse
 import type { createClient } from "@/lib/supabase/client";
 
 type SupabaseBrowserClient = ReturnType<typeof createClient>;
-type RefundMethod = "cash" | "card" | "bank_transfer";
+type RefundMethod = "cash" | "card" | "voucher" | "cheque" | "crypto" | "bank_transfer";
 
 function readOriginalApplicationId(details: string): number {
   const binary = atob(details);
@@ -199,7 +199,7 @@ export async function submitInvoiceAdjustmentToATK(
     current.totalTaxCents += Math.round(line.line_vat * 100);
     taxGroups.set(tax, current);
   });
-  const paymentType: Record<RefundMethod, number> = { cash: 1, card: 2, bank_transfer: 6 };
+  const paymentType: Record<RefundMethod, number> = { cash: 1, card: 2, voucher: 3, cheque: 4, crypto: 5, bank_transfer: 6 };
   const coupon = encodeAtkPosCoupon({
     businessId: String(organization.nui),
     couponId: String(couponId),
