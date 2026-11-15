@@ -260,6 +260,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
   }
   const business = businesses[0];
   const certificatePem = certificates[0].certificate_pem;
+  let recoveryActorId = sale.operator_id;
   try {
     const posFields = parseCouponFields(doc.signed_payload);
     const citizenFields = parseCouponFields(doc.citizen_payload);
@@ -276,7 +277,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
       String(correctionReservation.correction_coupon_id) !== String(doc.coupon_id) || !correctionReservation.created_by)) {
       throw new Error("Correction reservation does not match the queued fiscal document.");
     }
-    const recoveryActorId = doc.document_type === 1 ? sale.operator_id : correctionReservation!.created_by;
+    recoveryActorId = doc.document_type === 1 ? sale.operator_id : correctionReservation!.created_by;
     const unixTime = BigInt(Math.floor(new Date(doc.document_type === 1 ? sale.created_at : doc.created_at).getTime() / 1000));
     const expectedPos: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
