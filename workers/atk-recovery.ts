@@ -1,3 +1,4 @@
+import { createCitizenQrSvg } from "../src/lib/atk/citizen-qr";
 import QRCode from "qrcode";
 type Env = {
   SUPABASE_URL: string;
@@ -131,6 +132,12 @@ async function verifyPayload(certificatePem: string, payload: string, signature:
   return crypto.subtle.verify(
     { name: "ECDSA", hash: "SHA-256" }, key, Uint8Array.from(derSignatureToRaw(signature)).buffer, new TextEncoder().encode(payload),
   );
+}
+
+function encodeBase64(bytes: Uint8Array) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 function headers(env: Env) {
@@ -315,6 +322,9 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     );
     return "retry";
   }
+
+  const qrSvg = await createCitizenQrSvg(doc.citizen_payload + "|" + doc.citizen_signature);
+  const qrSvgBase64 = encodeBase64(new TextEncoder().encode(qrSvg));
 
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
