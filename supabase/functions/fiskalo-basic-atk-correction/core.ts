@@ -166,12 +166,15 @@ export function assertAtkCorrectionIdentity(
 ): void {
   const fields: (keyof AtkCorrectionIdentity)[] = [
     "businessId", "couponId", "branchId", "posId", "applicationId",
-    "verificationNo", "type", "referenceNo",
+    "type", "referenceNo",
   ];
   for (const field of fields) {
     if (String(actual[field]) !== String(expected[field])) {
       throw new Error("Signed ATK correction does not match the reserved sale/POS identity (" + field + ").");
     }
+  }
+  if (!/^[A-Z0-9]{16}$/.test(actual.verificationNo)) {
+    throw new Error("ATK correction coupon must contain a new 16-character alphanumeric NUIKF.");
   }
   if (!isUint64String(actual.businessId) || !isUint64String(actual.couponId) ||
       !isUint64String(actual.branchId) || !isUint64String(actual.posId) ||
