@@ -26,6 +26,7 @@ jobs:
       - run: deno lint supabase/functions/fiskalo-basic-workers
       - run: npm run typecheck
       - run: npm run test:products
+      - run: npm run test:offline
       - run: npm run lint
       - run: npm run build
       - uses: actions/setup-dotnet@v4
