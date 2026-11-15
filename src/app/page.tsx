@@ -434,10 +434,13 @@ export default function Home(){
       const paymentType=payment==="cash"?1:payment==="card"?2:6;
       if(!sale.daily_number||Number(sale.daily_number)<=0)throw new Error("Numri ditor i kuponit nuk u caktua nga baza e të dhënave.");
       const taxGroups=Array.from(grouped.values()).map(g=>({taxRate:g.taxRate,totalForTaxCents:g.base,totalTaxCents:g.tax}));
+      // ATK's POS verification code is used for certificate issuance. The per-coupon
+      // VerificationNo is the unique NUIKF and must be embedded in both signed coupons.
+      const nuiKf=generateNuiKf();
       const coupon={
         businessId:business.nui,couponId:sale.coupon_id,dailyNumber:Number(sale.daily_number),
         branchId:pos.branch_id,location:pos.location,operatorId:operatorName.trim(),posId:pos.pos_id,
-        applicationId:Number(pos.application_id),verificationNo:pos.verification_no,type:1 as const,
+        applicationId:Number(pos.application_id),verificationNo:nuiKf,type:1 as const,
         unixTime:Math.floor(new Date(sale.created_at).getTime()/1000),
         items:(lines??[]).map(line=>({name:line.description,unitPriceEuro:Number(line.unit_price),unit:line.atk_unit_code,quantity:Number(line.quantity),lineTotalCents:cents(line.line_total),taxRate:line.atk_vat_code,itemType:line.atk_item_category_code})),
         payments:[{type:paymentType,amountCents:cents(sale.total)}],
@@ -461,7 +464,6 @@ export default function Home(){
       const citizenQrPayload=citizenPayload+"|"+citizenSignature;
       const qrSvg=await createCitizenQrSvg(citizenQrPayload);
       const qrSvgBase64=encodeAtkBase64(new TextEncoder().encode(qrSvg));
-      const nuiKf=generateNuiKf();
       const issuedAtUtc=new Date().toISOString();
       const recoveryDeadlineUtc=new Date(Date.parse(issuedAtUtc)+48*60*60*1000).toISOString();
       await saveFiscalOutboxItem({
