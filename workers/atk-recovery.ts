@@ -12,6 +12,9 @@ type FiscalDoc = {
   coupon_id: number | string;
   idempotency_key: string;
   document_type: number;
+  reference_coupon_id: number | string | null;
+  parent_document_id: string | null;
+  created_at: string;
   signed_payload: string;
   signature: string;
   nui_kf: string;
@@ -256,7 +259,7 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
   try {
     const posFields = parseCouponFields(doc.signed_payload);
     const citizenFields = parseCouponFields(doc.citizen_payload);
-    const unixTime = BigInt(Math.floor(new Date(sale.created_at).getTime() / 1000));
+    const originalDocs = doc.document_type === 1 ? [] : await dbGet<OriginalDoc>(env, "fiskalo_basic_fiscal_documents",\n      postgrestQuery({ select: "id,coupon_id,atk_transaction_id,submission_state,document_type", id: "eq." + doc.parent_document_id, business_id: "eq." + doc.business_id, limit: "1" }));\n    const original = originalDocs[0];\n    if (doc.document_type !== 1 && (!original || original.document_type !== 1 || original.submission_state !== "accepted" || String(original.coupon_id) !== String(doc.reference_coupon_id) || String(original.coupon_id) !== String(sale.coupon_id))) throw new Error("Original accepted ATK sale is missing for this correction.");\n    const unixTime = BigInt(Math.floor(new Date(doc.document_type === 1 ? sale.created_at : doc.created_at).getTime() / 1000));
     const expectedPos: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
       [6,BigInt(pos.pos_id)],[7,BigInt(pos.application_id)],[9,BigInt(1)],[10,unixTime],
@@ -264,10 +267,10 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
       [16,BigInt(Math.round(Number(sale.subtotal)*100))],
     ];
     for (const [field,value] of expectedPos) if (posFields.get(field)!==value) throw new Error("POS coupon identity or totals mismatch.");
-    if (posFields.get(8)!==doc.nui_kf || doc.verification_no!==doc.nui_kf) throw new Error("POS coupon NUIKF/VerificationNo mismatch.");
+    if (posFields.get(8)!==doc.nui_kf || doc.verification_no!==doc.nui_kf) throw new Error("POS coupon NUIKF/VerificationNo mismatch.");\n    if (doc.document_type !== 1 && (posFields.get(17)!==BigInt(doc.reference_coupon_id!) || posFields.get(18)!==BigInt(original!.atk_transaction_id))) throw new Error("Correction reference coupon or original ATK transaction does not match.");
     const expectedCitizen: Array<[number,bigint]> = [
       [1,BigInt(business.nui)],[2,BigInt(doc.coupon_id)],[3,BigInt(pos.branch_id)],
-      [4,BigInt(pos.pos_id)],[6,BigInt(1)],[7,unixTime],
+      [4,BigInt(pos.pos_id)],[6,BigInt(doc.document_type)],[7,unixTime],
       [8,BigInt(Math.round(Number(sale.total)*100))],
       [10,BigInt(Math.round(Number(sale.vat_total)*100))],
       [11,BigInt(Math.round(Number(sale.subtotal)*100))],
@@ -356,25 +359,47 @@ async function processDocument(env: Env, doc: FiscalDoc, now: Date) {
     environment: "ATK TEST",
   };
   try {
-    await dbRpc(env, "fiskalo_basic_server_record_atk_receipt_v2", {
-      p_actor_id: sale.operator_id,
-      p_business_id: doc.business_id,
-      p_sale_id: doc.sale_id,
-      p_pos_record_id: sale.pos_id,
-      p_coupon_id: doc.coupon_id,
-      p_idempotency_key: doc.idempotency_key,
-      p_signed_payload: doc.signed_payload,
-      p_signature: doc.signature,
-      p_atk_transaction_id: transactionId,
-      p_atk_response: trustedResponse,
-      p_nui_kf: doc.nui_kf,
-      p_verification_no: doc.nui_kf,
-      p_citizen_payload: doc.citizen_payload,
-      p_citizen_signature: doc.citizen_signature,
-      p_daily_number: doc.daily_number,
-      p_offline_issued_at: doc.offline_issued_at,
-      p_qr_svg_base64: qrSvgBase64,
-    });
+    if (doc.document_type === 1) {
+      await dbRpc(env, "fiskalo_basic_server_record_atk_receipt_v2", {
+        p_actor_id: sale.operator_id,
+        p_business_id: doc.business_id,
+        p_sale_id: doc.sale_id,
+        p_pos_record_id: sale.pos_id,
+        p_coupon_id: doc.coupon_id,
+        p_idempotency_key: doc.idempotency_key,
+        p_signed_payload: doc.signed_payload,
+        p_signature: doc.signature,
+        p_atk_transaction_id: transactionId,
+        p_atk_response: trustedResponse,
+        p_nui_kf: doc.nui_kf,
+        p_verification_no: doc.nui_kf,
+        p_citizen_payload: doc.citizen_payload,
+        p_citizen_signature: doc.citizen_signature,
+        p_daily_number: doc.daily_number,
+        p_offline_issued_at: doc.offline_issued_at,
+        p_qr_svg_base64: qrSvgBase64,
+      });
+    } else {
+      await dbRpc(env, "fiskalo_basic_server_record_atk_correction_v2", {
+        p_actor_id: sale.operator_id,
+        p_business_id: doc.business_id,
+        p_sale_id: doc.sale_id,
+        p_original_coupon_id: doc.reference_coupon_id,
+        p_correction_coupon_id: doc.coupon_id,
+        p_document_type: doc.document_type,
+        p_idempotency_key: doc.idempotency_key,
+        p_signed_payload: doc.signed_payload,
+        p_signature: doc.signature,
+        p_atk_transaction_id: transactionId,
+        p_atk_response: trustedResponse,
+        p_nui_kf: doc.nui_kf,
+        p_verification_no: doc.nui_kf,
+        p_citizen_payload: doc.citizen_payload,
+        p_citizen_signature: doc.citizen_signature,
+        p_daily_number: doc.daily_number,
+        p_qr_svg_base64: qrSvgBase64,
+      });
+    }
     return "accepted";
   } catch {
     await markNeedsReconciliation(env, doc, "ATK accepted the queued coupon (transaction " + transactionId + ") but the trusted ledger update failed.");
@@ -387,9 +412,9 @@ async function runRecovery(env: Env) {
   const now = new Date();
   const docs = await dbGet<FiscalDoc>(env, "fiskalo_basic_fiscal_documents",
     postgrestQuery({
-      select: "id,business_id,sale_id,coupon_id,idempotency_key,document_type,signed_payload,signature,nui_kf,verification_no,citizen_payload,citizen_signature,daily_number,offline_issued_at,recovery_deadline_at,qr_svg_base64,attempt_count,next_attempt_at",
+      select: "id,business_id,sale_id,coupon_id,idempotency_key,document_type,reference_coupon_id,parent_document_id,created_at,signed_payload,signature,nui_kf,verification_no,citizen_payload,citizen_signature,daily_number,offline_issued_at,recovery_deadline_at,qr_svg_base64,attempt_count,next_attempt_at",
       submission_state: "eq.queued",
-      document_type: "eq.1",
+      document_type: "in.(1,2,3)",
       order: "next_attempt_at.asc.nullsfirst",
       limit: String(MAX_BATCH),
     }));
