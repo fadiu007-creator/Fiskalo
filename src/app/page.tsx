@@ -16,7 +16,7 @@ type AtkVerification={businessName:string;verificationCode:string;environment:"A
 type Product={id:string;name:string;price:number;stock:number;vat_rate:number;atk_unit_code:string;atk_item_category_code:string;atk_vat_code:string};
 type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;unit_number:string|null;fiscalization_number:string;application_id:string|null;verification_no:string|null;verified_business_name:string|null;certificate_status:string};
 type CartLine={product:Product;quantity:number};
-type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string;atk_item_category_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;correction_type?:string|null;correction_state?:string|null;correction_transaction_id?:string|null;is_copy?:boolean};
+type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string;atk_item_category_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;correction_type?:string|null;correction_state?:string|null;correction_transaction_id?:string|null;reference_coupon_id?:number|null;reference_transaction_id?:string|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
 type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
@@ -497,7 +497,7 @@ export default function Home(){
         transaction_id:transactionId,nui_kf:nuiKf,verification_no:nuiKf,
         submission_state:queuedOffline?"queued":"accepted",offline_issued_at:queuedOffline?new Date().toISOString():null,
         recovery_deadline_at:queuedOffline?recoveryDeadlineUtc:null,qr_svg_base64:qrToPrint,
-        document_type:label,correction_type:label,
+        document_type:label,correction_type:label,reference_coupon_id:originalCouponId,reference_transaction_id:originalTransactionId,
         correction_state:queuedOffline?"queued":"accepted",correction_transaction_id:transactionId,
         is_offline:queuedOffline,is_copy:false
       };
@@ -839,6 +839,7 @@ export default function Home(){
           <div>{receipt.document_type||"SHITJE"}</div>
           <div>{new Date(receipt.created_at).toLocaleString("sq-XK")}</div>
           <div>Nr. rendor: {receipt.coupon_id}</div>
+          {receipt.reference_coupon_id&&<div>Kuponi origjinal: {receipt.reference_coupon_id} · Transaction ID: {receipt.reference_transaction_id}</div>}
           <div>ARTIKUJ: {receipt.items.length}</div>
           <div>Nr. identifikues i SEF: {receipt.pos_identifier||"—"}</div>
           <div>Njësia ARBK: {receipt.unit_number??"—"} · Branch ID: {receipt.unit_code??"—"} · POS: {receipt.pos_number??"—"}</div>
