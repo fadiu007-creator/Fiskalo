@@ -1,6 +1,6 @@
 import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
 import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
-import { recoverAtkMappingsFromOriginalCoupon, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
+import { readAtkPosCouponVerificationNo, recoverAtkMappingsFromOriginalCoupon, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 import { isPaymentMethod } from "@/lib/atk/payment-allocation";
 
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ function readCouponHeader(details: string): Map<number, bigint> {
     if (field <= 0) throw new Error("Invalid ATK Protobuf field.");
     if (wire === 0) {
       const parsed = readVarint(bytes, cursor); cursor = parsed.next;
-      if ([1, 2, 3, 6, 7, 9, 13, 17, 18].includes(field)) fields.set(field, parsed.value);
+      if ([1, 2, 3, 6, 7, 9, 10, 13, 17, 18].includes(field)) fields.set(field, parsed.value);
     } else if (wire === 1) cursor += 8;
     else if (wire === 2) { const length = readVarint(bytes, cursor); cursor = length.next; cursor += Number(length.value); }
     else if (wire === 5) cursor += 4;
@@ -76,6 +76,8 @@ export async function POST(request: Request) {
   const nui = typeof body.nui === "string" ? body.nui : "";
   const details = typeof body.details === "string" ? body.details : "";
   const signature = typeof body.signature === "string" ? body.signature : "";
+  const citizenDetails = typeof body.citizenDetails === "string" ? body.citizenDetails : "";
+  const citizenSignature = typeof body.citizenSignature === "string" ? body.citizenSignature : "";
   const couponIdRaw = typeof body.couponId === "string" ? body.couponId : String(body.couponId ?? "");
   const couponId = /^\d+$/.test(couponIdRaw) ? BigInt(couponIdRaw) : BigInt(0);
   const applicationId = positiveInteger(body.applicationId);
@@ -165,7 +167,8 @@ export async function POST(request: Request) {
     try {
       const fingerprint = await certificateSpkiFingerprint(candidate.certificate_pem);
       if (fingerprint === candidate.spki_sha256 &&
-          await verifySignedBase64Payload(candidate.certificate_pem, details, signature)) {
+          await verifySignedBase64Payload(candidate.certificate_pem, details, signature) &&
+          await verifySignedBase64Payload(candidate.certificate_pem, citizenDetails, citizenSignature)) {
         originalCertificateMatched = true;
         break;
       }
@@ -280,12 +283,35 @@ export async function POST(request: Request) {
   });
   if (!payloadValidation.ok) return rejectBeforeSubmission("correction_payload_mismatch", payloadValidation.detail + " Korrigjimi nuk u dërgua në ATK.");
 
+  const expectedTaxGroups = new Map<string, { totalForTaxCents: number; totalTaxCents: number }>();
+  for (const line of lines) {
+    const taxRate = String(line.atk_tax_code || "");
+    const current = expectedTaxGroups.get(taxRate) ?? { totalForTaxCents: 0, totalTaxCents: 0 };
+    current.totalForTaxCents += Math.round(Number(line.line_subtotal) * 100);
+    current.totalTaxCents += Math.round(Number(line.line_vat) * 100);
+    expectedTaxGroups.set(taxRate, current);
+  }
+  const citizenValidation = validateAtkCitizenCouponPayload(citizenDetails, {
+    nui,
+    couponId: Number(couponId),
+    branchId: Number(pos.atk_branch_id),
+    posId: Number(pos.pos_id),
+    verificationNo: readAtkPosCouponVerificationNo(details),
+    type: couponType as 1 | 2 | 3,
+    unixTime: Number(header.get(10)),
+    totalCents,
+    totalTaxCents: Math.round(vatTotal * 100),
+    totalNoTaxCents: Math.round(subtotal * 100),
+    taxGroups: Array.from(expectedTaxGroups.entries()).map(([taxRate, values]) => ({ taxRate, ...values })),
+  });
+  if (!citizenValidation.ok) return rejectBeforeSubmission("citizen_coupon_mismatch", citizenValidation.detail + " Korrigjimi nuk u dërgua në ATK.");
+
   const { data: existing, error: existingError } = await supabase.from("fiskalo_atk_fiscal_documents")
     .select("id,status,atk_transaction_id").eq("source_adjustment_id", adjustmentId).maybeSingle();
   if (existingError) return rejectBeforeSubmission("correction_lookup_failed", "Nuk u verifikua nëse ekziston një dërgim i mëparshëm. Korrigjimi nuk u dërgua në ATK.", 500);
   if (existing) return Response.json({ error: "adjustment_already_submitted", fiscalDocumentId: existing.id, status: existing.status, transactionId: existing.atk_transaction_id }, { status: 409 });
 
-  const qrPayload = details + "|" + signature;
+  const qrPayload = citizenDetails + "|" + citizenSignature;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(details));
   const payloadHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const { data: fiscalDocument, error: insertError } = await service.from("fiskalo_atk_fiscal_documents").insert({
@@ -294,7 +320,7 @@ export async function POST(request: Request) {
     coupon_id: couponIdRaw, reference_coupon_id: original.coupon_id,
     document_type: adjustment.adjustment_type, status: "queued",
     occurred_at: new Date().toISOString(), total, pos_coupon_base64: details,
-    signature_base64: signature, qr_payload: qrPayload, payload_sha256: payloadHash,
+    signature_base64: signature, citizen_coupon_base64: citizenDetails, citizen_signature_base64: citizenSignature, qr_payload: qrPayload, payload_sha256: payloadHash,
     created_by: user.id,
   }).select("id").single();
   if (insertError || !fiscalDocument) {
