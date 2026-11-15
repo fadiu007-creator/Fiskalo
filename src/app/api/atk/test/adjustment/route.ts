@@ -173,7 +173,7 @@ export async function POST(request: Request) {
       .select("original_invoice_item_id,product_id,description,quantity,unit_price,net_amount,vat_amount,total_amount")
       .eq("adjustment_id", adjustmentId).eq("organization_id", organizationId),
     supabase.from("fiskalo_invoice_items")
-      .select("id,product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate")
+      .select("id,product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate,atk_unit_code,atk_tax_code,atk_item_category_code")
       .eq("invoice_id", invoice.id),
     supabase.from("fiskalo_organizations").select("nui,municipality").eq("id", organizationId).single(),
   ]);
@@ -193,6 +193,9 @@ export async function POST(request: Request) {
       line_subtotal: Number(item.net_amount),
       line_vat: Number(item.vat_amount),
       vat_rate: Number(originalLine.vat_rate),
+      atk_unit_code: originalLine.atk_unit_code,
+      atk_tax_code: originalLine.atk_tax_code,
+      atk_item_category_code: originalLine.atk_item_category_code,
     };
   });
   if (adjustedLines.some((line) => !line)) return rejectBeforeSubmission("adjustment_item_mismatch", "Artikujt e korrigjimit nuk përputhen me faturën origjinale. Korrigjimi nuk u dërgua.");
@@ -216,12 +219,16 @@ export async function POST(request: Request) {
   if (Math.round(total * 100) !== totalCents || Math.round((subtotal + vatTotal) * 100) !== totalCents) {
     return rejectBeforeSubmission("adjustment_total_mismatch", "Totali i korrigjimit nuk përputhet me shumën e nënshkruar. Korrigjimi nuk u dërgua.");
   }
-  const productIds = Array.from(new Set(lines.map((line) => line.product_id).filter((id): id is string => Boolean(id))));
-  const { data: products, error: productsError } = productIds.length
-    ? await supabase.from("fiskalo_products").select("id,atk_unit_code,atk_tax_code,atk_item_category_code")
-      .eq("organization_id", organizationId).in("id", productIds)
-    : { data: [], error: null };
-  if (productsError) return rejectBeforeSubmission("product_mapping_unavailable", "Kodet fiskale të artikujve nuk mund të lexohen. Korrigjimi nuk u dërgua në ATK.", 500);
+  // The original invoice line is the source of truth for the fiscal classification.
+  // Never read mutable product-master mappings when issuing a correction.
+  const products = lines
+    .filter((line) => typeof line.product_id === "string")
+    .map((line) => ({
+      id: line.product_id as string,
+      atk_unit_code: line.atk_unit_code,
+      atk_tax_code: line.atk_tax_code,
+      atk_item_category_code: line.atk_item_category_code,
+    }));
 
   const couponType = adjustment.adjustment_type === "cancel" ? 2 : 3;
   let header: Map<number, bigint>;
