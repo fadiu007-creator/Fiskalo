@@ -485,6 +485,23 @@ export async function POST(request: Request) {
 
       if (action === "queue-coupon") {
         if (!offlineIssuedAt) return jsonError("Offline issue timestamp is required for the recovery queue.", 400);
+        const queuedQuery = new URLSearchParams({
+          select: "submission_state,atk_transaction_id,recovery_deadline_at",
+          idempotency_key: "eq." + idempotencyKey,
+          limit: "1",
+        });
+        const existingQueue = await supabaseRequest(restOrigin + "fiskalo_basic_fiscal_documents?" + queuedQuery.toString(), token, anonKey);
+        if (Array.isArray(existingQueue) && existingQueue.length === 1 && isRecord(existingQueue[0])) {
+          if (existingQueue[0].submission_state === "queued") {
+            return NextResponse.json({
+              status: "queued",
+              recoveryDeadlineAt: existingQueue[0].recovery_deadline_at,
+              environment: "ATK TEST",
+              productionEnabled: false,
+            }, { headers: { "Cache-Control": "no-store" } });
+          }
+          return jsonError("This fiscal document already exists with status " + String(existingQueue[0].submission_state) + ". Reconciliation is required before further action.", 409);
+        }
         const queueResponse = await fetch(restOrigin + "rpc/fiskalo_basic_server_queue_atk_receipt_v2", {
           method: "POST",
           headers: {
