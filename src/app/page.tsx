@@ -316,9 +316,38 @@ export default function Home(){
     const link=document.createElement("a");link.href=url;link.download="fiskalo-shitjet-50-te-fundit-"+new Date().toISOString().slice(0,10)+".csv";
     document.body.appendChild(link);link.click();link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
-  async function pairAgent(){setBusy(true);setMessage("");try{const result=await pairLocalAgent(pairCode.trim());sessionStorage.setItem("fiskalo.posAgentToken",result.sessionToken);setAgentToken(result.sessionToken);setPairCode("");setAgentStatus(await getLocalAgentStatus(result.sessionToken));setMessage("POS Agent u lidh me këtë shfletues.");}catch(e){setMessage(e instanceof Error?e.message:"Lidhja me POS Agent dështoi.");}finally{setBusy(false);}}
-  async function verifyAtkPos(){const pos=positions.find(p=>p.id===selectedPos);if(!pos||!business||!agentToken){setMessage("Lidh POS Agent dhe zgjidh pajisjen.");return;}if(!pos.application_id){setMessage("Vendos Application ID TEST për këtë POS.");return;}setBusy(true);setMessage("");try{const result=await verifyLocalTestPos(agentToken,{nui:Number(business.nui),fiscalizationNumber:pos.fiscalization_number,posId:pos.pos_id,branchId:pos.branch_id,applicationId:Number(pos.application_id)});setVerification(result);const {error}=await supabase!.from("fiskalo_basic_pos").update({verification_no:result.verificationCode,verified_business_name:result.businessName,certificate_status:"verified"}).eq("id",pos.id);if(error)throw error;await loadWorkspace(user!.id);setMessage("ATK TEST verifikoi POS-in. Tani mund të kërkosh certifikatën.");}catch(e){setMessage(e instanceof Error?e.message:"Verifikimi ATK dështoi.");}finally{setBusy(false);}}
-  async function requestAtkCertificate(){const pos=positions.find(p=>p.id===selectedPos);if(!pos||!business||!agentToken||!pos.application_id||!pos.verification_no){setMessage("Kryej fillimisht verifikimin ATK për këtë POS.");return;}setBusy(true);setMessage("");try{const result=await issueLocalTestCertificate(agentToken,{businessName:pos.verified_business_name||verification?.businessName||business.name,businessNui:Number(business.nui),branchId:pos.branch_id,verificationCode:pos.verification_no,posId:pos.pos_id,applicationId:Number(pos.application_id)});if(!result.certificateStatus.includes("RECEIVED_AND_KEY_MATCHED"))throw new Error("ATK certificate was not confirmed as matching the local POS key.");const {error}=await supabase!.from("fiskalo_basic_pos").update({certificate_status:"certificate_issued"}).eq("id",pos.id);if(error)throw error;setAgentStatus(await getLocalAgentStatus(agentToken));await loadWorkspace(user!.id);setMessage("Certifikata ATK TEST u ruajt në POS dhe çelësi publik u përputh.");}catch(e){setMessage(e instanceof Error?e.message:"Lëshimi i certifikatës dështoi.");}finally{setBusy(false);}}
+  async function verifyAtkPos(){
+    const pos=positions.find(p=>p.id===selectedPos);
+    if(!pos||!business||!supabase){setMessage("Zgjidh biznesin dhe POS-in.");return;}
+    if(!pos.application_id){setMessage("Vendos Application ID TEST për këtë POS.");return;}
+    setBusy(true);setMessage("");
+    try{
+      const result=await verifyCloudTestPos(supabase,{businessId:business.id,posRecordId:pos.id,fiscalizationNumber:pos.fiscalization_number,applicationId:Number(pos.application_id)});
+      setVerification(result);
+      const {error}=await supabase.from("fiskalo_basic_pos").update({verification_no:result.verificationCode,verified_business_name:result.businessName,certificate_status:"verified"}).eq("id",pos.id);
+      if(error)throw error;
+      await loadWorkspace(user!.id);
+      setMessage("ATK TEST verifikoi POS-in. Tani mund të krijosh CSR dhe të kërkosh certifikatën në këtë shfletues.");
+    }catch(e){setMessage(e instanceof Error?e.message:"Verifikimi ATK dështoi.");}
+    finally{setBusy(false);}
+  }
+  async function requestAtkCertificate(){
+    const pos=positions.find(p=>p.id===selectedPos);
+    if(!pos||!business||!supabase||!pos.application_id||!pos.verification_no){setMessage("Kryej fillimisht verifikimin ATK për këtë POS.");return;}
+    setBusy(true);setMessage("");
+    try{
+      const identity={businessNui:business.nui,branchId:pos.branch_id,posId:pos.pos_id,businessName:pos.verified_business_name||verification?.businessName||business.name};
+      const {csrPem,existingKey}=await createOrLoadPosCsr(identity);
+      const result=await issueCloudTestCertificate(supabase,{businessId:business.id,posRecordId:pos.id,verificationCode:pos.verification_no,applicationId:Number(pos.application_id),csrPem});
+      await installPosCertificate(identity,result.signedCertificate);
+      if(!await hasMatchingPosCertificate(identity))throw new Error("Certifikata ATK nuk përputhet me çelësin privat të ruajtur në këtë shfletues.");
+      const {error}=await supabase.from("fiskalo_basic_pos").update({certificate_status:"certificate_issued"}).eq("id",pos.id);
+      if(error)throw error;
+      await loadWorkspace(user!.id);
+      setMessage(existingKey?"Certifikata TEST u instalua dhe çelësi ekzistues i POS-it u verifikua.":"Certifikata TEST u instalua. Çelësi privat nuk u dërgua në cloud.");
+    }catch(e){setMessage(e instanceof Error?e.message:"Lëshimi i certifikatës dështoi.");}
+    finally{setBusy(false);}
+  }
   async function addPos(e:React.FormEvent){e.preventDefault();if(!business)return;if(!/^[0-9]{7}$/.test(unitNumber.trim())){setMessage("Numri i njësisë ARBK duhet të ketë 7 shifra.");return;}setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_pos").insert({business_id:business.id,label:posLabel,location:posLocation,unit_number:unitNumber.trim(),branch_id:Number(branchId),pos_id:Number(posId),fiscalization_number:fiscalizationNumber,application_id:applicationId||null});if(error)throw error;setUnitNumber("");await loadWorkspace(user!.id);setMessage("POS-i u regjistrua në Fiskalo. Kjo nuk e verifikon automatikisht te ATK.");}catch(e){setMessage(e instanceof Error?e.message:"POS-i nuk u ruajt.");}finally{setBusy(false);}}
   async function savePosUnitNumber(posUuid:string){const value=(unitNumberEdits[posUuid]??positions.find(p=>p.id===posUuid)?.unit_number??"").trim();if(!/^[0-9]{7}$/.test(value)){setMessage("Numri i njësisë ARBK duhet të ketë 7 shifra.");return;}setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_pos").update({unit_number:value}).eq("id",posUuid);if(error)throw error;await loadWorkspace(user!.id);setUnitNumberEdits(current=>({...current,[posUuid]:value}));setMessage("Numri i njësisë ARBK u ruajt.");}catch(e){setMessage(e instanceof Error?e.message:"Numri i njësisë nuk u ruajt.");}finally{setBusy(false);}}
   function changeCart(product:Product,delta:number){if(checkoutAttempted){setMessage("Kjo shitje ka nisur. Mos e ndrysho shportën derisa të përfundojë fiskalizimi ose reconciliimi.");return;}setCheckoutKey(crypto.randomUUID());setCart(current=>{const next={...current};const qty=(next[product.id]?.quantity??0)+delta;if(qty<=0)delete next[product.id];else next[product.id]={product,quantity:qty};return next;});}
