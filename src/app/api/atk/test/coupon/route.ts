@@ -1,6 +1,6 @@
 import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
 import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
-import { validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
+import { readAtkPosCouponVerificationNo, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,7 @@ function readCouponHeader(details: string): Map<number, bigint> {
     if (field <= 0) throw new Error("Invalid ATK Protobuf field.");
     if (wire === 0) {
       const parsed = readVarint(bytes, cursor); cursor = parsed.next;
-      if ([1, 2, 3, 6, 7, 9, 13].includes(field)) fields.set(field, parsed.value);
+      if ([1, 2, 3, 6, 7, 9, 10, 13].includes(field)) fields.set(field, parsed.value);
     } else if (wire === 1) cursor += 8;
     else if (wire === 2) { const length = readVarint(bytes, cursor); cursor = length.next; cursor += Number(length.value); }
     else if (wire === 5) cursor += 4;
@@ -82,11 +82,13 @@ export async function POST(request: Request) {
   const posInstallationId = typeof body.posInstallationId === "string" ? body.posInstallationId : "";
   const details = typeof body.details === "string" ? body.details : "";
   const signature = typeof body.signature === "string" ? body.signature : "";
+  const citizenDetails = typeof body.citizenDetails === "string" ? body.citizenDetails : "";
+  const citizenSignature = typeof body.citizenSignature === "string" ? body.citizenSignature : "";
   const couponId = positiveInteger(body.couponId);
   const totalCents = positiveInteger(body.totalCents);
   const applicationId = positiveInteger(body.applicationId);
   if (!organizationId || !invoiceId || !posInstallationId || !/^\d{9}$/.test(nui) ||
-      !couponId || totalCents === null || !applicationId || !isBase64(details) || !isBase64(signature)) {
+      !couponId || totalCents === null || !applicationId || !isBase64(details) || !isBase64(signature) || !isBase64(citizenDetails) || !isBase64(citizenSignature)) {
     return Response.json({ error: "invalid_coupon_request", detail: "Organization, invoice, TEST POS, NUI, coupon ID, total and signed Protobuf details are required." }, { status: 400 });
   }
 
@@ -131,8 +133,9 @@ export async function POST(request: Request) {
   try {
     const fingerprint = await certificateSpkiFingerprint(registeredCertificate.certificate_pem);
     if (fingerprint !== registeredCertificate.spki_sha256 ||
-        !(await verifySignedBase64Payload(registeredCertificate.certificate_pem, details, signature))) {
-      return Response.json({ error: "pos_signature_invalid", detail: "The signed coupon does not verify against the certificate registered to this POS." }, { status: 403 });
+        !(await verifySignedBase64Payload(registeredCertificate.certificate_pem, details, signature)) ||
+        !(await verifySignedBase64Payload(registeredCertificate.certificate_pem, citizenDetails, citizenSignature))) {
+      return Response.json({ error: "pos_signature_invalid", detail: "The signed POS coupon or CitizenCoupon does not verify against the certificate registered to this POS." }, { status: 403 });
     }
   } catch {
     return Response.json({ error: "pos_signature_invalid", detail: "The coupon signature or registered POS certificate is invalid." }, { status: 403 });
@@ -191,6 +194,31 @@ export async function POST(request: Request) {
     return Response.json({ error: "coupon_invoice_mismatch", detail: payloadValidation.detail }, { status: 409 });
   }
 
+  const expectedTaxGroups = new Map<string, { totalForTaxCents: number; totalTaxCents: number }>();
+  for (const line of invoiceLines) {
+    const taxRate = String(line.atk_tax_code || "");
+    const current = expectedTaxGroups.get(taxRate) ?? { totalForTaxCents: 0, totalTaxCents: 0 };
+    current.totalForTaxCents += Math.round(Number(line.line_subtotal) * 100);
+    current.totalTaxCents += Math.round(Number(line.line_vat) * 100);
+    expectedTaxGroups.set(taxRate, current);
+  }
+  const citizenValidation = validateAtkCitizenCouponPayload(citizenDetails, {
+    nui,
+    couponId,
+    branchId: Number(pos.atk_branch_id),
+    posId: Number(pos.pos_id),
+    verificationNo: readAtkPosCouponVerificationNo(details),
+    type: Number(header.get(9)) as 1 | 2 | 3,
+    unixTime: Number(header.get(10)),
+    totalCents,
+    totalTaxCents: Math.round(Number(invoice.vat_total) * 100),
+    totalNoTaxCents: Math.round(Number(invoice.subtotal) * 100),
+    taxGroups: Array.from(expectedTaxGroups.entries()).map(([taxRate, values]) => ({ taxRate, ...values })),
+  });
+  if (!citizenValidation.ok) {
+    return Response.json({ error: "citizen_coupon_invoice_mismatch", detail: citizenValidation.detail }, { status: 409 });
+  }
+
   const { data: existing, error: existingLookupError } = await supabase.from("fiskalo_atk_fiscal_documents")
     .select("id,status,atk_transaction_id").eq("organization_id", organizationId).eq("source_invoice_id", invoiceId).maybeSingle();
   if (existingLookupError) {
@@ -200,7 +228,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "invoice_already_submitted", fiscalDocumentId: existing.id, status: existing.status, transactionId: existing.atk_transaction_id }, { status: 409 });
   }
 
-  const qrPayload = details + "|" + signature;
+  const qrPayload = citizenDetails + "|" + citizenSignature;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(details));
   const payloadHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const { data: fiscalDocument, error: insertError } = await service.from("fiskalo_atk_fiscal_documents").insert({
@@ -214,6 +242,8 @@ export async function POST(request: Request) {
     total: Number(invoice.total),
     pos_coupon_base64: details,
     signature_base64: signature,
+    citizen_coupon_base64: citizenDetails,
+    citizen_signature_base64: citizenSignature,
     qr_payload: qrPayload,
     payload_sha256: payloadHash,
     created_by: user.id,
