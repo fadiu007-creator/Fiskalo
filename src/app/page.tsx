@@ -169,70 +169,6 @@ export default function Home(){
     finally{setBusy(false);}
   },[supabase,business,positions,user,operatorName]);
 
-  const syncAcceptedQueue=useCallback(async()=>{
-    if(!supabase||!business||!agentToken)return;
-    const queue=await getLocalAgentQueue(agentToken);
-    setQueueOverdueCount(queue.overdueCount);
-    for(const item of queue.items){
-      if(item.status.toLowerCase()!=="accepted"||!item.atkTransactionId||
-         !item.detailsBase64||!item.signatureBase64||!item.nuiKf||!/^[A-Z0-9]{16}$/.test(item.nuiKf)||
-         !item.citizenPayloadBase64||!item.citizenSignatureBase64||!item.dailyNumber)continue;
-      const parts=item.idempotencyKey.split(":");
-      if(parts.length!==4||parts[0]!==business.nui)continue;
-      const couponId=Number(parts[3]);
-      if(!Number.isSafeInteger(couponId)||couponId<=0)continue;
-      const {data:sale,error:saleError}=await supabase.from("fiskalo_basic_sales")
-        .select("id,coupon_id,pos_id,daily_number,checkout_idempotency_key").eq("business_id",business.id)
-        .eq("coupon_id",couponId).maybeSingle();
-      if(saleError)throw saleError;
-      if(!sale)continue;
-      const pos=positions.find(p=>p.id===sale.pos_id);
-      if(!pos||String(pos.branch_id)!==parts[1]||String(pos.pos_id)!==parts[2])continue;
-      const {error}=await supabase.rpc("fiskalo_basic_record_atk_receipt",{
-        p_business_id:business.id,p_sale_id:sale.id,p_coupon_id:sale.coupon_id,
-        p_idempotency_key:item.idempotencyKey,p_signed_payload:item.detailsBase64,
-        p_signature:item.signatureBase64,p_atk_transaction_id:item.atkTransactionId,
-        p_atk_response:{status:"accepted",transactionId:item.atkTransactionId,environment:"ATK TEST"},
-        p_nui_kf:item.nuiKf,p_citizen_payload:item.citizenPayloadBase64,
-        p_citizen_signature:item.citizenSignatureBase64,p_daily_number:item.dailyNumber??sale.daily_number,
-        p_offline_issued_at:item.offlineIssuedAtUtc
-      });
-      if(error)throw error;
-      if(item.qrSvgBase64){
-        const {error:qrError}=await supabase.rpc("fiskalo_basic_set_receipt_qr",{
-          p_business_id:business.id,p_sale_id:sale.id,p_coupon_id:sale.coupon_id,
-          p_idempotency_key:item.idempotencyKey,p_qr_svg_base64:item.qrSvgBase64
-        });
-        if(qrError)throw qrError;
-      }
-      if(sale.checkout_idempotency_key===checkoutKey){
-        setCart({});setCheckoutKey("");setCheckoutAttempted(false);
-        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
-      }
-    }
-  },[supabase,business,agentToken,positions,checkoutKey]);
-
-  async function reconcileSaleQueue(sale:SaleRecord){
-    if(memberRole!=="owner"){setMessage("Vetëm pronari mund të autorizojë reconciliimin e radhës fiskale.");return;}
-    if(!agentToken||!sale.idempotency_key){setMessage("Lidh POS Agent para reconciliimit.");return;}
-    if(!window.confirm("Vazhdo vetëm pasi të kesh kontrolluar regjistrin e ATK-së dhe të kesh konfirmuar se ky kupon nuk ekziston. Kjo do të lejojë ridërgimin e të njëjtit dokument të nënshkruar; Fiskalo nuk do ta shënojë si të pranuar pa përgjigje reale nga ATK. A e konfirmon?"))return;
-    setBusy(true);setMessage("");
-    try{
-      await reconcileLocalAgentQueue(agentToken,sale.idempotency_key,{decision:"not_found_confirmed",confirmedNoAtkRecord:true});
-      setMessage("Ridërgimi u lejua pas konfirmimit manual se ATK nuk ka regjistrim. Dokumenti origjinal mbetet i pandryshuar.");
-      await loadSales();
-    }catch(e){setMessage(e instanceof Error?e.message:"Reconciliimi i kuponit dështoi.");}
-    finally{setBusy(false);}
-  }
-
-  useEffect(()=>{
-    if(!user||!business||!agentToken)return;
-    let running=false;
-    const sync=async()=>{if(running)return;running=true;try{await syncAcceptedQueue();}catch(e){setMessage(e instanceof Error?e.message:"Nuk u sinkronizuan kuponët e pranuar nga ATK.");}finally{running=false;}};
-    void sync();
-    const timer=window.setInterval(()=>void sync(),15000);
-    return()=>window.clearInterval(timer);
-  },[user,business,agentToken,syncAcceptedQueue]);
 
   useEffect(()=>{
     if(!supabase){setConfigured(false);setLoading(false);return;}
@@ -250,8 +186,6 @@ export default function Home(){
     if(!business||memberRole!=="owner"){setWorkers([]);setWorkersError("");return;}
     void loadWorkers().catch(e=>setWorkersError(e instanceof Error?e.message:"Lista e punonjësve nuk u ngarkua."));
   },[business,memberRole,loadWorkers]);
-
-  useEffect(()=>{const token=sessionStorage.getItem("fiskalo.posAgentToken");if(!token)return;setAgentToken(token);void getLocalAgentStatus(token).then(setAgentStatus).catch(()=>{sessionStorage.removeItem("fiskalo.posAgentToken");setAgentToken("");setAgentStatus(null);});},[]);
 
   useEffect(()=>{
     if(!business)return;
