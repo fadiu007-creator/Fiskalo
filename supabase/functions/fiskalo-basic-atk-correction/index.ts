@@ -167,7 +167,7 @@ async function existingIdempotencyResult(
 }
 
 async function setReservationState(
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseAdminClient,
   reservationId: string,
   state: SubmissionState,
   response: JsonObject,
