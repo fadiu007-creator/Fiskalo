@@ -136,7 +136,8 @@ export function decodeAtkCorrectionIdentity(detailsBase64: string): AtkCorrectio
     offset = skipWireValue(bytes, offset, wire);
   }
 
-  const required = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 15, 16, 17];
+  // Protobuf omits zero-valued scalar fields (for example a 0% VAT total).
+  const required = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 17];
   if (required.some((field) => !seen.has(field)) || items === 0 || payments === 0 || taxGroups === 0) {
     throw new Error("ATK correction coupon is missing required identity, item, payment or tax fields.");
   }
