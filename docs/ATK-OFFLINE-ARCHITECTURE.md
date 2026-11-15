@@ -107,7 +107,7 @@ Do not describe Fiskalo as production ATK-compliant based on unit tests or one a
 
 Implemented on the offline branch:
 - Authenticated, POS-scoped RPC reserves individual CouponIds from the same PostgreSQL sequence used by online checkout. Individual IDs are returned rather than assuming a contiguous block, because multiple online/offline POS devices may interleave sequence allocation.
-- Coupon reservation rows are immutable to authenticated clients; a separate RPC consumes a reserved ID once and binds it to a UUID idempotency key. Repeating the same consume request is idempotent; a different checkout cannot reuse it.
+- Coupon reservation rows are immutable to authenticated clients. A private consume operation enforces one-time use and idempotency-key binding, but its RPC grants are deliberately disabled until the POS Agent has device-bound authentication; the browser cannot consume IDs.
 - Business-owner-authorized, POS-scoped RPC reserves a contiguous daily-number interval by atomically advancing the existing per-POS/per-Kosovo-business-date counter. The online sale trigger and offline reservation RPC therefore share the same counter.
 - Reservations require a business member and a POS belonging to that business with a verified/issued certificate. Counts are capped at 500 per request. Daily reservations are restricted to the current Europe/Belgrade business date.
 
