@@ -192,6 +192,49 @@ export function assertAtkCorrectionIdentity(
   }
 }
  
+
+function topLevelFieldSegments(detailsBase64: string): Uint8Array[] {
+  const bytes = decodeBase64(detailsBase64);
+  const mutableCorrectionFields = new Set([2, 8, 9, 10, 17, 18]);
+  const stable: Uint8Array[] = [];
+  let offset = 0;
+  while (offset < bytes.length) {
+    const start = offset;
+    const key = readVarint(bytes, offset);
+    offset = key.next;
+    const field = Number(key.value >> 3n);
+    const wire = Number(key.value & 7n);
+    if (field <= 0) throw new Error("ATK protobuf field number is invalid.");
+    offset = skipWireValue(bytes, offset, wire);
+    if (!mutableCorrectionFields.has(field)) stable.push(bytes.slice(start, offset));
+  }
+  return stable;
+}
+
+/** Ensure a Cancel/Return changes only coupon identity, NUIKF, type, timestamp and reference. */
+export function assertFullCorrectionMatchesOriginal(
+  originalDetailsBase64: string,
+  correctionDetailsBase64: string,
+): void {
+  const original = topLevelFieldSegments(originalDetailsBase64);
+  const correction = topLevelFieldSegments(correctionDetailsBase64);
+  if (original.length !== correction.length) {
+    throw new Error("ATK full correction must preserve every original item, payment, discount and tax field.");
+  }
+  for (let index = 0; index < original.length; index += 1) {
+    const left = original[index];
+    const right = correction[index];
+    if (left.length !== right.length) {
+      throw new Error("ATK full correction must preserve every original item, payment, discount and tax field.");
+    }
+    for (let byte = 0; byte < left.length; byte += 1) {
+      if (left[byte] !== right[byte]) {
+        throw new Error("ATK full correction must preserve every original item, payment, discount and tax field.");
+      }
+    }
+  }
+}
+
 function skipJsonWhitespace(source: string, offset: number): number {
   while (offset < source.length && /\s/.test(source[offset])) offset += 1;
   return offset;
