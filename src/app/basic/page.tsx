@@ -190,6 +190,18 @@ export default function Home(){
 
 
   useEffect(()=>{
+    if(!business||!selectedPos)return;
+    const recordOutage=()=>{
+      void getOrStartPosConnectivityOutage(business.id,selectedPos).catch(error=>
+        setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
+      );
+    };
+    window.addEventListener("offline",recordOutage);
+    if(!navigator.onLine)recordOutage();
+    return()=>window.removeEventListener("offline",recordOutage);
+  },[business,selectedPos]);
+
+  useEffect(()=>{
     if(!business||!supabase||!user)return;
     let running=false;
     let active=true;
