@@ -99,6 +99,12 @@ The additive SQL is drafted in `supabase/full-migrations/fiskalo_full_server_tru
 
 The official sample integration repository demonstrates the POS `details`/`signature` Protobuf contract and its published `PosCoupon` fields currently end at field 19. Administrative Instruction MF No. 01/2026, Article 35(8)-(12), additionally requires the developer NUI and unique SEF/software code to be integrated and registered as part of each fiscalization. The published Protobuf sample does not show where those identifiers are carried. Do not invent fields or overload `ApplicationId`; this mapping needs explicit ATK confirmation or an updated official schema before production certification.
 
+## Shared Supabase project verification (read-only)
+
+The connected shared Supabase project was inspected without changing it. Its Fiskalo Basic migration history currently ends at the correction-reservation owner-only migration (the 0029 stage); migrations 0030–0033 are not yet applied. The Basic product table currently has no rows, so the 0030 NOT VALID catalogue constraints have no existing legacy rows to block, but they still must be applied only alongside the matching application release.
+
+The Full fiscal-document and fiscal-event tables currently have authenticated INSERT/UPDATE policies restricted to TEST POS records. This still allows a signed-in browser to write TEST document/event rows directly. The Full server-trusted migration was dry-run inside a transaction and rolled back; it successfully changes these permissions so authenticated users cannot INSERT/UPDATE fiscal documents/events while the service role can. It has deliberately **not** been applied yet because the current main branch does not contain the corresponding Cloudflare API routes. Apply the migration only after the server routes are merged and deployed, otherwise the currently deployed app may lose its TEST submission path.
+
 ## Current blockers that cannot be solved by code alone
 
 - ATK must issue/confirm the developer and SEF registration identifiers and grant access to the relevant test/production environment.
