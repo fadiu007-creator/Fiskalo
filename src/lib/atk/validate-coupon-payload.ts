@@ -1,5 +1,5 @@
-import { isAtkUnitCode } from "./product-units.ts";
-import { isAtkItemCategoryCode } from "./product-categories.ts";
+import { isAtkUnitCode, type AtkUnitCode } from "./product-units.ts";
+import { isAtkItemCategoryCode, type AtkItemCategoryCode } from "./product-categories.ts";
 
 type ProtoValue = bigint | Uint8Array;
 type ProtoField = { number: number; wire: number; value: ProtoValue };
@@ -121,6 +121,13 @@ export type CouponProductMapping = {
   atk_item_category_code: string | null;
 };
 
+export type RecoveredCouponProductMapping = {
+  id: string;
+  atk_unit_code: AtkUnitCode;
+  atk_tax_code: "A" | "C" | "D" | "E";
+  atk_item_category_code: AtkItemCategoryCode;
+};
+
 export type CouponPayment = { amount: number; payment_method: string };
 
 /**
@@ -131,7 +138,7 @@ export type CouponPayment = { amount: number; payment_method: string };
 export function recoverAtkMappingsFromOriginalCoupon(
   details: string,
   lines: CouponInvoiceLine[],
-): CouponProductMapping[] {
+): RecoveredCouponProductMapping[] {
   const binary = atob(details);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   const fields = parseFields(bytes);
@@ -150,7 +157,7 @@ export function recoverAtkMappingsFromOriginalCoupon(
     throw new Error("The accepted original coupon item count does not match the saved invoice.");
   }
 
-  const recovered = new Map<string, CouponProductMapping>();
+  const recovered = new Map<string, RecoveredCouponProductMapping>();
   for (const line of lines) {
     if (!line.product_id) throw new Error("A legacy invoice line has no linked product.");
     const expectedPrice = BigInt(Math.round(Number(line.unit_price) * 10000));
@@ -186,7 +193,7 @@ export function recoverAtkMappingsFromOriginalCoupon(
     const mapping = {
       id: line.product_id,
       atk_unit_code: chosen.item.unit,
-      atk_tax_code: chosen.item.tax,
+      atk_tax_code: chosen.item.tax as "A" | "C" | "D" | "E",
       atk_item_category_code: chosen.item.itemType,
     };
     const previous = recovered.get(line.product_id);
