@@ -99,3 +99,30 @@ export function submitCloudTestCoupon(
 ) {
   return callGateway<CloudAtkSubmission>(supabase, { action: "coupon", ...input });
 }
+
+export type CloudAtkQueueResult = GatewayBase & {
+  status: "queued";
+  recoveryDeadlineAt: string;
+};
+
+export function queueCloudTestCoupon(
+  supabase: SupabaseClient,
+  input: {
+    businessId: string;
+    posRecordId: string;
+    saleId: string;
+    couponId: number;
+    idempotencyKey: string;
+    details: string;
+    signature: string;
+    nuiKf: string;
+    verificationNo: string;
+    citizenPayload: string;
+    citizenSignature: string;
+    dailyNumber: number;
+    certificatePem: string;
+    offlineIssuedAt: string;
+  },
+) {
+  return callGateway<CloudAtkQueueResult>(supabase, { action: "queue-coupon", ...input });
+}
