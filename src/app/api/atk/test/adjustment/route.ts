@@ -194,6 +194,13 @@ export async function POST(request: Request) {
   const adjustedLines = adjustmentItems.map((item) => {
     const originalLine = invoiceItemMap.get(item.original_invoice_item_id);
     if (!originalLine) return null;
+    const originalMapping = recoveredMappings.get(originalLine.product_id || "");
+    if (!originalMapping ||
+        (originalLine.atk_unit_code && originalLine.atk_unit_code !== originalMapping.atk_unit_code) ||
+        (originalLine.atk_tax_code && originalLine.atk_tax_code !== originalMapping.atk_tax_code) ||
+        (originalLine.atk_item_category_code && originalLine.atk_item_category_code !== originalMapping.atk_item_category_code)) {
+      return null;
+    }
     return {
       product_id: item.product_id,
       description: item.description,
@@ -202,9 +209,9 @@ export async function POST(request: Request) {
       line_subtotal: Number(item.net_amount),
       line_vat: Number(item.vat_amount),
       vat_rate: Number(originalLine.vat_rate),
-      atk_unit_code: originalLine.atk_unit_code || recoveredMappings.get(originalLine.product_id || "")?.atk_unit_code || null,
-      atk_tax_code: originalLine.atk_tax_code || recoveredMappings.get(originalLine.product_id || "")?.atk_tax_code || null,
-      atk_item_category_code: originalLine.atk_item_category_code || recoveredMappings.get(originalLine.product_id || "")?.atk_item_category_code || null,
+      atk_unit_code: originalMapping.atk_unit_code,
+      atk_tax_code: originalMapping.atk_tax_code,
+      atk_item_category_code: originalMapping.atk_item_category_code,
     };
   });
   if (adjustedLines.some((line) => !line)) return rejectBeforeSubmission("adjustment_item_mismatch", "Artikujt e korrigjimit nuk përputhen me faturën origjinale. Korrigjimi nuk u dërgua.");
