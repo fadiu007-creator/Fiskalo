@@ -33,7 +33,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Full product editor uses the 21-code ATK unit catalogue (29.09.2026) and the 35-code May 2026 category annex; Full coupon validation rejects invalid unit/category/VAT mappings.
 - [x] Full invoice payment ledger and POS support Cash, CreditCard, Voucher, Cheque, CryptoCurrency and Other (bank transfer); repeated installments are aggregated by ATK PaymentType.
 - [x] Full ATK server routes now use a server-only Supabase client for verification and fiscal journal writes; CSR-to-certificate SPKI matching and per-POS certificate signature verification are implemented in source.
-- [ ] Apply the Full server-trusted fiscal-write migration in `supabase/full-migrations/`; until applied, the existing Full RLS policies still allow authenticated direct writes to fiscal status/event tables.
+- [x] Apply Full server-trusted fiscal-write migration: browser roles can read fiscal records but cannot insert/update/delete fiscal acceptance or event rows; certificates and verification records are server-only.
 - [ ] Deploy and live-test Full ATK TEST verification, certificate issuance, Sale, Cancel and Return.
 
 **Basic app**
@@ -46,8 +46,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 - [x] Owner-only sales/VAT reports with Kosovo timezone/DST-safe date filters and CSV export; read-only report RPC is migration 0032.
 - [x] Article 26(4) authority-requested untransmitted-coupon export: owner-only, request-reference gated, audited, with signed POS/CitizenCoupon evidence in CSV and print-to-PDF; migration 0033.
 - [x] POS-wide connectivity outage clock persisted in IndexedDB; subsequent queued coupons share the first observed outage timestamp and 48-hour deadline.
-- [ ] Apply and verify Basic catalogue constraints (migration 0030) and split-tender RPC (migration 0031).
-- [ ] Complete genuinely local-first disconnected checkout. The current outbox/recovery source does not yet prove a sale can be completed while Supabase and the internet are unavailable.
+- [x] Apply Basic catalogue constraints (0030), split-tender RPC (0031), owner sales report (0032), authority export (0033), trigger-only RPC hardening (0034) and Full/Basic invoice-line ATK snapshot controls (0035).
 - [ ] Complete genuinely local-first disconnected checkout. The current checkout still calls Supabase before the offline branch, so it cannot create a new sale when internet/Supabase is unavailable.
 - [ ] Implement the Article 44 notification/evidence path and operational deadline escalation; the outage clock is implemented, but full offline sale issuance and ATK recovery evidence are not.
 - [x] Document Article 45 approved pre-numbered paper-booklet fallback; operational workflow remains to be built.
@@ -55,7 +54,7 @@ A successful build or TEST coupon is not ATK certification. Production fiscaliza
 **Shared Supabase project**
 - The existing `zikos` project already contains the Fiskalo Full schema and the Basic core, checkout, ATK acceptance, offline receipt, business operations and atomic purchase migrations. It also contains the PR #12 server acceptance, recovery queue, POS certificate and correction migrations.
 - This repository is not the complete migration history for the shared `zikos` project, which also hosts other applications. Do not run a generic `supabase db push` from this partial repository. Apply only reviewed additive Fiskalo migrations through the connected Supabase project and record the returned migration version in this repository.
-- Pending database work: Basic migrations 0030–0033 and the Full migration draft under `supabase/full-migrations/`. CI applies migrations 0001–0034 to a disposable PostgreSQL instance and runs SQL security contracts; this does not mean they have been applied to the shared `zikos` project. Migration 0034 (trigger-only RPC hardening) was separately applied and verified on the shared project on 15 November 2026.
+- Applied on shared Supabase project `zikos` on 15 November 2026: Basic migrations 0030–0033, trigger-only RPC hardening 0034, invoice-line ATK snapshots 0035, and `supabase/full-migrations/fiskalo_full_server_trusted_fiscal_writes.sql`. The migrations are additive and limited to Fiskalo tables/functions. Verified live: all six Basic catalogue constraints and all six Full product/invoice-line constraints are validated; Full browser roles cannot write fiscal documents/events or read server-only certificates; service_role retains server write access. CI applies migrations 0001–0035 to a disposable PostgreSQL instance and runs SQL contracts; the Full server-trusted migration is separately verified against the connected `zikos` database.
 
 A successful build or ATK TEST coupon is not ATK certification. Production fiscalization remains disabled until the developer/software solution is registered and certified, the unique SEF code is integrated as ATK specifies, and production credentials are issued. Real ATK TEST acceptance and a Cloudflare deployment are still required release gates.
 
