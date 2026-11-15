@@ -210,11 +210,9 @@ export default function WebPosSetupPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || data.error || "ATK nuk e lëshoi certifikatën.");
       const installed = await installBrowserPosCertificate(id, data.signedCertificate);
-      const { error: updateError } = await supabase.from("fiskalo_atk_pos_installations")
-        .update({ status: "active" }).eq("id", selected.id).eq("organization_id", organizationId);
-      if (updateError) throw new Error("Certifikata u ruajt lokalisht, por statusi i POS-it nuk u përditësua: " + updateError.message);
-      setCertificateReady(installed.installed);
-      setNotice("Certifikata TEST e lëshuar nga ATK u verifikua kundrejt çelësit lokal dhe u instalua në këtë shfletues.");
+      if (!installed.installed) throw new Error("Certifikata nuk u instalua në çelësin lokal.");
+      setCertificateReady(true);
+      setNotice("Certifikata TEST u lidh me CSR-në dhe u regjistrua në server nga Fiskalo. Çelësi privat mbetet vetëm në këtë shfletues.");
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : "Certifikata nuk u instalua."); }
     finally { setBusy(false); }
