@@ -1,18 +1,15 @@
-const AGENT = "http://127.0.0.1:17843";
-async function call<T>(path:string,token?:string,body?:unknown):Promise<T>{
-  const response=await fetch(AGENT+path,{method:body===undefined?"GET":"POST",headers:{...(body===undefined?{}:{"Content-Type":"application/json"}),...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body),cache:"no-store"});
-  const payload=await response.json().catch(()=>({}));
-  if(!response.ok)throw new Error(typeof payload.detail==="string"?payload.detail:typeof payload.message==="string"?payload.message:typeof payload.error==="string"?payload.error:"POS Agent request failed ("+response.status+").");
-  return payload as T;
-}
+/**
+ * Legacy POS Agent API surface retained temporarily for backwards-compatible imports.
+ * The web application no longer contacts localhost or depends on a Windows companion process.
+ * Use browser-runtime.ts and cloud-atk.ts for the web-only ATK TEST flow.
+ */
+const legacyDisabled = (): never => {
+  throw new Error("The legacy local POS Agent is disabled. Use the Cloudflare web ATK runtime and complete onboarding in this browser.");
+};
+
 export type AgentStatus={service:string;version:string;paired:boolean;fiscalizationEnabled:boolean;capabilities:string[];windowsKeyStoreAvailable:boolean;testCertificateInstalled:boolean;testInstallationVerified:boolean};
 export type AtkVerification={businessName:string;verificationCode:string;environment:string;productionEnabled:boolean};
 export type AtkCertificate={certificateStatus:string;subject:string;thumbprint:string;environment:string;privateKeyExported:boolean;productionEnabled:boolean};
-export async function pairLocalAgent(pairingCode:string){return call<{sessionToken:string;agentVersion:string}>("/api/v1/pair",undefined,{pairingCode});}
-export async function getLocalAgentStatus(token:string){return call<AgentStatus>("/api/v1/status",token);}
-export async function verifyLocalTestPos(token:string,input:{nui:number;fiscalizationNumber:string;posId:number;branchId:number;applicationId:number}){return call<AtkVerification>("/api/v1/atk/test/verify",token,input);}
-export async function issueLocalTestCertificate(token:string,input:{businessName:string;businessNui:number;branchId:number;verificationCode:string;posId:number;applicationId:number}){return call<AtkCertificate>("/api/v1/atk/test/sign-csr",token,input);}
-
 export type AtkCouponSubmitResult={
   status:"accepted"|"queued_offline";
   transactionId:string|null;
@@ -32,38 +29,23 @@ export type AtkCouponSubmitResult={
   message?:string;
 };
 export type LocalFiscalQueueItem={
-  idempotencyKey:string;
-  documentType:string;
-  createdAtUtc:string;
-  recoveryDeadlineUtc:string;
-  nextAttemptAtUtc:string;
-  status:string;
-  attemptCount:number;
-  lastError:string|null;
-  atkTransactionId:string|null;
-  nuiKf:string|null;
-  legacyNuiKf:string|null;
-  dailyNumber:number|null;
-  offlineIssuedAtUtc:string|null;
-  citizenPayloadBase64:string|null;
-  citizenSignatureBase64:string|null;
-  citizenQrPayload:string|null;
-  qrSvgBase64:string|null;
-  detailsBase64:string|null;
-  signatureBase64:string|null;
-  recoveryDeadlineExceeded:boolean;
+  idempotencyKey:string;documentType:string;createdAtUtc:string;recoveryDeadlineUtc:string;
+  nextAttemptAtUtc:string;status:string;attemptCount:number;lastError:string|null;
+  atkTransactionId:string|null;nuiKf:string|null;legacyNuiKf:string|null;dailyNumber:number|null;
+  offlineIssuedAtUtc:string|null;citizenPayloadBase64:string|null;citizenSignatureBase64:string|null;
+  citizenQrPayload:string|null;qrSvgBase64:string|null;detailsBase64:string|null;
+  signatureBase64:string|null;recoveryDeadlineExceeded:boolean;
 };
-export async function submitLocalTestCoupon(token:string,idempotencyKey:string,coupon:unknown){
-  return call<AtkCouponSubmitResult>("/api/v1/atk/test/coupon",token,{idempotencyKey,coupon});
-}
-export async function getLocalAgentQueue(token:string){
-  return call<{count:number;overdueCount:number;items:LocalFiscalQueueItem[]}>("/api/v1/queue",token);
-}
 export type LocalQueueReconcileInput={decision:"not_found_confirmed";confirmedNoAtkRecord:true};
 export type LocalQueueReconcileResult={
   idempotencyKey:string;status:string;transactionId:string|null;lastError:string|null;
   manualResubmissionPermitted:boolean;automaticRetryEnabled:boolean;
 };
-export async function reconcileLocalAgentQueue(token:string,idempotencyKey:string,input:LocalQueueReconcileInput){
-  return call<LocalQueueReconcileResult>("/api/v1/queue/reconcile",token,{idempotencyKey,...input});
-}
+
+export async function pairLocalAgent(_pairingCode:string):Promise<never>{return legacyDisabled();}
+export async function getLocalAgentStatus(_token:string):Promise<never>{return legacyDisabled();}
+export async function verifyLocalTestPos(_token:string,_input:{nui:number;fiscalizationNumber:string;posId:number;branchId:number;applicationId:number}):Promise<never>{return legacyDisabled();}
+export async function issueLocalTestCertificate(_token:string,_input:{businessName:string;businessNui:number;branchId:number;verificationCode:string;posId:number;applicationId:number}):Promise<never>{return legacyDisabled();}
+export async function submitLocalTestCoupon(_token:string,_idempotencyKey:string,_coupon:unknown):Promise<never>{return legacyDisabled();}
+export async function getLocalAgentQueue(_token:string):Promise<never>{return legacyDisabled();}
+export async function reconcileLocalAgentQueue(_token:string,_idempotencyKey:string,_input:LocalQueueReconcileInput):Promise<never>{return legacyDisabled();}
