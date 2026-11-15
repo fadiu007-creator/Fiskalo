@@ -458,3 +458,11 @@ export function validateAtkCitizenCouponPayload(
     return { ok: false, detail: error instanceof Error ? error.message : "CitizenCoupon payload could not be validated." };
   }
 }
+
+
+/** Reads the signed POS Coupon's verification number for CitizenCoupon parity checks. */
+export function readAtkPosCouponVerificationNo(details: string): string {
+  const binary = atob(details);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return asString(parseFields(bytes), 8);
+}
