@@ -147,7 +147,7 @@ export async function POST(request: Request) {
 
   const [{ data: invoiceLines, error: invoiceLinesError }, { data: payments, error: paymentsError }] = await Promise.all([
     supabase.from("fiskalo_invoice_items")
-      .select("product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate")
+      .select("product_id,description,quantity,unit_price,line_subtotal,line_vat,vat_rate,atk_unit_code,atk_tax_code,atk_item_category_code")
       .eq("invoice_id", invoiceId),
     supabase.from("fiskalo_invoice_payments")
       .select("amount,payment_method")
@@ -157,16 +157,17 @@ export async function POST(request: Request) {
   if (invoiceLinesError || !invoiceLines?.length || paymentsError || !payments?.length) {
     return Response.json({ error: "invoice_ledger_unavailable", detail: "Fiskalo could not read the complete invoice lines and payment ledger. No coupon was sent." }, { status: 500 });
   }
-  const productIds = Array.from(new Set(invoiceLines.map((line) => line.product_id).filter((id): id is string => Boolean(id))));
-  const { data: products, error: productsError } = productIds.length
-    ? await supabase.from("fiskalo_products")
-      .select("id,atk_unit_code,atk_tax_code,atk_item_category_code")
-      .eq("organization_id", organizationId)
-      .in("id", productIds)
-    : { data: [], error: null };
-  if (productsError) {
-    return Response.json({ error: "product_mapping_unavailable", detail: "Fiskalo could not read the ATK product mappings. No coupon was sent." }, { status: 500 });
-  }
+  // Validate against the immutable ATK classification captured on each invoice line.
+  // Never join the current product master for an already-issued sale.
+  const products = invoiceLines
+    .filter((line) => typeof line.product_id === "string")
+    .map((line) => ({
+      id: line.product_id as string,
+      atk_unit_code: line.atk_unit_code,
+      atk_tax_code: line.atk_tax_code,
+      atk_item_category_code: line.atk_item_category_code,
+    }));
+
   const payloadValidation = validateAtkCouponPayload(details, {
     nui,
     couponId,
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
     subtotal: Number(invoice.subtotal),
     vatTotal: Number(invoice.vat_total),
     lines: invoiceLines,
-    products: products ?? [],
+    products,
     payments,
   });
   if (!payloadValidation.ok) {
