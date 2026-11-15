@@ -32,8 +32,8 @@ The current Basic MVP is a browser-based Fiskalo web application hosted on Cloud
 | POS verification | Cloudflare gateway uses saved business/POS values | Live ATK TEST verification using the configured taxpayer and POS |
 | CSR and certificate | Browser CSR, server-stored public certificate and local SPKI match | ATK TEST certificate issuance and live key-match evidence |
 | Sale | Browser signs; Cloudflare validates; ATK response controls accepted status | Real ATK TEST Sale and saved transaction ID |
-| Cancel | Existing data model supports document types, but browser signing and trusted ledger flow are not complete | Implement and test a Cancel referencing an accepted Sale |
-| Return | Existing data model supports document types, but browser signing and trusted ledger flow are not complete | Implement and test a Return referencing an accepted Sale |
+| Cancel | Browser signing, trusted correction journal, ATK submission and 48-hour recovery path implemented | Live ATK TEST acceptance against an accepted Sale is still required |
+| Return | Full Return is implemented with browser signing, trusted correction journal and 48-hour recovery; partial returns are not yet supported | Live ATK TEST acceptance against an accepted Sale is still required |
 | Offline queue | Browser outbox, Supabase queue RPC and scheduled Cloudflare worker | Deploy Worker, simulate confirmed pre-delivery failure, reconnect and prove automatic ATK acceptance before 48 hours |
 | Duplicate/ambiguous response | Idempotency checks and stop-on-ambiguity states | Live duplicate and timeout/reconciliation tests |
 | Receipt | Server-generated CitizenCoupon QR and stored fiscal journal data | Compare printed TEST receipt against current official ATK specimen, including RKS mark, NUIKF and all mandatory fields |
@@ -69,7 +69,7 @@ Do not mark Fiskalo ATK TEST compliant until all of the following are evidenced:
 2. The main web app is deployed to the existing Cloudflare Worker.
 3. The scheduled recovery Worker is deployed and its cron runs successfully.
 4. ATK TEST onboarding issues a certificate that matches the browser-held POS key.
-5. ATK TEST accepts Sale, Cancel and Return, each with the correct transaction ID and immutable fiscal journal entry.
+5. ATK TEST accepts Sale, Cancel and full Return, each with the correct ReferenceNo, transaction ID and immutable fiscal journal entry.
 6. A confirmed pre-delivery failure is queued, automatically recovered by Cloudflare, and accepted by ATK before 48 hours.
 7. Ambiguous timeouts and duplicate attempts are held for reconciliation, not resubmitted.
 8. The receipt is checked against the current official ATK TEST specimen.
