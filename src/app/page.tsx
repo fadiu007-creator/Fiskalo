@@ -192,7 +192,7 @@ export default function Home(){
             const result=await queueCloudTestCoupon(supabase,{
               businessId:item.businessId,posRecordId:item.posRecordId,saleId:item.saleId,
               couponId:item.couponId,idempotencyKey:item.idempotencyKey,
-              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,verificationNo:item.nuiKf,
+              details:item.detailsBase64,signature:item.signatureBase64,certificatePem:item.certificatePem,nuiKf:item.nuiKf,verificationNo:item.nuiKf,verificationNo:item.nuiKf,
               citizenPayload:item.citizenPayloadBase64,citizenSignature:item.citizenSignatureBase64,
               dailyNumber:item.dailyNumber,verificationNo:item.nuiKf,
               offlineIssuedAt:item.offlineIssuedAtUtc??item.issuedAtUtc
