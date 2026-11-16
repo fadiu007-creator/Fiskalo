@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient, getSupabasePublicConfig } from "@/lib/supabase/client";
@@ -18,17 +19,18 @@ type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
 
 function FiscalLogo(){
-  return <div role="img" aria-label="Stema zyrtare e Republikës së Kosovës dhe MFPT" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,margin:"0 auto",height:"12mm"}}>
-    <img
+  return <div role="img" aria-label="Stema zyrtare e Republikës së Kosovës dhe MFPT" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:2,margin:"0 auto",height:"8mm",width:"20mm"}}>
+    <Image
       src="/rks-coat-of-arms.svg"
       alt="Stema e Republikës së Kosovës"
-      width="34"
-      height="38"
-      style={{width:"9mm",height:"10mm",objectFit:"contain"}}
+      width={28}
+      height={32}
+      unoptimized
+      style={{width:"7mm",height:"8mm",objectFit:"contain"}}
     />
     <div style={{textAlign:"left",lineHeight:1.05,color:"#111"}}>
-      <div style={{fontSize:13,fontWeight:900,letterSpacing:1}}>RKS</div>
-      <div style={{fontSize:8,fontWeight:800,letterSpacing:.5}}>MFPT</div>
+      <div style={{fontSize:11,fontWeight:900,letterSpacing:1}}>RKS</div>
+      <div style={{fontSize:7,fontWeight:800,letterSpacing:.5}}>MF</div>
     </div>
   </div>;
 }
@@ -187,7 +189,7 @@ export default function Home(){
       }));
     }catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua historia e shitjeve.");}
     finally{setBusy(false);}
-  },[supabase,business,agentToken,positions,user]);
+  },[supabase,business,agentToken,positions,user,operatorName]);
 
   const syncAcceptedQueue=useCallback(async()=>{
     if(!supabase||!business||!agentToken)return;
@@ -462,7 +464,7 @@ export default function Home(){
   },[business,cart,checkoutKey,checkoutAttempted,payment,selectedPos,checkoutDraftLoaded]);
 
   async function signIn(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabase!.auth.signInWithPassword({email:(document.getElementById("email") as HTMLInputElement).value,password:(document.getElementById("password") as HTMLInputElement).value});if(error)throw error;}catch(e){setMessage(e instanceof Error?e.message:"Hyrja dështoi.");}finally{setBusy(false);}}
-  async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {data,error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
+  async function createBusiness(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_create_business",{p_name:businessName,p_nui:nui});if(error)throw error;await loadWorkspace(user!.id);setMessage("Biznesi u krijua.");}catch(e){setMessage(e instanceof Error?e.message:"Biznesi nuk u krijua. Kontrollo nëse migrimet janë aplikuar.");}finally{setBusy(false);}}
   async function saveOperatorIdentity(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(error)throw error;setMessage("Emri dhe identifikuesi i operatorit u ruajtën për kuponët e ardhshëm.");}catch(e){setMessage(e instanceof Error?e.message:"Identiteti i operatorit nuk u ruajt.");}finally{setBusy(false);}}
   async function saveTaxProfile(e:React.FormEvent){e.preventDefault();if(!business)return;setBusy(true);setMessage("");try{const {error}=await supabase!.rpc("fiskalo_basic_update_business_tax_profile",{p_business_id:business.id,p_vat_number:vatNumber.trim()||null});if(error)throw error;setBusiness({...business,vat_number:vatNumber.trim()||null});setMessage("Numri i TVSH-së u ruajt për kuponët e ardhshëm.");}catch(e){setMessage(e instanceof Error?e.message:"Të dhënat tatimore nuk u ruajtën.");}finally{setBusy(false);}}
   async function inviteWorker(e:React.FormEvent){
@@ -615,8 +617,6 @@ export default function Home(){
       (!query||product.name.toLocaleLowerCase("sq").includes(query)||product.atk_item_category_code.toLocaleLowerCase("sq").includes(query))
     );
   },[products,productSearch,selectedCategory]);
-  const cartQuantity=cartLines.reduce((sum,line)=>sum+line.quantity,0);
-  const vatTotal=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*line.product.vat_rate/100,0);
 
   useEffect(()=>{
     const syncFullscreen=()=>setIsPosFullscreen(!!document.fullscreenElement);
@@ -997,7 +997,7 @@ export default function Home(){
               ? <div style={{fontWeight:800,color:"#b91c1c"}}>NUIKF I VJETËR TESTUES — FORMAT I PAVLEFSHËM: {receipt.legacy_nui_kf}</div>
               : <div style={{fontWeight:800,color:"#b91c1c"}}>NUIKF NUK ËSHTË GJENERUAR</div>}
           <div>Kupon fiskal ditor nr. {String(receipt.daily_number??"—").padStart(4,"0")}</div>
-          {receipt.qr_svg_base64?<img alt="Kodi QR i kuponit të nënshkruar" src={"data:image/svg+xml;base64,"+receipt.qr_svg_base64} style={{width:170,height:170,objectFit:"contain",margin:"8px auto",display:"block"}}/>:<div style={{padding:12,border:"1px solid #b91c1c",color:"#b91c1c",fontWeight:700}}>QR mungon — mos e përdor këtë dokument si kupon fiskal.</div>}
+          {receipt.qr_svg_base64?<Image unoptimized width={170} height={170} alt="Kodi QR i kuponit të nënshkruar" src={"data:image/svg+xml;base64,"+receipt.qr_svg_base64} style={{width:170,height:170,objectFit:"contain",margin:"8px auto",display:"block"}}/>:<div style={{padding:12,border:"1px solid #b91c1c",color:"#b91c1c",fontWeight:700}}>QR mungon — mos e përdor këtë dokument si kupon fiskal.</div>}
           <div>Statusi ATK: {receipt.submission_state?.toLowerCase()==="accepted"||receipt.status==="fiscalized"?"ACCEPTED":receipt.submission_state?.toLowerCase()==="needsreconciliation"?"RECONCILIIM I NEVOJSHËM":receipt.submission_state?.toLowerCase()==="rejected"?"REFUZUAR NGA ATK":receipt.is_offline?"OFFLINE · NË RADHË":"PENDING"}</div>
           {receipt.transaction_id&&<div>Transaction ID: {receipt.transaction_id}</div>}{receipt.queue_last_error&&<div style={{fontSize:10,marginTop:4}}>Shënim: {receipt.queue_last_error}</div>}
           {receipt.is_offline&&receipt.recovery_deadline_at&&<div>Afati i dërgimit: {new Date(receipt.recovery_deadline_at).toLocaleString("sq-XK")}</div>}{receipt.recovery_deadline_exceeded&&<div style={{fontWeight:800,color:"#b91c1c"}}>AFATI 48-ORËSH I KALUAR — kontroll i menjëhershëm me ATK</div>}
