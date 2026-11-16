@@ -590,7 +590,13 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64,
                 signed.SignatureBase64, cancellationToken: cancellationToken, nuiKf: nuiKf,
                 citizenPayloadBase64: citizenPayload, citizenSignatureBase64: citizenSignature,
-                dailyNumber: request.Coupon.DailyNumber);
+                dailyNumber: request.Coupon.DailyNumber,
+                businessUuid: request.BusinessId, posUuid: request.PosUuid, businessDate: request.BusinessDate,
+                checkoutIdempotencyKey: request.CheckoutIdempotencyKey,
+                couponId: request.Coupon.CouponId, businessNui: installation.Nui,
+                branchId: installation.BranchId, posNumber: installation.PosId,
+                applicationId: installation.ApplicationId, verificationNo: nuiKf,
+                qrSvgBase64, certificateThumbprint: certificate.Thumbprint);
 
         var persisted = existing ?? (await queueStore.GetAllAsync(cancellationToken)).Single(x => x.IdempotencyKey == request.IdempotencyKey);
         var signedToSubmit = new SignedAtkCoupon(persisted.PayloadBase64, persisted.SignatureBase64, "");
@@ -598,7 +604,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         try {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             var result = await new AtkTestClient(http).SubmitSignedPosCouponAsync(signedToSubmit, cancellationToken);
-            await queueStore.MarkAcceptedAsync(request.IdempotencyKey, result.TransactionId.ToString(), cancellationToken);
+            await queueStore.MarkAcceptedAsync(request.IdempotencyKey, result.TransactionId.ToString(), cancellationToken, result.Message);
             return Results.Ok(new { status = "accepted", transactionId = result.TransactionId.ToString(),
                 detailsBase64 = persisted.PayloadBase64, signatureBase64 = persisted.SignatureBase64,
                 nuiKf, dailyNumber = persisted.DailyNumber, citizenQrPayload, qrSvgBase64,
@@ -808,7 +814,10 @@ internal sealed record AtkSignCsrRequest(
 internal sealed record AtkCouponRequest(
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
     [property: JsonPropertyName("coupon")] PosCouponInput Coupon,
-    [property: JsonPropertyName("checkoutIdempotencyKey")] string? CheckoutIdempotencyKey = null);
+    [property: JsonPropertyName("checkoutIdempotencyKey")] string? CheckoutIdempotencyKey = null,
+    [property: JsonPropertyName("businessId")] string? BusinessId = null,
+    [property: JsonPropertyName("posUuid")] string? PosUuid = null,
+    [property: JsonPropertyName("businessDate")] string? BusinessDate = null);
 
 internal sealed record OfflineReservationProvisionRequest(
     [property: JsonPropertyName("businessId")] string BusinessId,
