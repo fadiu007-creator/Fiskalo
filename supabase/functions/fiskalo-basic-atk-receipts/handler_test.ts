@@ -33,7 +33,7 @@ function dateOf(timestamp:string){
   const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(timestamp));
   const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));return `${values.year}-${values.month}-${values.day}`;
 }
-async function setup(status:"queued"|"accepted"="queued"){
+async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
   const keyPair=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},true,["sign","verify"]);
   const spki=new Uint8Array(await crypto.subtle.exportKey("spki",keyPair.publicKey));
   const now=new Date();
@@ -57,7 +57,7 @@ async function setup(status:"queued"|"accepted"="queued"){
   const certificateDer=bytes("test-registered-certificate");
   const certificatePem="-----BEGIN CERTIFICATE-----\n"+b64(certificateDer)+"\n-----END CERTIFICATE-----";
   const certificateThumbprint=(await hash(certificateDer,"SHA-1")).toUpperCase();
-  const offlineIssued=status==="queued"?new Date(now.getTime()-10*60_000).toISOString():null;
+  const offlineIssued=status==="queued"?new Date(now.getTime()-offlineAgeMinutes*60_000).toISOString():null;
   const payload={
     version:1,businessId,posUuid,businessNui:123456789,branchId:1,posNumber:2,applicationId:3,
     couponId:9001,idempotencyKey:"123456789:1:2:9001",checkoutIdempotencyKey:null,
@@ -195,4 +195,14 @@ Deno.test("rejects a forged certificate proof-of-possession",async()=>{
       certificateAttestationSignatureBase64:b64(bytes("invalid"))})
   }));
   assert(response.status===400,"invalid certificate attestation must be rejected");
+});
+
+
+Deno.test("keeps an offline fiscal document synchronizable after the 48-hour deadline",async()=>{
+  const fixture=await setup("queued",49*60);
+  const response=await fixture.handler(fixture.request());
+  const result=await response.json() as {state?:string;overdue?:boolean;recoveryDeadlineAt?:string};
+  assert(response.status===200,"overdue offline receipts must remain persistable");
+  assert(result.state==="queued"&&result.overdue===true,"the server must mark the 48-hour deadline as overdue without discarding the receipt");
+  assert(typeof result.recoveryDeadlineAt==="string","the original recovery deadline must be retained");
 });
