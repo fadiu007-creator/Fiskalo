@@ -20,7 +20,7 @@ const sale = (overrides = {}) => ({
   paymentMethod: "cash", paymentAllocations: [{ method: "cash", amountCents: 1180 }], currency: "EUR", subtotalMinor: 1000, vatTotalMinor: 180, totalMinor: 1180,
   lines: [{ productId: "product-1", description: "Coffee", quantityMilli: 1000,
     unitPriceMinor: 1000, vatRateBasisPoints: 1800, atkUnitCode: "CP",
-    atkCategoryCode: "category-1", atkVatCode: "E", lineNetMinor: 1000,
+    atkCategoryCode: "TT", atkVatCode: "E", lineNetMinor: 1000,
     lineVatMinor: 180, lineTotalMinor: 1180 }], ...overrides,
 });
 test("validates immutable offline sale snapshots and integer-cent totals", () => {
