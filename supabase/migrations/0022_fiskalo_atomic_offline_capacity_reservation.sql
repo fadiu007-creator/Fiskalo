@@ -4,7 +4,7 @@
 create or replace function public.fiskalo_basic_reserve_offline_capacity(
   p_business_id uuid,p_pos_id uuid,p_coupon_count integer,p_days_ahead integer
 ) returns jsonb
-language plpgsql security invoker set search_path='' as $
+language plpgsql security invoker set search_path='' as $fiskalo$
 declare
   v_coupon_ids bigint[];
   v_daily_ranges jsonb:='[]'::jsonb;
@@ -52,6 +52,6 @@ begin
     'daily_ranges',v_daily_ranges
   );
 end;
-$$;
+$fiskalo$;
 revoke all on function public.fiskalo_basic_reserve_offline_capacity(uuid,uuid,integer,integer) from public,anon;
 grant execute on function public.fiskalo_basic_reserve_offline_capacity(uuid,uuid,integer,integer) to authenticated;
