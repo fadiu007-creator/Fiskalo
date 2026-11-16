@@ -26,7 +26,7 @@ Fiskalo now:
 - includes the signed payloads, signatures, NUIKF, daily number, CouponId and submission state;
 - requires the owner to archive the export and evidence of actual submission.
 
-The export requires the paired POS Agent on the device holding the local queue. It fails closed if that local queue cannot be read. A database-only export is not represented as a complete export of offline coupons.
+The export is scoped to one POS and requires that POS's paired Agent on the device holding its local queue. If an interruption affects multiple POS devices, the owner must record and export each affected POS from its corresponding Agent. It fails closed if that local queue cannot be read. A database-only export is not represented as a complete export of offline coupons.
 
 ## Important limitations
 
