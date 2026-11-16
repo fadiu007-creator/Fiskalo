@@ -257,12 +257,23 @@ export default function Home(){
         if(!navigator.onLine)break;
       }catch(error){
         const message=error instanceof Error?error.message:"Offline sale synchronization failed.";
-        await journal.markCloudConflict(record.idempotencyKey,message).catch(()=>undefined);
+        if(/differs|already been consumed|not reserved|does not belong|no longer a member|invalid .*snapshot/i.test(message))
+          await journal.markCloudConflict(record.idempotencyKey,message).catch(()=>undefined);
+        else
+          setMessage("Shitja offline mbetet në radhën lokale për sinkronizim: "+message);
       }
     }
     await syncAcceptedQueue();
     if(user)await loadWorkspace(user.id).catch(()=>undefined);
   },[supabase,business,agentToken,syncAcceptedQueue,user,loadWorkspace]);
+
+  useEffect(()=>{
+    if(!business||!agentToken)return;
+    const sync=()=>{if(navigator.onLine)void syncPendingOfflineSales();};
+    window.addEventListener("online",sync);
+    if(navigator.onLine)sync();
+    return()=>window.removeEventListener("online",sync);
+  },[business,agentToken,syncPendingOfflineSales]);
 
   async function reconcileSaleQueue(sale:SaleRecord){
     if(memberRole!=="owner"){setMessage("Vetëm pronari mund të autorizojë reconciliimin e radhës fiskale.");return;}
