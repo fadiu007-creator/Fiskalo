@@ -806,36 +806,18 @@ export default function Home(){
       };
       setReceipt(receiptRecord);
 
+      const attestation=await getLocalFiscalAttestation(agentToken,{
+        idempotencyKey,businessId:business.id,posUuid:pos.id
+      });
+      const action=fiscal.status==="accepted"?"accepted":"queue";
+      const {error:attestationError}=await supabase!.functions.invoke("fiskalo-basic-atk-receipts",{
+        body:{action,businessId:business.id,posUuid:pos.id,saleId,couponId:sale.coupon_id,
+          idempotencyKey,...attestation}
+      });
+      if(attestationError)throw new Error("Kuponi është ruajtur nga POS Agent, por verifikimi dhe regjistrimi i tij në panel dështoi: "+attestationError.message);
       if(fiscal.status==="accepted"){
-        const {error:recordError}=await supabase!.rpc("fiskalo_basic_record_atk_receipt",{
-          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,p_idempotency_key:idempotencyKey,
-          p_signed_payload:fiscal.detailsBase64,p_signature:fiscal.signatureBase64,
-          p_atk_transaction_id:fiscal.transactionId,p_atk_response:fiscal,
-          p_nui_kf:fiscal.nuiKf,p_citizen_payload:fiscal.citizenQrPayload.split("|")[0],
-          p_citizen_signature:fiscal.citizenQrPayload.split("|")[1],p_daily_number:fiscal.dailyNumber,
-          p_offline_issued_at:fiscal.offlineIssuedAtUtc??null
-        });
-        if(recordError)throw new Error("ATK pranoi kuponin me Transaction ID "+fiscal.transactionId+", por ruajtja e statusit dështoi: "+recordError.message+". Mos e ridërgo; sinkronizoje pas verifikimit.");
-        const {error:qrError}=await supabase!.rpc("fiskalo_basic_set_receipt_qr",{
-          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,
-          p_idempotency_key:idempotencyKey,p_qr_svg_base64:fiscal.qrSvgBase64
-        });
-        if(qrError)throw new Error("Kuponi u pranua nga ATK, por ruajtja e QR për ribotim dështoi: "+qrError.message);
         setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId);
       }else{
-        const {error:queueError}=await supabase!.rpc("fiskalo_basic_store_offline_receipt",{
-          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,p_idempotency_key:idempotencyKey,
-          p_signed_payload:fiscal.detailsBase64,p_signature:fiscal.signatureBase64,
-          p_nui_kf:fiscal.nuiKf,p_citizen_payload:fiscal.citizenQrPayload.split("|")[0],
-          p_citizen_signature:fiscal.citizenQrPayload.split("|")[1],p_daily_number:fiscal.dailyNumber,
-          p_offline_issued_at:fiscal.offlineIssuedAtUtc
-        });
-        if(queueError)throw new Error("Kuponi i nënshkruar është ruajtur në radhën lokale, por regjistrimi i tij në panel dështoi: "+queueError.message);
-        const {error:qrError}=await supabase!.rpc("fiskalo_basic_set_receipt_qr",{
-          p_business_id:business.id,p_sale_id:saleId,p_coupon_id:sale.coupon_id,
-          p_idempotency_key:idempotencyKey,p_qr_svg_base64:fiscal.qrSvgBase64
-        });
-        if(qrError)throw new Error("Kuponi offline është ruajtur, por ruajtja e QR për ribotim dështoi: "+qrError.message);
         setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
       }
       setCart({});setCheckoutKey("");setCheckoutAttempted(false);
