@@ -707,21 +707,29 @@ export default function Home(){
           qrSvgBase64:fiscal.qrSvgBase64,offlineIssuedAtUtc:issuedAt,recoveryDeadlineUtc:deadline,
           status:fiscal.status==="accepted"?"accepted":"queued",transactionId:fiscal.transactionId??undefined
         });
-        const attestation=await getLocalFiscalAttestation(agentToken,{
-        idempotencyKey,businessId:business.id,posUuid:pos.id
-      });
-      const action=fiscal.status==="accepted"?"accepted":"queue";
-      const {error:attestationError}=await supabase!.functions.invoke("fiskalo-basic-atk-receipts",{
-        body:{action,businessId:business.id,posUuid:pos.id,saleId,couponId:sale.coupon_id,
-          idempotencyKey,...attestation}
-      });
-      if(attestationError)throw new Error("Kuponi është ruajtur nga POS Agent, por verifikimi dhe regjistrimi i tij në panel dështoi: "+attestationError.message);
-      if(fiscal.status==="accepted"){
-        setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId);
-      }else{
-        setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
-      }
-      setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+        if(fiscal.status==="accepted"){
+          await offlineJournal.markFiscalAccepted(checkoutIdempotencyKey,{
+            status:"accepted",environment:"ATK TEST",transactionId:fiscal.transactionId||""
+          });
+        }
+        setReceipt({
+          id:"offline:"+checkoutIdempotencyKey,coupon_id:claim.couponId,status:"paid",
+          subtotal:offlineSubtotal/100,vat_total:offlineVat/100,total:(offlineSubtotal+offlineVat)/100,
+          payment_method:payment,created_at:createdAtUtc,
+          pos_id:pos.id,operator_id:user!.id,daily_number:claim.dailyNumber,
+          items:snapshotLines.map(line=>({description:line.description,quantity:line.quantityMilli/1000,
+            unit_price:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,line_net:line.lineNetMinor/100,
+            line_vat:line.lineVatMinor/100,line_total:line.lineTotalMinor/100,
+            atk_unit_code:line.atkUnitCode,atk_vat_code:line.atkVatCode})),
+          transaction_id:fiscal.transactionId,nui_kf:fiscal.nuiKf,
+          submission_state:fiscal.status==="accepted"?"accepted":"queued",offline_issued_at:issuedAt,
+          recovery_deadline_at:deadline,qr_svg_base64:fiscal.qrSvgBase64,
+          pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+          unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,
+          unit_name:pos.label,business_address:pos.location,operator_name:operatorName.trim(),
+          operator_identifier:operatorIdentifier.trim(),document_type:"SHITJE",is_offline:true
+        });
+        setCart({});setCheckoutKey("");setCheckoutAttempted(false);
         localStorage.removeItem("fiskalo.pendingCheckout."+business.id);
         setMessage("Kuponi fiskal u nënshkrua dhe u ruajt lokalisht OFFLINE. POS Agent do ta dërgojë automatikisht pas rikthimit të internetit. Afati: "+new Date(deadline).toLocaleString());
         return;
