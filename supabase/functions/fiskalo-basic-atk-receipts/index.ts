@@ -34,20 +34,20 @@ if (!supabaseUrl || !serviceRoleKey) {
       return Boolean(data);
     },
     async registerCertificate(args) {
-      const { data, error } = await admin.rpc("fiskalo_basic_register_pos_certificate_v1", args);
+      const { data, error } = await admin.rpc("fiskalo_basic_server_register_pos_certificate_v1", args);
       if (error) throw error;
       if (typeof data !== "string" || !data) throw new Error("ATK certificate registration RPC returned no certificate ID.");
       return data;
     },
     async getBusiness(businessId) {
       const { data, error } = await admin.from("fiskalo_basic_businesses")
-        .select("nui").eq("id", businessId).maybeSingle();
+        .select("nui,name").eq("id", businessId).maybeSingle();
       if (error) throw error;
-      return data ? { nui: data.nui as string | number } : null;
+      return data ? { nui: data.nui as string | number, name: data.name as string } : null;
     },
     async getPos(businessId, posUuid) {
       const { data, error } = await admin.from("fiskalo_basic_pos")
-        .select("id,business_id,branch_id,pos_id,application_id,certificate_status,location")
+        .select("id,business_id,branch_id,pos_id,application_id,certificate_status,location,verified_business_name")
         .eq("id", posUuid).eq("business_id", businessId).maybeSingle();
       if (error) throw error;
       return data ? {
@@ -58,6 +58,7 @@ if (!supabaseUrl || !serviceRoleKey) {
         applicationId: data.application_id as string | number,
         certificateStatus: data.certificate_status,
         location: data.location,
+        verifiedBusinessName: data.verified_business_name,
       } : null;
     },
     async getCertificate(businessId, posUuid) {
