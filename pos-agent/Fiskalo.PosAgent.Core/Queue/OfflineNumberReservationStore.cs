@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Fiskalo.PosAgent.Core.Queue;
 
 public sealed record OfflineDailyNumberPool(string BusinessDate, long NextNumber, long LastNumber);
-public sealed record OfflineNumberClaim(string CheckoutIdempotencyKey, ulong CouponId, long DailyNumber, string BusinessDate);
+public sealed record OfflineNumberClaim(string CheckoutIdempotencyKey, ulong CouponId, long DailyNumber, string BusinessDate, string? PayloadSha256 = null);
 public sealed record OfflineNumberReservationState(
     string BusinessId, string PosUuid, ulong BusinessNui, ulong BranchId, ulong PosId, ulong ApplicationId,
     List<ulong> AvailableCouponIds, List<OfflineDailyNumberPool> DailyPools,
@@ -99,6 +99,29 @@ public sealed class OfflineNumberReservationStore
             state.Claims.Add(checkoutIdempotencyKey, claim);
             await SaveAsync(state, cancellationToken);
             return claim;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task BindDocumentAsync(string checkoutIdempotencyKey, ulong couponId, long dailyNumber,
+        string payloadSha256, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(payloadSha256) || payloadSha256.Length != 64 ||
+            payloadSha256.Any(c => !Uri.IsHexDigit(c)))
+            throw new ArgumentException("A SHA-256 document fingerprint is required.", nameof(payloadSha256));
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await LoadAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Offline number reservation store is missing.");
+            if (!state.Claims.TryGetValue(checkoutIdempotencyKey, out var claim) ||
+                claim.CouponId != couponId || claim.DailyNumber != dailyNumber)
+                throw new InvalidOperationException("Fiscal document does not match the reserved checkout identity.");
+            if (claim.PayloadSha256 is not null &&
+                !string.Equals(claim.PayloadSha256, payloadSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("This offline checkout identity is already bound to different signed fiscal content.");
+            state.Claims[checkoutIdempotencyKey] = claim with { PayloadSha256 = payloadSha256.ToUpperInvariant() };
+            await SaveAsync(state, cancellationToken);
         }
         finally { _gate.Release(); }
     }
