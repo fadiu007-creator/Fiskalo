@@ -32,14 +32,15 @@ test("records once and rejects idempotency-key content reuse", async () => {
   await assert.rejects(journal.recordSale(sale({ subtotalMinor: 1001, totalMinor: 1181, lines: [{ ...sale().lines[0], lineNetMinor: 1001, lineTotalMinor: 1181 }] })), OfflineSaleConflictError);
 });
 test("cloud synchronization and ATK acceptance are independent", async () => {
-  const journal = new OfflineCheckoutJournal(new MemoryStorage()), key = sale().idempotencyKey;
+  const storage = new MemoryStorage();
+  const journal = new OfflineCheckoutJournal(storage), key = sale().idempotencyKey;
   await journal.recordSale(sale()); await journal.markFiscalQueued(key);
   await journal.markFiscalAccepted(key, { status: "accepted", environment: "ATK TEST", transactionId: "987654321" });
   const pending = await journal.listPendingCloudSync();
   assert.equal(pending.length, 1); assert.equal(pending[0].fiscalState, "accepted");
   await journal.markCloudSynced(key, "server-sale-1", "9007199254740993");
   assert.equal((await journal.listPendingCloudSync()).length, 0);
-  assert.equal((await journal.storage.get(key)).couponId, "9007199254740993");
+  assert.equal((await storage.get(key)).couponId, "9007199254740993");
   await assert.rejects(journal.markCloudSynced(key, "server-sale-1", "18446744073709551616"), /uint64 coupon ID/);
 });
 test("uncertain ATK outcome is locked against blind retry", async () => {
