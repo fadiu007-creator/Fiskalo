@@ -692,7 +692,7 @@ export default function Home(){
         const fiscalIdempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+claim.couponId;
         await offlineJournal.markFiscalQueued(checkoutIdempotencyKey);
         let fiscal;
-        try{fiscal=await submitLocalTestCoupon(agentToken,fiscalIdempotencyKey,coupon);}
+        try{fiscal=await submitLocalTestCoupon(agentToken,fiscalIdempotencyKey,coupon,checkoutIdempotencyKey);}
         catch(submitError){
           const localQueue=await getLocalAgentQueue(agentToken).catch(()=>null);
           const queuedItem=localQueue?.items.find(item=>item.idempotencyKey===fiscalIdempotencyKey);
