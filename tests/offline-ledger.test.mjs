@@ -13,14 +13,17 @@ const sale = (overrides = {}) => ({
   posId: "pos-1", operatorId: "operator-1", createdAtUtc: "2026-11-15T20:00:00.000Z",
   paymentMethod: "cash", currency: "EUR", subtotalMinor: 1000, vatTotalMinor: 180, totalMinor: 1180,
   lines: [{ productId: "product-1", description: "Coffee", quantityMilli: 1000,
-    unitPriceMinor: 1000, vatRateBasisPoints: 1800, atkUnitCode: "Cope",
-    atkCategoryCode: "category-1", atkVatCode: "vat-1", lineNetMinor: 1000,
+    unitPriceMinor: 1000, vatRateBasisPoints: 1800, atkUnitCode: "CP",
+    atkCategoryCode: "category-1", atkVatCode: "E", lineNetMinor: 1000,
     lineVatMinor: 180, lineTotalMinor: 1180 }], ...overrides,
 });
 test("validates immutable offline sale snapshots and integer-cent totals", () => {
   assert.doesNotThrow(() => validateNewOfflineSale(sale()));
   assert.throws(() => validateNewOfflineSale(sale({ totalMinor: 1179 })), /totals do not reconcile/);
   assert.throws(() => validateNewOfflineSale(sale({ lines: [] })), /at least one line/);
+  assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkUnitCode: "Cope" }] })), /measurement-unit code/);
+  assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkVatCode: "D" }] })), /VAT code\/rate/);
+  assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkVatCode: "X" }] })), /VAT code\/rate/);
 });
 test("records once and rejects idempotency-key content reuse", async () => {
   const journal = new OfflineCheckoutJournal(new MemoryStorage(), () => new Date("2026-11-15T20:01:00.000Z"));
@@ -34,8 +37,10 @@ test("cloud synchronization and ATK acceptance are independent", async () => {
   await journal.markFiscalAccepted(key, { status: "accepted", environment: "ATK TEST", transactionId: "987654321" });
   const pending = await journal.listPendingCloudSync();
   assert.equal(pending.length, 1); assert.equal(pending[0].fiscalState, "accepted");
-  await journal.markCloudSynced(key, "server-sale-1", 42);
+  await journal.markCloudSynced(key, "server-sale-1", "9007199254740993");
   assert.equal((await journal.listPendingCloudSync()).length, 0);
+  assert.equal((await journal.storage.get(key)).couponId, "9007199254740993");
+  await assert.rejects(journal.markCloudSynced(key, "server-sale-1", "18446744073709551616"), /uint64 coupon ID/);
 });
 test("uncertain ATK outcome is locked against blind retry", async () => {
   const journal = new OfflineCheckoutJournal(new MemoryStorage()), key = sale().idempotencyKey;
