@@ -95,14 +95,41 @@ public sealed class FiscalQueueStore
                     existing.CitizenPayloadBase64 != citizenPayloadBase64 ||
                     existing.CitizenSignatureBase64 != citizenSignatureBase64 ||
                     existing.DailyNumber != dailyNumber ||
-                    existing.BusinessUuid != businessUuid || existing.PosUuid != posUuid ||
-                    existing.BusinessDate != businessDate || existing.CheckoutIdempotencyKey != checkoutIdempotencyKey ||
-                    existing.CouponId != couponId || existing.BusinessNui != businessNui ||
-                    existing.BranchId != branchId || existing.PosNumber != posNumber ||
-                    existing.ApplicationId != applicationId || existing.VerificationNo != verificationNo ||
-                    existing.QrSvgBase64 != qrSvgBase64 || existing.CertificateThumbprint != certificateThumbprint)
+                    (existing.BusinessUuid is not null && existing.BusinessUuid != businessUuid) ||
+                    (existing.PosUuid is not null && existing.PosUuid != posUuid) ||
+                    (existing.BusinessDate is not null && existing.BusinessDate != businessDate) ||
+                    (existing.CheckoutIdempotencyKey is not null && existing.CheckoutIdempotencyKey != checkoutIdempotencyKey) ||
+                    (existing.CouponId is not null && existing.CouponId != couponId) ||
+                    (existing.BusinessNui is not null && existing.BusinessNui != businessNui) ||
+                    (existing.BranchId is not null && existing.BranchId != branchId) ||
+                    (existing.PosNumber is not null && existing.PosNumber != posNumber) ||
+                    (existing.ApplicationId is not null && existing.ApplicationId != applicationId) ||
+                    (existing.VerificationNo is not null && existing.VerificationNo != verificationNo) ||
+                    (existing.QrSvgBase64 is not null && existing.QrSvgBase64 != qrSvgBase64) ||
+                    (existing.CertificateThumbprint is not null && existing.CertificateThumbprint != certificateThumbprint))
                     throw new InvalidOperationException("Idempotency key already exists with different fiscal content.");
-                return existing;
+                var enriched = existing with
+                {
+                    BusinessUuid = existing.BusinessUuid ?? businessUuid,
+                    PosUuid = existing.PosUuid ?? posUuid,
+                    BusinessDate = existing.BusinessDate ?? businessDate,
+                    CheckoutIdempotencyKey = existing.CheckoutIdempotencyKey ?? checkoutIdempotencyKey,
+                    CouponId = existing.CouponId ?? couponId,
+                    BusinessNui = existing.BusinessNui ?? businessNui,
+                    BranchId = existing.BranchId ?? branchId,
+                    PosNumber = existing.PosNumber ?? posNumber,
+                    ApplicationId = existing.ApplicationId ?? applicationId,
+                    VerificationNo = existing.VerificationNo ?? verificationNo,
+                    QrSvgBase64 = existing.QrSvgBase64 ?? qrSvgBase64,
+                    CertificateThumbprint = existing.CertificateThumbprint ?? certificateThumbprint
+                };
+                if (enriched != existing)
+                {
+                    var existingIndex = items.FindIndex(x => x.IdempotencyKey == idempotencyKey);
+                    items[existingIndex] = enriched;
+                    await SaveAsync(items, cancellationToken);
+                }
+                return enriched;
             }
 
             if (nuiKf is not null && items.Any(x => string.Equals(x.NuiKf, nuiKf, StringComparison.Ordinal)))
