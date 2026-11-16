@@ -67,3 +67,21 @@ export type LocalQueueReconcileResult={
 export async function reconcileLocalAgentQueue(token:string,idempotencyKey:string,input:LocalQueueReconcileInput){
   return call<LocalQueueReconcileResult>("/api/v1/queue/reconcile",token,{idempotencyKey,...input});
 }
+
+export type OfflineReservationSummary={availableCouponIds:number;availableDailyNumbers:Record<string,number>};
+export async function getLocalOfflineReservationSummary(token:string){
+  return call<OfflineReservationSummary>("/api/v1/offline/reservations",token);
+}
+export async function provisionLocalOfflineNumbers(token:string,input:{
+  businessId:string;posUuid:string;supabaseUrl:string;anonKey:string;accessToken:string;
+  couponCount:number;daysAhead:number;
+}){
+  return call<{provisionedCouponIds:number;provisionedDailyDates:number;availableCouponIds:number;availableDailyNumbers:Record<string,number>}>(
+    "/api/v1/offline/reservations/provision",token,input);
+}
+export async function claimLocalOfflineNumbers(token:string,input:{
+  checkoutIdempotencyKey:string;businessId:string;posUuid:string;businessDate:string;
+}){
+  return call<{couponId:number;dailyNumber:number;businessDate:string}>(
+    "/api/v1/offline/reservations/claim",token,input);
+}
