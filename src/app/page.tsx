@@ -193,7 +193,10 @@ export default function Home(){
     if(!supabase||!business||!agentToken)return;
     const queue=await getLocalAgentQueue(agentToken);
     setQueueOverdueCount(queue.overdueCount);
+    const localStorageForOffline=new IndexedDbOfflineSaleStorage();
+    const localRecords=await localStorageForOffline.list();
     for(const item of queue.items){
+      if(localRecords.some(record=>record.fiscalReceipt?.fiscalIdempotencyKey===item.idempotencyKey))continue;
       if(item.status.toLowerCase()!=="accepted"||!item.atkTransactionId||
          !item.detailsBase64||!item.signatureBase64||!item.nuiKf||!/^[A-Z0-9]{16}$/.test(item.nuiKf)||
          !item.citizenPayloadBase64||!item.citizenSignatureBase64||!item.dailyNumber)continue;
@@ -216,18 +219,6 @@ export default function Home(){
           couponId:sale.coupon_id,idempotencyKey:item.idempotencyKey,...attestation}
       });
       if(error)throw error;
-      const localStorageForOffline=new IndexedDbOfflineSaleStorage();
-      const localJournal=new OfflineCheckoutJournal(localStorageForOffline);
-      const localRecords=await localStorageForOffline.list();
-      const localOffline=localRecords.find(record=>record.fiscalReceipt?.fiscalIdempotencyKey===item.idempotencyKey);
-      if(localOffline?.fiscalReceipt){
-        await localJournal.attachFiscalReceipt(localOffline.idempotencyKey,{
-          ...localOffline.fiscalReceipt,status:"accepted",transactionId:item.atkTransactionId
-        });
-        await localJournal.markFiscalAccepted(localOffline.idempotencyKey,{
-          status:"accepted",environment:"ATK TEST",transactionId:item.atkTransactionId
-        });
-      }
       if(sale.checkout_idempotency_key===checkoutKey){
         setCart({});setCheckoutKey("");setCheckoutAttempted(false);
         localStorage.removeItem("fiskalo.pendingCheckout."+business.id);
