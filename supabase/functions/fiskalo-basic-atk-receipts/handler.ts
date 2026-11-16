@@ -130,11 +130,16 @@ function decodeBase64(value: string, label: string): Uint8Array {
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 }
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
+}
 async function sha256(bytes: Uint8Array): Promise<string> {
-  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(bytes))));
 }
 async function sha1(bytes: Uint8Array): Promise<string> {
-  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-1", bytes)));
+  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-1", toArrayBuffer(bytes))));
 }
 function certificateDer(pem: string): Uint8Array {
   const match = /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/.exec(pem);
@@ -304,12 +309,12 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
       }
       let publicKey: CryptoKey;
       try {
-        publicKey = await crypto.subtle.importKey("spki", spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+        publicKey = await crypto.subtle.importKey("spki", toArrayBuffer(spki), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
       } catch {
         return json(400, { error: "The ATK certificate public key is not a supported P-256 key." }, headers);
       }
       const signatureValid = await crypto.subtle.verify(
-        { name: "ECDSA", hash: "SHA-256" }, publicKey, attestationSignature, attestationBytes,
+        { name: "ECDSA", hash: "SHA-256" }, publicKey, toArrayBuffer(attestationSignature), toArrayBuffer(attestationBytes),
       );
       if (!signatureValid) return json(403, { error: "Local POS attestation signature is invalid." }, headers);
 
@@ -362,10 +367,10 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
         return json(400, { error: "CitizenCoupon or POSCoupon signature data is invalid." }, headers);
       }
       const posSignatureValid = await crypto.subtle.verify(
-        { name: "ECDSA", hash: "SHA-256" }, publicKey, signatureBytes, payloadBytes,
+        { name: "ECDSA", hash: "SHA-256" }, publicKey, toArrayBuffer(signatureBytes), toArrayBuffer(payloadBytes),
       );
       const citizenSignatureValid = await crypto.subtle.verify(
-        { name: "ECDSA", hash: "SHA-256" }, publicKey, citizenSignature, citizenPayload,
+        { name: "ECDSA", hash: "SHA-256" }, publicKey, toArrayBuffer(citizenSignature), toArrayBuffer(citizenPayload),
       );
       if (!posSignatureValid || !citizenSignatureValid) {
         return json(403, { error: "POSCoupon or CitizenCoupon signature does not match the active ATK certificate." }, headers);
