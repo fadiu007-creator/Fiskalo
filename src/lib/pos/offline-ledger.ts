@@ -22,7 +22,7 @@ export type NewOfflineSale = Omit<OfflineSaleRecord,
 export interface OfflineSaleStorage {
   get(key: string): Promise<OfflineSaleRecord | undefined>;
   insert(record: OfflineSaleRecord): Promise<void>;
-  put(record: OfflineSaleRecord): Promise<void>;
+  update(key: string, updater: (record: OfflineSaleRecord) => OfflineSaleRecord): Promise<OfflineSaleRecord>;
   list(): Promise<OfflineSaleRecord[]>;
 }
 export class OfflineSaleConflictError extends Error {
@@ -161,12 +161,11 @@ export class OfflineCheckoutJournal {
       throw new OfflineSaleConflictError("The offline idempotency key already belongs to different sale content.");
     return existing;
   }
-  private async mutate(key: string, update: (r: OfflineSaleRecord) => OfflineSaleRecord) {
-    const current = await this.storage.get(key);
-    if (!current) throw new Error("Offline sale was not found.");
-    const next = { ...update(current), updatedAtUtc: this.now().toISOString() };
-    await this.storage.put(next);
-    return next;
+  private mutate(key: string, update: (r: OfflineSaleRecord) => OfflineSaleRecord) {
+    return this.storage.update(key, current => ({
+      ...update(current),
+      updatedAtUtc: this.now().toISOString(),
+    }));
   }
 }
 const DB_NAME = "fiskalo-pos-offline";
@@ -208,14 +207,46 @@ export class IndexedDbOfflineSaleStorage implements OfflineSaleStorage {
       tx.onabort = () => reject(tx.error ?? new Error("Offline sale persistence aborted."));
     });
   }
-  async put(record: OfflineSaleRecord): Promise<void> {
+  async update(key: string, updater: (record: OfflineSaleRecord) => OfflineSaleRecord): Promise<OfflineSaleRecord> {
     const db = await this.open();
-    await new Promise<void>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("Unable to update offline sale."));
-      tx.onabort = () => reject(tx.error ?? new Error("Offline sale update aborted."));
+      const store = tx.objectStore(STORE);
+      let result: OfflineSaleRecord | undefined;
+      let failure: unknown;
+      let settled = false;
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+      const request = store.get(key);
+      request.onsuccess = () => {
+        if (!request.result) {
+          failure = new Error("Offline sale was not found.");
+          try { tx.abort(); } catch { fail(failure); }
+          return;
+        }
+        try {
+          result = updater(request.result as OfflineSaleRecord);
+          store.put(result);
+        } catch (error) {
+          failure = error;
+          try { tx.abort(); } catch { fail(error); }
+        }
+      };
+      request.onerror = () => {
+        failure = request.error ?? new Error("Unable to read offline sale for update.");
+        try { tx.abort(); } catch { fail(failure); }
+      };
+      tx.oncomplete = () => {
+        if (settled) return;
+        if (!result) { fail(new Error("Offline sale update completed without a result.")); return; }
+        settled = true;
+        resolve(result);
+      };
+      tx.onerror = () => fail(failure ?? tx.error ?? new Error("Offline sale update failed."));
+      tx.onabort = () => fail(failure ?? tx.error ?? new Error("Offline sale update aborted."));
     });
   }
   async list(): Promise<OfflineSaleRecord[]> {
