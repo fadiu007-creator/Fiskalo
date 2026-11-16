@@ -115,7 +115,7 @@ if (!supabaseUrl || !serviceRoleKey) {
       }));
     },
     async queueReceipt(args) {
-      const { data, error } = await admin.rpc("fiskalo_basic_store_offline_receipt_v2", args);
+      const { data, error } = await admin.rpc("fiskalo_basic_server_queue_atk_receipt_v2", args);
       if (error) throw error;
       if (typeof data !== "string" || !data) throw new Error("Offline fiscal document RPC returned no document ID.");
       return data;
