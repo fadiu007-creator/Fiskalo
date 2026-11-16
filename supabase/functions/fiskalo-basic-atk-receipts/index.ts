@@ -27,6 +27,18 @@ if (!supabaseUrl || !serviceRoleKey) {
       if (error) throw error;
       return Boolean(data);
     },
+    async isOwner(businessId, userId) {
+      const { data, error } = await admin.from("fiskalo_basic_members")
+        .select("user_id").eq("business_id", businessId).eq("user_id", userId).eq("role", "owner").maybeSingle();
+      if (error) throw error;
+      return Boolean(data);
+    },
+    async registerCertificate(args) {
+      const { data, error } = await admin.rpc("fiskalo_basic_register_pos_certificate_v1", args);
+      if (error) throw error;
+      if (typeof data !== "string" || !data) throw new Error("ATK certificate registration RPC returned no certificate ID.");
+      return data;
+    },
     async getBusiness(businessId) {
       const { data, error } = await admin.from("fiskalo_basic_businesses")
         .select("nui").eq("id", businessId).maybeSingle();
