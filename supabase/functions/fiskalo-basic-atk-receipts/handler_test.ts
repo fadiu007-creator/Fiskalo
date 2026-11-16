@@ -27,7 +27,8 @@ function assert(condition:unknown,message:string):asserts condition{if(!conditio
 function b64(value:Uint8Array){let raw="";for(const b of value)raw+=String.fromCharCode(b);return btoa(raw);}
 function bytes(value:string){return new TextEncoder().encode(value);}
 async function hash(value:Uint8Array,algorithm:"SHA-256"|"SHA-1"="SHA-256"){
-  return Array.from(new Uint8Array(await crypto.subtle.digest(algorithm,value)),b=>b.toString(16).padStart(2,"0")).join("");
+  const input=new Uint8Array(value.byteLength);input.set(value);
+  return Array.from(new Uint8Array(await crypto.subtle.digest(algorithm,input.buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 }
 function dateOf(timestamp:string){
   const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(timestamp));
