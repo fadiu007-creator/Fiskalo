@@ -51,7 +51,8 @@ public sealed class FiscalQueueStore
         ulong? applicationId = null,
         string? verificationNo = null,
         string? qrSvgBase64 = null,
-        string? certificateThumbprint = null)
+        string? certificateThumbprint = null,
+        string? couponSnapshotSha256 = null)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey)) throw new ArgumentException("Idempotency key is required.", nameof(idempotencyKey));
         if (string.IsNullOrWhiteSpace(documentType)) throw new ArgumentException("Document type is required.", nameof(documentType));
@@ -79,6 +80,9 @@ public sealed class FiscalQueueStore
         if (verificationNo is not null && !string.Equals(verificationNo, nuiKf, StringComparison.Ordinal))
             throw new ArgumentException("VerificationNo must equal NUIKF.", nameof(verificationNo));
         if (qrSvgBase64 is not null) _ = Convert.FromBase64String(qrSvgBase64);
+        if (couponSnapshotSha256 is not null &&
+            (couponSnapshotSha256.Length != 64 || couponSnapshotSha256.Any(c => !Uri.IsHexDigit(c))))
+            throw new ArgumentException("Coupon snapshot SHA-256 must be 64 hexadecimal characters.", nameof(couponSnapshotSha256));
         var timestamp = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
 
         await _gate.WaitAsync(cancellationToken);
@@ -106,7 +110,8 @@ public sealed class FiscalQueueStore
                     (existing.ApplicationId is not null && existing.ApplicationId != applicationId) ||
                     (existing.VerificationNo is not null && existing.VerificationNo != verificationNo) ||
                     (existing.QrSvgBase64 is not null && existing.QrSvgBase64 != qrSvgBase64) ||
-                    (existing.CertificateThumbprint is not null && existing.CertificateThumbprint != certificateThumbprint))
+                    (existing.CertificateThumbprint is not null && existing.CertificateThumbprint != certificateThumbprint) ||
+                    (existing.CouponSnapshotSha256 is not null && existing.CouponSnapshotSha256 != couponSnapshotSha256))
                     throw new InvalidOperationException("Idempotency key already exists with different fiscal content.");
                 var enriched = existing with
                 {
@@ -121,7 +126,8 @@ public sealed class FiscalQueueStore
                     ApplicationId = existing.ApplicationId ?? applicationId,
                     VerificationNo = existing.VerificationNo ?? verificationNo,
                     QrSvgBase64 = existing.QrSvgBase64 ?? qrSvgBase64,
-                    CertificateThumbprint = existing.CertificateThumbprint ?? certificateThumbprint
+                    CertificateThumbprint = existing.CertificateThumbprint ?? certificateThumbprint,
+                    CouponSnapshotSha256 = existing.CouponSnapshotSha256 ?? couponSnapshotSha256
                 };
                 if (enriched != existing)
                 {
@@ -161,7 +167,8 @@ public sealed class FiscalQueueStore
                 ApplicationId = applicationId,
                 VerificationNo = verificationNo,
                 QrSvgBase64 = qrSvgBase64,
-                CertificateThumbprint = certificateThumbprint
+                CertificateThumbprint = certificateThumbprint,
+                CouponSnapshotSha256 = couponSnapshotSha256
             };
             items.Add(item);
             await SaveAsync(items, cancellationToken);
