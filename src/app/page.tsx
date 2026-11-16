@@ -321,7 +321,7 @@ export default function Home(){
         const attestation=await getLocalFiscalAttestation(agentToken,{
           idempotencyKey:receipt.fiscalIdempotencyKey,businessId:record.businessId,posUuid:record.posId
         });
-        const action=status==="accepted"?"accepted":"queue";
+        const action=attestation.status==="accepted"?"accepted":"queue";
         const {error}=await supabase.functions.invoke("fiskalo-basic-atk-receipts",{
           body:{action,businessId:record.businessId,posUuid:record.posId,saleId:record.serverSaleId,
             couponId:receipt.couponId,idempotencyKey:receipt.fiscalIdempotencyKey,...attestation}
@@ -835,7 +835,7 @@ export default function Home(){
       const attestation=await getLocalFiscalAttestation(agentToken,{
         idempotencyKey,businessId:business.id,posUuid:pos.id
       });
-      const action=fiscal.status==="accepted"?"accepted":"queue";
+      const action=attestation.status==="accepted"?"accepted":"queue";
       const {error:attestationError}=await supabase!.functions.invoke("fiskalo-basic-atk-receipts",{
         body:{action,businessId:business.id,posUuid:pos.id,saleId,couponId:sale.coupon_id,
           idempotencyKey,...attestation}
