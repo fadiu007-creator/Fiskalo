@@ -18,6 +18,7 @@ create table if not exists public.fiskalo_basic_coupon_reservations (
 create index if not exists fiskalo_basic_coupon_reservations_device_idx
   on public.fiskalo_basic_coupon_reservations(business_id,pos_id,state);
 alter table public.fiskalo_basic_coupon_reservations enable row level security;
+drop policy if exists fiskalo_basic_coupon_reservations_read on public.fiskalo_basic_coupon_reservations;
 create policy fiskalo_basic_coupon_reservations_read
   on public.fiskalo_basic_coupon_reservations for select to authenticated
   using (exists(select 1 from public.fiskalo_basic_members m
@@ -39,6 +40,7 @@ create table if not exists public.fiskalo_basic_daily_number_reservations (
   check (last_number-first_number < 10000)
 );
 alter table public.fiskalo_basic_daily_number_reservations enable row level security;
+drop policy if exists fiskalo_basic_daily_number_reservations_read on public.fiskalo_basic_daily_number_reservations;
 create policy fiskalo_basic_daily_number_reservations_read
   on public.fiskalo_basic_daily_number_reservations for select to authenticated
   using (exists(select 1 from public.fiskalo_basic_members m
