@@ -501,7 +501,7 @@ export default function Home(){
         supabase!.from("fiskalo_basic_sale_items").select("*").eq("sale_id",saleId).order("id")
       ]);
       if(saleError)throw saleError;if(linesError)throw linesError;
-      await offlineJournal.markCloudSynced(checkoutIdempotencyKey,String(sale.id),Number(sale.coupon_id));
+      await offlineJournal.markCloudSynced(checkoutIdempotencyKey,String(sale.id),String(sale.coupon_id));
       const cents=(value:number)=>Math.round(Number(value)*100);
       const grouped=new Map<string,{taxRate:string;base:number;tax:number}>();
       for(const line of lines??[]){
