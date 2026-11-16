@@ -39,7 +39,20 @@ public sealed class FiscalQueueStore
         string? nuiKf = null,
         string? citizenPayloadBase64 = null,
         string? citizenSignatureBase64 = null,
-        long? dailyNumber = null)
+        long? dailyNumber = null,
+        string? businessUuid = null,
+        string? posUuid = null,
+        string? businessDate = null,
+        string? checkoutIdempotencyKey = null,
+        ulong? couponId = null,
+        ulong? businessNui = null,
+        ulong? branchId = null,
+        ulong? posNumber = null,
+        ulong? applicationId = null,
+        string? verificationNo = null,
+        string? qrSvgBase64 = null,
+        string? certificateThumbprint = null,
+        string? couponSnapshotSha256 = null)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey)) throw new ArgumentException("Idempotency key is required.", nameof(idempotencyKey));
         if (string.IsNullOrWhiteSpace(documentType)) throw new ArgumentException("Document type is required.", nameof(documentType));
@@ -58,6 +71,18 @@ public sealed class FiscalQueueStore
             _ = Convert.FromBase64String(citizenSignatureBase64!);
         }
         if (dailyNumber is <= 0) throw new ArgumentOutOfRangeException(nameof(dailyNumber));
+        if (businessUuid is not null && !Guid.TryParse(businessUuid, out _)) throw new ArgumentException("Business UUID is invalid.", nameof(businessUuid));
+        if (posUuid is not null && !Guid.TryParse(posUuid, out _)) throw new ArgumentException("POS UUID is invalid.", nameof(posUuid));
+        if ((businessUuid is null) != (posUuid is null)) throw new ArgumentException("Business and POS UUIDs must be supplied together.");
+        if (checkoutIdempotencyKey is not null && !Guid.TryParse(checkoutIdempotencyKey, out _)) throw new ArgumentException("Checkout idempotency key is invalid.", nameof(checkoutIdempotencyKey));
+        if (couponId is 0 || businessNui is 0 || branchId is 0 || posNumber is 0 || applicationId is 0)
+            throw new ArgumentOutOfRangeException(nameof(couponId), "Fiscal identifiers must be positive.");
+        if (verificationNo is not null && !string.Equals(verificationNo, nuiKf, StringComparison.Ordinal))
+            throw new ArgumentException("VerificationNo must equal NUIKF.", nameof(verificationNo));
+        if (qrSvgBase64 is not null) _ = Convert.FromBase64String(qrSvgBase64);
+        if (couponSnapshotSha256 is not null &&
+            (couponSnapshotSha256.Length != 64 || couponSnapshotSha256.Any(c => !Uri.IsHexDigit(c))))
+            throw new ArgumentException("Coupon snapshot SHA-256 must be 64 hexadecimal characters.", nameof(couponSnapshotSha256));
         var timestamp = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
 
         await _gate.WaitAsync(cancellationToken);
@@ -73,9 +98,44 @@ public sealed class FiscalQueueStore
                     existing.NuiKf != nuiKf ||
                     existing.CitizenPayloadBase64 != citizenPayloadBase64 ||
                     existing.CitizenSignatureBase64 != citizenSignatureBase64 ||
-                    existing.DailyNumber != dailyNumber)
+                    existing.DailyNumber != dailyNumber ||
+                    (existing.BusinessUuid is not null && existing.BusinessUuid != businessUuid) ||
+                    (existing.PosUuid is not null && existing.PosUuid != posUuid) ||
+                    (existing.BusinessDate is not null && existing.BusinessDate != businessDate) ||
+                    (existing.CheckoutIdempotencyKey is not null && existing.CheckoutIdempotencyKey != checkoutIdempotencyKey) ||
+                    (existing.CouponId is not null && existing.CouponId != couponId) ||
+                    (existing.BusinessNui is not null && existing.BusinessNui != businessNui) ||
+                    (existing.BranchId is not null && existing.BranchId != branchId) ||
+                    (existing.PosNumber is not null && existing.PosNumber != posNumber) ||
+                    (existing.ApplicationId is not null && existing.ApplicationId != applicationId) ||
+                    (existing.VerificationNo is not null && existing.VerificationNo != verificationNo) ||
+                    (existing.QrSvgBase64 is not null && existing.QrSvgBase64 != qrSvgBase64) ||
+                    (existing.CertificateThumbprint is not null && existing.CertificateThumbprint != certificateThumbprint) ||
+                    (existing.CouponSnapshotSha256 is not null && existing.CouponSnapshotSha256 != couponSnapshotSha256))
                     throw new InvalidOperationException("Idempotency key already exists with different fiscal content.");
-                return existing;
+                var enriched = existing with
+                {
+                    BusinessUuid = existing.BusinessUuid ?? businessUuid,
+                    PosUuid = existing.PosUuid ?? posUuid,
+                    BusinessDate = existing.BusinessDate ?? businessDate,
+                    CheckoutIdempotencyKey = existing.CheckoutIdempotencyKey ?? checkoutIdempotencyKey,
+                    CouponId = existing.CouponId ?? couponId,
+                    BusinessNui = existing.BusinessNui ?? businessNui,
+                    BranchId = existing.BranchId ?? branchId,
+                    PosNumber = existing.PosNumber ?? posNumber,
+                    ApplicationId = existing.ApplicationId ?? applicationId,
+                    VerificationNo = existing.VerificationNo ?? verificationNo,
+                    QrSvgBase64 = existing.QrSvgBase64 ?? qrSvgBase64,
+                    CertificateThumbprint = existing.CertificateThumbprint ?? certificateThumbprint,
+                    CouponSnapshotSha256 = existing.CouponSnapshotSha256 ?? couponSnapshotSha256
+                };
+                if (enriched != existing)
+                {
+                    var existingIndex = items.FindIndex(x => x.IdempotencyKey == idempotencyKey);
+                    items[existingIndex] = enriched;
+                    await SaveAsync(items, cancellationToken);
+                }
+                return enriched;
             }
 
             if (nuiKf is not null && items.Any(x => string.Equals(x.NuiKf, nuiKf, StringComparison.Ordinal)))
@@ -95,7 +155,20 @@ public sealed class FiscalQueueStore
                 NuiKf = nuiKf,
                 CitizenPayloadBase64 = citizenPayloadBase64,
                 CitizenSignatureBase64 = citizenSignatureBase64,
-                DailyNumber = dailyNumber
+                DailyNumber = dailyNumber,
+                BusinessUuid = businessUuid,
+                PosUuid = posUuid,
+                BusinessDate = businessDate,
+                CheckoutIdempotencyKey = checkoutIdempotencyKey,
+                CouponId = couponId,
+                BusinessNui = businessNui,
+                BranchId = branchId,
+                PosNumber = posNumber,
+                ApplicationId = applicationId,
+                VerificationNo = verificationNo,
+                QrSvgBase64 = qrSvgBase64,
+                CertificateThumbprint = certificateThumbprint,
+                CouponSnapshotSha256 = couponSnapshotSha256
             };
             items.Add(item);
             await SaveAsync(items, cancellationToken);
@@ -284,7 +357,8 @@ public sealed class FiscalQueueStore
     public Task<FiscalQueueItem> MarkAcceptedAsync(
         string idempotencyKey,
         string atkTransactionId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? atkResponseMessage = null)
     {
         if (string.IsNullOrWhiteSpace(atkTransactionId))
             throw new ArgumentException("ATK transaction ID is required.", nameof(atkTransactionId));
@@ -296,6 +370,7 @@ public sealed class FiscalQueueStore
             {
                 Status = FiscalQueueStatus.Accepted,
                 AtkTransactionId = atkTransactionId,
+                AtkResponseMessage = atkResponseMessage,
                 OfflineIssuedAtUtc = item.AttemptCount <= 1 ? null : item.OfflineIssuedAtUtc,
                 LastError = null
             };

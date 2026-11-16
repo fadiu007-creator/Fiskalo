@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
+using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Fiskalo.PosAgent.Core.Atk;
 using Fiskalo.PosAgent.Core.Queue;
@@ -16,10 +18,15 @@ const string StatusPath = "/api/v1/status";
 const string HealthPath = "/health";
 const string CsrPath = "/api/v1/keys/csr";
 const string QueuePath = "/api/v1/queue";
+const string QueueAttestationPath = "/api/v1/queue/attestation";
 const string QueueReconcilePath = "/api/v1/queue/reconcile";
 const string AtkVerifyPath = "/api/v1/atk/test/verify";
 const string AtkSignCsrPath = "/api/v1/atk/test/sign-csr";
+const string AtkCertificateAttestationPath = "/api/v1/atk/test/certificate-attestation";
 const string AtkCouponPath = "/api/v1/atk/test/coupon";
+const string OfflineReservationsPath = "/api/v1/offline/reservations";
+const string OfflineProvisionPath = "/api/v1/offline/reservations/provision";
+const string OfflineClaimPath = "/api/v1/offline/reservations/claim";
 const string PrintersPath = "/api/v1/printers";
 const string PrinterPrintPath = "/api/v1/printers/print";
 const string PrinterTestPath = "/api/v1/printers/test";
@@ -29,22 +36,28 @@ var allowedOrigins = (Environment.GetEnvironmentVariable("FISKALO_ALLOWED_ORIGIN
     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .ToHashSet(StringComparer.Ordinal);
 
-var pairingCode = Base64Url(RandomNumberGenerator.GetBytes(32));
-string? sessionToken = null;
-var failedPairAttempts = 0;
-var pairLockedUntil = DateTimeOffset.MinValue;
 var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fiskalo", "PosAgent");
 var keyPath = Path.Combine(dataDirectory, "pos-signing-key.dpapi");
 var queuePath = Path.Combine(dataDirectory, "fiscal-queue.bin");
+var reservationPath = Path.Combine(dataDirectory, "offline-reservations.bin");
 var certificatePath = Path.Combine(dataDirectory, "atk-test-certificate.pem");
 var installationPath = Path.Combine(dataDirectory, "atk-test-installation.dpapi");
+var sessionPath = Path.Combine(dataDirectory, "agent-session.dpapi");
 var installationStore = new WindowsDpapiInstallationStore(installationPath);
+var sessionStore = new WindowsDpapiAgentSessionStore(sessionPath);
 var keyStore = new WindowsDpapiEcdsaKeyStore();
-var queueStore = new FiscalQueueStore(queuePath, new WindowsDpapiFiscalQueueProtector());
+var queueProtector = new WindowsDpapiFiscalQueueProtector();
+var queueStore = new FiscalQueueStore(queuePath, queueProtector);
+var reservationStore = new OfflineNumberReservationStore(reservationPath, queueProtector);
+string? sessionToken = OperatingSystem.IsWindows() ? sessionStore.Load() : null;
+var pairingCode = sessionToken is null ? Base64Url(RandomNumberGenerator.GetBytes(32)) : "";
+var failedPairAttempts = 0;
+var pairLockedUntil = DateTimeOffset.MinValue;
 
 Console.WriteLine("Fiskalo POS Agent " + AgentVersion);
 Console.WriteLine("Local endpoint: http://127.0.0.1:17843");
-Console.WriteLine("One-time pairing code (keep private): " + pairingCode);
+if (sessionToken is null) Console.WriteLine("One-time pairing code (keep private): " + pairingCode);
+else Console.WriteLine("Existing protected pairing restored; use the previously paired browser.");
 Console.WriteLine("Allowed browser origins: " + string.Join(", ", allowedOrigins));
 
 var builder = WebApplication.CreateBuilder(args);
@@ -140,7 +153,11 @@ app.MapPost(PairPath, (PairRequest request, HttpContext context) =>
         return Results.Unauthorized();
     }
 
-    sessionToken = Base64Url(RandomNumberGenerator.GetBytes(32));
+    var newSessionToken = Base64Url(RandomNumberGenerator.GetBytes(32));
+    try { sessionStore.Save(newSessionToken); }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+    { return Results.Problem("Unable to persist the protected local-agent pairing.", statusCode: StatusCodes.Status500InternalServerError); }
+    sessionToken = newSessionToken;
     pairingCode = ""; // One-time code cannot be reused after successful pairing.
     failedPairAttempts = 0;
     return Results.Ok(new PairResponse(sessionToken, AgentVersion));
@@ -157,7 +174,7 @@ app.MapGet(StatusPath, (HttpContext context) =>
         version = AgentVersion,
         paired = true,
         fiscalizationEnabled = false,
-        capabilities = new[] { "health", "secure-local-pairing", "windows-dpapi-key-csr", "encrypted-queue-inspection", "manual-queue-reconciliation", "atk-test-coupon-submission", "thermal-printer-windows-spooler", "thermal-printer-lan-9100", "thermal-printer-test" },
+        capabilities = new[] { "health", "secure-local-pairing", "windows-dpapi-key-csr", "encrypted-queue-inspection", "manual-queue-reconciliation", "atk-test-coupon-submission", "encrypted-offline-number-reservations", "restart-persistent-pairing", "thermal-printer-windows-spooler", "thermal-printer-lan-9100", "thermal-printer-test" },
         windowsKeyStoreAvailable = OperatingSystem.IsWindows(),
         signingKeyInitialized = OperatingSystem.IsWindows() && File.Exists(keyPath),
         queueInitialized = OperatingSystem.IsWindows() && File.Exists(queuePath),
@@ -165,6 +182,163 @@ app.MapGet(StatusPath, (HttpContext context) =>
         testInstallationVerified = OperatingSystem.IsWindows() && File.Exists(installationPath),
         nextStep = "ATK-test-certificate-onboarding-required"
     });
+});
+
+app.MapGet(OfflineReservationsPath, async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    try
+    {
+        var summary = await reservationStore.GetSummaryAsync(cancellationToken);
+        return Results.Ok(new { summary.AvailableCouponIds, summary.AvailableDailyNumbers, storage = "Windows DPAPI CurrentUser" });
+    }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException)
+    {
+        return Results.Problem("Unable to read protected offline reservations.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
+app.MapPost(OfflineProvisionPath, async (OfflineReservationProvisionRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    if (!Guid.TryParse(request.BusinessId, out _) || !Guid.TryParse(request.PosUuid, out _) ||
+        string.IsNullOrWhiteSpace(request.SupabaseUrl) || string.IsNullOrWhiteSpace(request.AnonKey) ||
+        string.IsNullOrWhiteSpace(request.AccessToken) || request.CouponCount is < 1 or > 500 ||
+        request.DaysAhead is < 0 or > 7)
+        return Results.BadRequest(new { error = "businessId, posUuid, Supabase credentials, couponCount (1-500), and daysAhead (0-7) are required." });
+
+    if (!Uri.TryCreate(request.SupabaseUrl, UriKind.Absolute, out var supabaseUri) ||
+        supabaseUri.Scheme != Uri.UriSchemeHttps || !supabaseUri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase) ||
+        !string.IsNullOrEmpty(supabaseUri.UserInfo) || !string.IsNullOrEmpty(supabaseUri.Query) || !string.IsNullOrEmpty(supabaseUri.Fragment))
+        return Results.BadRequest(new { error = "Only an HTTPS Supabase project URL is accepted." });
+
+    var installation = installationStore.Load();
+    if (installation is null || string.IsNullOrWhiteSpace(installation.CertificateThumbprint) ||
+        !File.Exists(certificatePath) || !File.Exists(keyPath))
+        return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+
+    try
+    {
+        using var certificate = X509Certificate2.CreateFromPem(await File.ReadAllTextAsync(certificatePath, cancellationToken));
+        using var localKey = keyStore.LoadOrCreate(keyPath);
+        using var certificateKey = certificate.GetECDsaPublicKey();
+        if (certificateKey is null || !SamePublicKey(localKey, certificateKey) ||
+            !string.Equals(certificate.Thumbprint, installation.CertificateThumbprint, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { error = "certificate_key_mismatch" });
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+        async Task<JsonDocument> CallGet(string resource)
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Get, new Uri(supabaseUri, "/rest/v1/" + resource));
+            message.Headers.TryAddWithoutValidation("apikey", request.AnonKey);
+            message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + request.AccessToken);
+            using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException("Supabase POS identity lookup failed with HTTP " + (int)response.StatusCode + ".");
+            return JsonDocument.Parse(responseBody);
+        }
+        using (var businessLookup = await CallGet("fiskalo_basic_businesses?id=eq." + Uri.EscapeDataString(request.BusinessId) + "&select=nui"))
+        {
+            var rows = businessLookup.RootElement;
+            if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() != 1 ||
+                !rows[0].TryGetProperty("nui", out var nuiValue))
+                return Results.Conflict(new { error = "selected_business_does_not_match_local_atk_installation" });
+            var registeredNuiText = nuiValue.ValueKind == JsonValueKind.String ? nuiValue.GetString() : nuiValue.GetRawText();
+            if (!ulong.TryParse(registeredNuiText, out var registeredNui) || registeredNui != installation.Nui)
+                return Results.Conflict(new { error = "selected_business_does_not_match_local_atk_installation" });
+        }
+        using (var posLookup = await CallGet("fiskalo_basic_pos?id=eq." + Uri.EscapeDataString(request.PosUuid) +
+            "&business_id=eq." + Uri.EscapeDataString(request.BusinessId) +
+            "&select=branch_id,pos_id,application_id,certificate_status"))
+        {
+            var rows = posLookup.RootElement;
+            if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() != 1)
+                return Results.Conflict(new { error = "selected_pos_not_found_for_business" });
+            var row = rows[0];
+            var appId = row.TryGetProperty("application_id", out var appValue)
+                ? (appValue.ValueKind == JsonValueKind.String ? appValue.GetString() : appValue.GetRawText()) : null;
+            if (row.GetProperty("branch_id").GetUInt64() != installation.BranchId ||
+                row.GetProperty("pos_id").GetUInt64() != installation.PosId ||
+                !ulong.TryParse(appId, out var registeredApplicationId) || registeredApplicationId != installation.ApplicationId ||
+                row.GetProperty("certificate_status").GetString() != "certificate_issued")
+                return Results.Conflict(new { error = "selected_pos_does_not_match_verified_local_atk_installation" });
+        }
+        async Task<JsonDocument> CallRpc(string rpc, object body)
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Post, new Uri(supabaseUri, "/rest/v1/rpc/" + rpc));
+            message.Headers.TryAddWithoutValidation("apikey", request.AnonKey);
+            message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + request.AccessToken);
+            message.Content = JsonContent.Create(body);
+            using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException("Supabase reservation RPC failed with HTTP " + (int)response.StatusCode + ".");
+            return JsonDocument.Parse(responseBody);
+        }
+
+        // One server transaction reserves all CouponIds and every daily range.
+        // A failed date reservation cannot strand a partial batch on the server.
+        using var capacityResponse = await CallRpc("fiskalo_basic_reserve_offline_capacity", new
+        {
+            p_business_id = request.BusinessId, p_pos_id = request.PosUuid,
+            p_coupon_count = request.CouponCount, p_days_ahead = request.DaysAhead
+        });
+        var capacityRoot = capacityResponse.RootElement;
+        if (capacityRoot.ValueKind != JsonValueKind.Object ||
+            !capacityRoot.TryGetProperty("coupon_ids", out var couponArray) || couponArray.ValueKind != JsonValueKind.Array ||
+            !capacityRoot.TryGetProperty("daily_ranges", out var dailyArray) || dailyArray.ValueKind != JsonValueKind.Array)
+            return Results.Problem("Supabase returned an invalid atomic offline-capacity reservation response.", statusCode: StatusCodes.Status502BadGateway);
+        var couponIds = couponArray.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String
+            ? ulong.Parse(x.GetString()!) : x.GetUInt64()).ToArray();
+        if (couponIds.Length != request.CouponCount || couponIds.Any(x => x == 0) || couponIds.Distinct().Count() != couponIds.Length)
+            return Results.Problem("Supabase returned an incomplete or invalid CouponId reservation.", statusCode: StatusCodes.Status502BadGateway);
+        var dailyRanges = dailyArray.EnumerateArray().Select(x => new OfflineDailyNumberPool(
+            x.GetProperty("business_date").GetString() ?? throw new JsonException("Missing business_date."),
+            x.GetProperty("first_number").GetInt64(),
+            x.GetProperty("last_number").GetInt64())).ToList();
+        if (dailyRanges.Count != request.DaysAhead + 1 ||
+            dailyRanges.Any(x => x.LastNumber - x.NextNumber + 1 != request.CouponCount))
+            return Results.Problem("Supabase returned incomplete daily-number reservations.", statusCode: StatusCodes.Status502BadGateway);
+
+        await reservationStore.ImportAsync(request.BusinessId, request.PosUuid, installation.Nui,
+            installation.BranchId, installation.PosId, installation.ApplicationId,
+            couponIds, dailyRanges, cancellationToken);
+        var summary = await reservationStore.GetSummaryAsync(cancellationToken);
+        return Results.Ok(new { provisionedCouponIds = couponIds.Length, provisionedDailyDates = dailyRanges.Count,
+            availableCouponIds = summary.AvailableCouponIds, availableDailyNumbers = summary.AvailableDailyNumbers,
+            storage = "Windows DPAPI CurrentUser", source = "authenticated Supabase reservation RPC" });
+    }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+    catch (HttpRequestException) { return Results.Problem("Could not reach Supabase to reserve offline fiscal numbers.", statusCode: StatusCodes.Status502BadGateway); }
+    catch (TaskCanceledException) { return Results.Problem("Supabase reservation request timed out.", statusCode: StatusCodes.Status504GatewayTimeout); }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or JsonException or FormatException or OverflowException)
+    {
+        return Results.Problem("Offline reservation provisioning failed. No new local capacity was reported.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
+app.MapPost(OfflineClaimPath, async (OfflineReservationClaimRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    var installation = installationStore.Load();
+    if (installation is null) return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+    try
+    {
+        var claim = await reservationStore.ClaimAsync(request.CheckoutIdempotencyKey, request.BusinessId,
+            request.PosUuid, installation.Nui, installation.BranchId, installation.PosId,
+            installation.ApplicationId, request.BusinessDate, cancellationToken);
+        return Results.Ok(new { couponId = claim.CouponId, dailyNumber = claim.DailyNumber, businessDate = claim.BusinessDate });
+    }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException)
+    {
+        return Results.Problem("Unable to claim a protected offline number.", statusCode: StatusCodes.Status500InternalServerError);
+    }
 });
 
 app.MapPost(CsrPath, (CsrRequest request, HttpContext context) => {
@@ -178,6 +352,103 @@ app.MapPost(CsrPath, (CsrRequest request, HttpContext context) => {
         return Results.Ok(new { csrPem = csr, keyAlgorithm = "ECDSA-P256", privateKeyExported = false, storage = "Windows DPAPI CurrentUser", certificateStatus = "not-issued", fiscalizationEnabled = false });
     } catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException) {
         return Results.Problem("Unable to create or load the locally protected signing key.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
+app.MapPost(QueueAttestationPath, async (FiscalAttestationRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Fiscal attestation requires the Windows POS Agent.", statusCode: StatusCodes.Status501NotImplemented);
+    if (!Guid.TryParse(request.BusinessId, out _) || !Guid.TryParse(request.PosUuid, out _) ||
+        string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        return Results.BadRequest(new { error = "businessId, posUuid and idempotencyKey are required." });
+
+    try
+    {
+        var item = (await queueStore.GetAllAsync(cancellationToken))
+            .SingleOrDefault(x => string.Equals(x.IdempotencyKey, request.IdempotencyKey, StringComparison.Ordinal));
+        if (item is null) return Results.NotFound(new { error = "fiscal_queue_item_not_found" });
+        if (item.BusinessUuid != request.BusinessId || item.PosUuid != request.PosUuid ||
+            item.BusinessNui is null || item.BranchId is null || item.PosNumber is null ||
+            item.ApplicationId is null || item.CouponId is null || item.VerificationNo is null ||
+            item.CitizenPayloadBase64 is null || item.CitizenSignatureBase64 is null || item.QrSvgBase64 is null ||
+            item.CertificateThumbprint is null || item.CouponSnapshotSha256 is null)
+            return Results.Conflict(new { error = "fiscal_queue_item_identity_incomplete" });
+        if (item.Status == FiscalQueueStatus.Queued && item.OfflineIssuedAtUtc is null)
+            return Results.Conflict(new { error = "only_a_confirmed_offline_queue_item_can_be_attested_as_queued" });
+        if (item.Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.Accepted))
+            return Results.Conflict(new { error = "fiscal_queue_item_requires_manual_reconciliation", status = item.Status.ToString() });
+        if (item.Status == FiscalQueueStatus.Accepted &&
+            (string.IsNullOrWhiteSpace(item.AtkTransactionId) || string.IsNullOrWhiteSpace(item.AtkResponseMessage) ||
+             !ulong.TryParse(item.AtkTransactionId, out var acceptedTransactionId) || acceptedTransactionId == 0))
+            return Results.Conflict(new { error = "accepted_atk_response_is_incomplete" });
+
+        var installation = installationStore.Load();
+        if (installation is null || installation.Nui != item.BusinessNui ||
+            installation.BranchId != item.BranchId || installation.PosId != item.PosNumber ||
+            installation.ApplicationId != item.ApplicationId || !File.Exists(certificatePath) || !File.Exists(keyPath))
+            return Results.Conflict(new { error = "local_installation_identity_mismatch" });
+
+        using var certificate = X509Certificate2.CreateFromPem(await File.ReadAllTextAsync(certificatePath, cancellationToken));
+        using var localKey = keyStore.LoadOrCreate(keyPath);
+        using var certificateKey = certificate.GetECDsaPublicKey();
+        if (certificateKey is null || !SamePublicKey(localKey, certificateKey) ||
+            !string.Equals(certificate.Thumbprint, item.CertificateThumbprint, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { error = "certificate_key_mismatch" });
+        if (item.CreatedAtUtc.UtcDateTime < certificate.NotBefore.ToUniversalTime() ||
+            item.CreatedAtUtc.UtcDateTime > certificate.NotAfter.ToUniversalTime())
+            return Results.Conflict(new { error = "signing_certificate_was_not_valid_at_document_creation" });
+
+        var payloadBytes = Convert.FromBase64String(item.PayloadBase64);
+        var signatureBytes = Convert.FromBase64String(item.SignatureBase64);
+        var attestation = new
+        {
+            version = 1,
+            businessId = item.BusinessUuid,
+            posUuid = item.PosUuid,
+            businessNui = item.BusinessNui,
+            branchId = item.BranchId,
+            posNumber = item.PosNumber,
+            applicationId = item.ApplicationId,
+            couponId = item.CouponId,
+            idempotencyKey = item.IdempotencyKey,
+            checkoutIdempotencyKey = item.CheckoutIdempotencyKey,
+            businessDate = item.BusinessDate,
+            documentType = item.DocumentType,
+            signedPayloadBase64 = item.PayloadBase64,
+            signatureBase64 = item.SignatureBase64,
+            payloadSha256 = Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant(),
+            signatureSha256 = Convert.ToHexString(SHA256.HashData(signatureBytes)).ToLowerInvariant(),
+            status = item.Status == FiscalQueueStatus.Accepted ? "accepted" : "queued",
+            transactionId = item.AtkTransactionId,
+            atkResponseMessage = item.AtkResponseMessage,
+            nuiKf = item.NuiKf,
+            verificationNo = item.VerificationNo,
+            citizenPayloadBase64 = item.CitizenPayloadBase64,
+            citizenSignatureBase64 = item.CitizenSignatureBase64,
+            dailyNumber = item.DailyNumber,
+            offlineIssuedAtUtc = item.OfflineIssuedAtUtc?.ToString("O"),
+            qrSvgBase64 = item.QrSvgBase64,
+            certificateThumbprint = item.CertificateThumbprint,
+            couponSnapshotSha256 = item.CouponSnapshotSha256
+        };
+        var attestationBytes = JsonSerializer.SerializeToUtf8Bytes(attestation, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var attestationSignature = localKey.SignData(attestationBytes, HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        var publicKeySpki = certificateKey.ExportSubjectPublicKeyInfo();
+        return Results.Ok(new
+        {
+            status = item.Status == FiscalQueueStatus.Accepted ? "accepted" : "queued",
+            transactionId = item.AtkTransactionId,
+            attestationPayloadBase64 = Convert.ToBase64String(attestationBytes),
+            attestationSignatureBase64 = Convert.ToBase64String(attestationSignature),
+            publicKeySpkiBase64 = Convert.ToBase64String(publicKeySpki),
+            certificateThumbprint = certificate.Thumbprint
+        });
+    }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or FormatException)
+    {
+        return Results.Problem("Unable to create a trusted fiscal attestation from the protected local queue.", statusCode: StatusCodes.Status500InternalServerError);
     }
 });
 
@@ -345,6 +616,53 @@ static bool SamePublicKey(ECDsa first, ECDsa second)
 }
 
 
+app.MapPost(AtkCertificateAttestationPath, async (AtkCertificateAttestationRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("ATK certificate attestation requires Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    if (!Guid.TryParse(request.BusinessId, out _) || !Guid.TryParse(request.PosUuid, out _))
+        return Results.BadRequest(new { error = "businessId and posUuid must be UUIDs." });
+    try
+    {
+        var installation = installationStore.Load();
+        if (installation is null || string.IsNullOrWhiteSpace(installation.CertificateThumbprint) ||
+            !File.Exists(certificatePath) || !File.Exists(keyPath))
+            return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+        using var certificate = X509Certificate2.CreateFromPem(await File.ReadAllTextAsync(certificatePath, cancellationToken));
+        using var localKey = keyStore.LoadOrCreate(keyPath);
+        using var certificateKey = certificate.GetECDsaPublicKey();
+        if (certificateKey is null || !SamePublicKey(localKey, certificateKey) ||
+            !string.Equals(certificate.Thumbprint, installation.CertificateThumbprint, StringComparison.OrdinalIgnoreCase) ||
+            DateTime.UtcNow < certificate.NotBefore.ToUniversalTime() || DateTime.UtcNow > certificate.NotAfter.ToUniversalTime())
+            return Results.Conflict(new { error = "certificate_key_mismatch_or_expired" });
+        var attestation = new
+        {
+            version = 1,
+            businessId = request.BusinessId,
+            posUuid = request.PosUuid,
+            businessNui = installation.Nui,
+            branchId = installation.BranchId,
+            posNumber = installation.PosId,
+            applicationId = installation.ApplicationId,
+            certificatePem = certificate.ExportCertificatePem(),
+            certificateThumbprint = certificate.Thumbprint,
+            spkiBase64 = Convert.ToBase64String(certificateKey.ExportSubjectPublicKeyInfo()),
+            issuedAtUtc = DateTimeOffset.UtcNow.ToString("O")
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(attestation, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var signature = localKey.SignData(bytes, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        return Results.Ok(new
+        {
+            attestationPayloadBase64 = Convert.ToBase64String(bytes),
+            attestationSignatureBase64 = Convert.ToBase64String(signature)
+        });
+    }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or FormatException)
+    {
+        return Results.Problem("Unable to attest the ATK certificate from the protected local POS installation.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
 app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context, CancellationToken cancellationToken) => {
     if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
     if (!OperatingSystem.IsWindows()) return Results.Problem("ATK coupon signing and encrypted queue currently require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
@@ -376,7 +694,23 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
 
         var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf();
         var coupon = PosCouponBuilder.Build(request.Coupon, nuiKf);
-        var signed = AtkCouponSigner.SignPosCoupon(coupon, key);
+        var couponSnapshotSha256 = PosCouponSnapshotHasher.ComputeSha256(request.Coupon, nuiKf);
+        if (existing?.CouponSnapshotSha256 is not null &&
+            !string.Equals(existing.CouponSnapshotSha256, couponSnapshotSha256, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_snapshot" });
+        // ECDSA signatures may be randomized. Reuse the exact persisted signed bytes
+        // on every retry; never create a second signature for the same fiscal ID.
+        var signed = existing is null
+            ? AtkCouponSigner.SignPosCoupon(coupon, key)
+            : new SignedAtkCoupon(existing.PayloadBase64, existing.SignatureBase64, "");
+        if (!string.IsNullOrWhiteSpace(request.CheckoutIdempotencyKey))
+        {
+            if (!Guid.TryParse(request.CheckoutIdempotencyKey, out _))
+                return Results.BadRequest(new { error = "checkoutIdempotencyKey_must_be_a_UUID" });
+            var documentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signed.DetailsBase64 + "." + signed.SignatureBase64)));
+            await reservationStore.BindDocumentAsync(request.CheckoutIdempotencyKey, request.Coupon.CouponId,
+                request.Coupon.DailyNumber, documentHash, cancellationToken);
+        }
         if (existing is not null && (existing.PayloadBase64 != signed.DetailsBase64 || existing.DocumentType != coupon.Type.ToString()))
             return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_content" });
         var signedCitizen = existing is null
@@ -389,28 +723,33 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         var qrSvg = FiscalReceiptQrCode.CreateSvgData(citizenQrPayload);
         var qrSvgBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(qrSvg));
 
-        if (existing?.Status == FiscalQueueStatus.Accepted)
-            return Results.Ok(new { status = "accepted", transactionId = existing.AtkTransactionId,
-                detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64,
-                nuiKf, dailyNumber = existing.DailyNumber, citizenQrPayload, qrSvgBase64,
-                duplicateRequest = true, environment = "ATK TEST", offline = false });
+        var persisted = await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64,
+            signed.SignatureBase64, cancellationToken: cancellationToken, nuiKf: nuiKf,
+            citizenPayloadBase64: citizenPayload, citizenSignatureBase64: citizenSignature,
+            dailyNumber: request.Coupon.DailyNumber,
+            businessUuid: request.BusinessId, posUuid: request.PosUuid, businessDate: request.BusinessDate,
+            checkoutIdempotencyKey: request.CheckoutIdempotencyKey,
+            couponId: request.Coupon.CouponId, businessNui: installation.Nui,
+            branchId: installation.BranchId, posNumber: installation.PosId,
+            applicationId: installation.ApplicationId, verificationNo: nuiKf,
+            qrSvgBase64: qrSvgBase64, certificateThumbprint: certificate.Thumbprint,
+            couponSnapshotSha256: couponSnapshotSha256);
 
-        if (existing is not null && existing.Status != FiscalQueueStatus.Queued)
-            return Results.Conflict(new { status = existing.Status.ToString(), error = "document_requires_reconciliation_or_operator_review", existing.LastError });
+        if (persisted.Status == FiscalQueueStatus.Accepted)
+            return Results.Ok(new { status = "accepted", transactionId = persisted.AtkTransactionId,
+                detailsBase64 = persisted.PayloadBase64, signatureBase64 = persisted.SignatureBase64,
+                nuiKf, dailyNumber = persisted.DailyNumber, citizenQrPayload, qrSvgBase64,
+                duplicateRequest = true, message = persisted.AtkResponseMessage, environment = "ATK TEST", offline = false });
 
-        if (existing is null)
-            await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64,
-                signed.SignatureBase64, cancellationToken: cancellationToken, nuiKf: nuiKf,
-                citizenPayloadBase64: citizenPayload, citizenSignatureBase64: citizenSignature,
-                dailyNumber: request.Coupon.DailyNumber);
+        if (persisted.Status != FiscalQueueStatus.Queued)
+            return Results.Conflict(new { status = persisted.Status.ToString(), error = "document_requires_reconciliation_or_operator_review", persisted.LastError });
 
-        var persisted = existing ?? (await queueStore.GetAllAsync(cancellationToken)).Single(x => x.IdempotencyKey == request.IdempotencyKey);
         var signedToSubmit = new SignedAtkCoupon(persisted.PayloadBase64, persisted.SignatureBase64, "");
         await queueStore.MarkSubmittingAsync(request.IdempotencyKey, cancellationToken);
         try {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             var result = await new AtkTestClient(http).SubmitSignedPosCouponAsync(signedToSubmit, cancellationToken);
-            await queueStore.MarkAcceptedAsync(request.IdempotencyKey, result.TransactionId.ToString(), cancellationToken);
+            await queueStore.MarkAcceptedAsync(request.IdempotencyKey, result.TransactionId.ToString(), cancellationToken, result.Message);
             return Results.Ok(new { status = "accepted", transactionId = result.TransactionId.ToString(),
                 detailsBase64 = persisted.PayloadBase64, signatureBase64 = persisted.SignatureBase64,
                 nuiKf, dailyNumber = persisted.DailyNumber, citizenQrPayload, qrSvgBase64,
@@ -609,6 +948,10 @@ internal sealed record AtkVerifyRequest(
     [property: JsonPropertyName("branchId")] ulong BranchId,
     [property: JsonPropertyName("applicationId")] ulong ApplicationId);
 
+internal sealed record AtkCertificateAttestationRequest(
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid);
+
 internal sealed record AtkSignCsrRequest(
     [property: JsonPropertyName("businessName")] string BusinessName,
     [property: JsonPropertyName("businessNui")] ulong BusinessNui,
@@ -619,7 +962,31 @@ internal sealed record AtkSignCsrRequest(
 
 internal sealed record AtkCouponRequest(
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
-    [property: JsonPropertyName("coupon")] PosCouponInput Coupon);
+    [property: JsonPropertyName("coupon")] PosCouponInput Coupon,
+    [property: JsonPropertyName("checkoutIdempotencyKey")] string? CheckoutIdempotencyKey = null,
+    [property: JsonPropertyName("businessId")] string? BusinessId = null,
+    [property: JsonPropertyName("posUuid")] string? PosUuid = null,
+    [property: JsonPropertyName("businessDate")] string? BusinessDate = null);
+
+internal sealed record OfflineReservationProvisionRequest(
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid,
+    [property: JsonPropertyName("supabaseUrl")] string SupabaseUrl,
+    [property: JsonPropertyName("anonKey")] string AnonKey,
+    [property: JsonPropertyName("accessToken")] string AccessToken,
+    [property: JsonPropertyName("couponCount")] int CouponCount,
+    [property: JsonPropertyName("daysAhead")] int DaysAhead);
+
+internal sealed record FiscalAttestationRequest(
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid,
+    [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey);
+
+internal sealed record OfflineReservationClaimRequest(
+    [property: JsonPropertyName("checkoutIdempotencyKey")] string CheckoutIdempotencyKey,
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid,
+    [property: JsonPropertyName("businessDate")] string BusinessDate);
 
 internal sealed record PrinterPrintRequest(
     [property: JsonPropertyName("printerName")] string? PrinterName,
