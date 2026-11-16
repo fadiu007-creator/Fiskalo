@@ -196,7 +196,7 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
         return json(404, { error: "Business, POS, certificate or sale was not found." }, headers);
       }
       if (pos.businessId !== businessId || pos.id !== posUuid || pos.certificateStatus !== "certificate_issued" ||
-          certificate.status !== "active" || certificate.revokedAt !== null ||
+          certificate.status !== "active" || certificate.revokedAt !== null || !certificate.certificatePem ||
           numeric(certificate.applicationId) !== numeric(pos.applicationId)) {
         return json(409, { error: "The POS certificate is not active for this business installation." }, headers);
       }
