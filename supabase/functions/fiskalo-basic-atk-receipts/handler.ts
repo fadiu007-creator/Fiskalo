@@ -486,10 +486,12 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           return json(409, { error: "Only a definitely-not-sent offline coupon can be queued." }, headers);
         }
         const offlineIssuedAt = new Date(attestation.offlineIssuedAtUtc);
-        if (!Number.isFinite(offlineIssuedAt.getTime()) || offlineIssuedAt.getTime() > Date.now() + 120_000 ||
-            offlineIssuedAt.getTime() + 48 * 60 * 60 * 1000 <= Date.now()) {
-          return json(409, { error: "Offline coupon is outside the 48-hour recovery window." }, headers);
+        if (!Number.isFinite(offlineIssuedAt.getTime()) || offlineIssuedAt.getTime() > Date.now() + 120_000) {
+          return json(409, { error: "Offline issue timestamp is invalid or in the future." }, headers);
         }
+        // The 48-hour point is a compliance escalation deadline, not a reason
+        // to discard the signed document or block later synchronization.
+        const overdue = offlineIssuedAt.getTime() + 48 * 60 * 60 * 1000 <= Date.now();
         const documentId = await deps.queueReceipt({
           p_actor_id: actor.id, p_business_id: businessId, p_sale_id: saleId, p_coupon_id: couponId,
           p_idempotency_key: idempotencyKey, p_signed_payload: attestation.signedPayloadBase64,
@@ -499,7 +501,7 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           p_daily_number: attestation.dailyNumber, p_offline_issued_at: offlineIssuedAt.toISOString(),
           p_qr_svg_base64: attestation.qrSvgBase64,
         });
-        return json(200, { ok: true, state: "queued", documentId }, headers);
+        return json(200, { ok: true, state: "queued", documentId, overdue, recoveryDeadlineAt: new Date(offlineIssuedAt.getTime() + 48 * 60 * 60 * 1000).toISOString() }, headers);
       }
 
       if (attestation.status !== "accepted" || !attestation.transactionId ||
