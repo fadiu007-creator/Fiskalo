@@ -574,8 +574,6 @@ export default function Home(){
         body:{action:"register",businessId:business.id,posUuid:pos.id,...certificateAttestation}
       });
       if(registerError)throw registerError;
-      const {error}=await supabase!.from("fiskalo_basic_pos").update({certificate_status:"certificate_issued"}).eq("id",pos.id);
-      if(error)throw error;
       setAgentStatus(await getLocalAgentStatus(agentToken));
       await loadWorkspace(user!.id);
       setMessage("Certifikata ATK TEST u verifikua nga POS Agent, u regjistrua në regjistrin e sigurt dhe u lidh me këtë POS.");
