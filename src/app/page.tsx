@@ -695,7 +695,7 @@ export default function Home(){
         const fiscalIdempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+claim.couponId;
         await offlineJournal.markFiscalQueued(checkoutIdempotencyKey);
         let fiscal;
-        try{fiscal=await submitLocalTestCoupon(agentToken,fiscalIdempotencyKey,coupon,checkoutIdempotencyKey);}
+        try{fiscal=await submitLocalTestCoupon(agentToken,fiscalIdempotencyKey,coupon,{businessId:business.id,posUuid:pos.id,businessDate,checkoutIdempotencyKey});}
         catch(submitError){
           const localQueue=await getLocalAgentQueue(agentToken).catch(()=>null);
           const queuedItem=localQueue?.items.find(item=>item.idempotencyKey===fiscalIdempotencyKey);
@@ -783,7 +783,7 @@ export default function Home(){
       await offlineJournal.markFiscalQueued(checkoutIdempotencyKey);
       let fiscal;
       try{
-        fiscal=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon);
+        fiscal=await submitLocalTestCoupon(agentToken,idempotencyKey,coupon,{businessId:business.id,posUuid:pos.id,businessDate});
       }catch(submitError){
         const localQueue=await getLocalAgentQueue(agentToken).catch(()=>null);
         const queuedItem=localQueue?.items.find(item=>item.idempotencyKey===idempotencyKey);
