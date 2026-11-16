@@ -700,11 +700,15 @@ export default function Home(){
       if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id)throw new Error("Ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk u regjistrua.");
       const agent=await getLocalAgentStatus(agentToken);
       if(!agent.paired||!agent.testCertificateInstalled||!agent.testInstallationVerified)throw new Error("POS Agent nuk është i çiftuar ose certifikata TEST nuk është verifikuar. Shitja nuk u regjistrua.");
-      if(!navigator.onLine){
+      const localCapacity=await getLocalOfflineReservationSummary(agentToken).catch(()=>null);
+      const hasReservedLocalCapacity=!!localCapacity&&localCapacity.availableCouponIds>0&&
+        (localCapacity.availableDailyNumbers[businessDate]??0)>0;
+      if(!navigator.onLine||hasReservedLocalCapacity){
         const {data:{session:offlineSession},error:offlineSessionError}=await supabase!.auth.getSession();
-        if(offlineSessionError||!offlineSession?.access_token||
-           (offlineSession.expires_at&&offlineSession.expires_at*1000<=Date.now()))
-          throw new Error("Sesioni i arkëtarit ka skaduar. Lidhu me internetin dhe hyr përsëri para shitjes offline.");
+        // The cached session identity is sufficient for local signing during an
+        // outage; the JWT is not sent to cloud until connectivity is restored.
+        if(offlineSessionError||!offlineSession?.access_token)
+          throw new Error("Nuk ka sesion lokal të vlefshëm të arkëtarit. Hyr në Fiskalo kur interneti të jetë i disponueshëm.");
         const claim=await claimLocalOfflineNumbers(agentToken,{
           checkoutIdempotencyKey,businessId:business.id,posUuid:pos.id,businessDate
         });
@@ -742,8 +746,8 @@ export default function Home(){
         }
         if(!/^[A-Z0-9]{16}$/.test(fiscal.nuiKf||"")||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)
           throw new Error("POS Agent nuk prodhoi kuponin e nënshkruar dhe QR. Shitja mbetet në radhën lokale.");
-        const issuedAt=fiscal.offlineIssuedAtUtc??new Date().toISOString();
-        const deadline=fiscal.recoveryDeadlineUtc??new Date(Date.parse(issuedAt)+48*60*60*1000).toISOString();
+        const issuedAt=fiscal.offlineIssuedAtUtc??null;
+        const deadline=fiscal.recoveryDeadlineUtc??null;
         const [citizenPayload,citizenSignature]=fiscal.citizenQrPayload.split("|");
         await offlineJournal.attachFiscalReceipt(checkoutIdempotencyKey,{
           couponId:claim.couponId,dailyNumber:claim.dailyNumber,fiscalIdempotencyKey,nuiKf:fiscal.nuiKf,
@@ -772,11 +776,13 @@ export default function Home(){
           pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
           unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,
           unit_name:pos.label,business_address:pos.location,operator_name:operatorName.trim(),
-          operator_identifier:operatorIdentifier.trim(),document_type:"SHITJE",is_offline:true
+          operator_identifier:operatorIdentifier.trim(),document_type:"SHITJE",is_offline:fiscal.offline
         });
         setCart({});setCheckoutKey("");setCheckoutAttempted(false);
         localStorage.removeItem("fiskalo.pendingCheckout."+business.id);
-        setMessage("Kuponi fiskal u nënshkrua dhe u ruajt lokalisht OFFLINE. POS Agent do ta dërgojë automatikisht pas rikthimit të internetit. Afati: "+new Date(deadline).toLocaleString());
+        setMessage(fiscal.status==="accepted"
+          ?"ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId
+          :"Kuponi u nënshkrua dhe u ruajt në radhën lokale OFFLINE. POS Agent do ta dërgojë automatikisht pas rikthimit të internetit. Afati 48-orësh: "+new Date(deadline!).toLocaleString());
         return;
       }
       const {error:operatorError}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(operatorError)throw operatorError;
