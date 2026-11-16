@@ -116,7 +116,7 @@ async function sha1(bytes: Uint8Array): Promise<string> {
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-1", bytes)));
 }
 function certificateDer(pem: string): Uint8Array {
-  const match = /-----BEGIN CERTIFICATE-----([\s\\S]+?)-----END CERTIFICATE-----/.exec(pem);
+  const match = /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/.exec(pem);
   if (!match) throw new AtkReceiptRequestError(409, "Registered ATK certificate PEM is invalid.");
   return decodeBase64(match[1].replace(/\s/g, ""), "Registered ATK certificate");
 }
