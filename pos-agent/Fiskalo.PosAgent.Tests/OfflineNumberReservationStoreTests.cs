@@ -12,7 +12,7 @@ public sealed class OfflineNumberReservationStoreTests
         var fixture=new Fixture();
         try
         {
-            var today=DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+            var today=DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow,TimeZoneInfo.FindSystemTimeZoneById("Europe/Belgrade")).DateTime).ToString("yyyy-MM-dd");
             await fixture.Store.ImportAsync("11111111-1111-1111-1111-111111111111",
                 "22222222-2222-2222-2222-222222222222",123456789,1,2,3,
                 new ulong[]{9001,9002},new[]{new OfflineDailyNumberPool(today,41,42)});
