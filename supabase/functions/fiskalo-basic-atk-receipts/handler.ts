@@ -117,9 +117,11 @@ function numeric(value: string | number | null | undefined): number {
   return Number.NaN;
 }
 function businessDateOf(timestamp: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Belgrade", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date(timestamp));
+  }).formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 function parseAttestation(bytes: Uint8Array): Attestation {
   let value: unknown;
@@ -216,6 +218,19 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
       );
       if (!signatureValid) return json(403, { error: "Local POS attestation signature is invalid." }, headers);
 
+      if (typeof attestation.signedPayloadBase64 !== "string" ||
+          typeof attestation.signatureBase64 !== "string" ||
+          typeof attestation.payloadSha256 !== "string" ||
+          typeof attestation.signatureSha256 !== "string" ||
+          typeof attestation.certificateThumbprint !== "string" ||
+          typeof attestation.businessDate !== "string" ||
+          typeof attestation.nuiKf !== "string" ||
+          typeof attestation.verificationNo !== "string" ||
+          typeof attestation.citizenPayloadBase64 !== "string" ||
+          typeof attestation.citizenSignatureBase64 !== "string" ||
+          typeof attestation.qrSvgBase64 !== "string") {
+        return json(400, { error: "Fiscal attestation fields are incomplete." }, headers);
+      }
       const payloadBytes = decodeBase64(attestation.signedPayloadBase64, "Signed POSCoupon");
       const signatureBytes = decodeBase64(attestation.signatureBase64, "POSCoupon signature");
       if ((await sha256(payloadBytes)) !== attestation.payloadSha256.toLowerCase() ||
@@ -230,7 +245,7 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           numeric(attestation.applicationId) !== numeric(pos.applicationId) ||
           attestation.nuiKf !== attestation.verificationNo || !NUIKF.test(attestation.nuiKf) ||
           !attestation.citizenPayloadBase64 || !attestation.citizenSignatureBase64 ||
-          !attestation.qrSvgBase64 || attestation.certificateThumbprint.length < 8 ||
+          attestation.qrSvgBase64.length === 0 || attestation.certificateThumbprint.length < 8 ||
           attestation.businessDate !== businessDateOf(sale.createdAt)) {
         return json(409, { error: "Signed attestation metadata does not match the registered sale and POS." }, headers);
       }
