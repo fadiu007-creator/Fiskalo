@@ -379,7 +379,7 @@ app.MapPost(QueueAttestationPath, async (FiscalAttestationRequest request, HttpC
             item.BusinessNui is null || item.BranchId is null || item.PosNumber is null ||
             item.ApplicationId is null || item.CouponId is null || item.VerificationNo is null ||
             item.CitizenPayloadBase64 is null || item.CitizenSignatureBase64 is null || item.QrSvgBase64 is null ||
-            item.CertificateThumbprint is null)
+            item.CertificateThumbprint is null || item.CouponSnapshotSha256 is null)
             return Results.Conflict(new { error = "fiscal_queue_item_identity_incomplete" });
         if (item.Status == FiscalQueueStatus.Queued && item.OfflineIssuedAtUtc is null)
             return Results.Conflict(new { error = "only_a_confirmed_offline_queue_item_can_be_attested_as_queued" });
@@ -436,7 +436,8 @@ app.MapPost(QueueAttestationPath, async (FiscalAttestationRequest request, HttpC
             dailyNumber = item.DailyNumber,
             offlineIssuedAtUtc = item.OfflineIssuedAtUtc?.ToString("O"),
             qrSvgBase64 = item.QrSvgBase64,
-            certificateThumbprint = item.CertificateThumbprint
+            certificateThumbprint = item.CertificateThumbprint,
+            couponSnapshotSha256 = item.CouponSnapshotSha256
         };
         var attestationBytes = JsonSerializer.SerializeToUtf8Bytes(attestation, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var attestationSignature = localKey.SignData(attestationBytes, HashAlgorithmName.SHA256,
@@ -653,6 +654,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
 
         var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf();
         var coupon = PosCouponBuilder.Build(request.Coupon, nuiKf);
+        var couponSnapshotSha256 = PosCouponSnapshotHasher.ComputeSha256(request.Coupon, nuiKf);
         var signed = AtkCouponSigner.SignPosCoupon(coupon, key);
         if (!string.IsNullOrWhiteSpace(request.CheckoutIdempotencyKey))
         {
@@ -683,7 +685,8 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
             couponId: request.Coupon.CouponId, businessNui: installation.Nui,
             branchId: installation.BranchId, posNumber: installation.PosId,
             applicationId: installation.ApplicationId, verificationNo: nuiKf,
-            qrSvgBase64: qrSvgBase64, certificateThumbprint: certificate.Thumbprint);
+            qrSvgBase64: qrSvgBase64, certificateThumbprint: certificate.Thumbprint,
+            couponSnapshotSha256: couponSnapshotSha256);
 
         if (persisted.Status == FiscalQueueStatus.Accepted)
             return Results.Ok(new { status = "accepted", transactionId = persisted.AtkTransactionId,
