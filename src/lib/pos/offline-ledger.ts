@@ -14,7 +14,7 @@ export type OfflineFiscalIdentity = {
 export type OfflineFiscalReceipt = {
   couponId:number;dailyNumber:number;fiscalIdempotencyKey:string;nuiKf:string;
   posPayloadBase64:string;posSignatureBase64:string;citizenPayloadBase64:string;citizenSignatureBase64:string;
-  qrSvgBase64:string;offlineIssuedAtUtc:string;recoveryDeadlineUtc:string;
+  qrSvgBase64:string;offlineIssuedAtUtc:string|null;recoveryDeadlineUtc:string|null;
   status:"queued"|"accepted";transactionId?:string;
 };
 export type OfflineSaleRecord = {
@@ -120,8 +120,9 @@ export class OfflineCheckoutJournal {
        !/^[A-Z0-9]{16}$/.test(receipt.nuiKf)||
        !receipt.posPayloadBase64||!receipt.posSignatureBase64||
        !receipt.citizenPayloadBase64||!receipt.citizenSignatureBase64||!receipt.qrSvgBase64||
-       !Number.isFinite(Date.parse(receipt.offlineIssuedAtUtc))||
-       !Number.isFinite(Date.parse(receipt.recoveryDeadlineUtc)))
+       (receipt.offlineIssuedAtUtc!==null&&!Number.isFinite(Date.parse(receipt.offlineIssuedAtUtc)))||
+       (receipt.recoveryDeadlineUtc!==null&&!Number.isFinite(Date.parse(receipt.recoveryDeadlineUtc)))||
+       (receipt.status==="queued"&&(!receipt.offlineIssuedAtUtc||!receipt.recoveryDeadlineUtc)))
       throw new Error("Offline signed fiscal receipt is incomplete or invalid.");
     return this.mutate(key,r=>{
       if(r.fiscalReceipt&&(r.fiscalReceipt.couponId!==receipt.couponId||
