@@ -44,5 +44,6 @@ Migrations:
 - `0028_fiskalo_basic_article44_unfiscalized_export.sql`
 - `0030_fiskalo_article44_scope_and_offline_payment_integrity.sql`
 - `0031_fiskalo_article44_deadline_boundary.sql`
+- `0032_fiskalo_article44_monthly_export_proof_guard.sql`
 
 The owner UI is available at `/article-44`.
