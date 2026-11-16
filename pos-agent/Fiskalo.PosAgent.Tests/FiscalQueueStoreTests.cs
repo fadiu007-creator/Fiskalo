@@ -39,6 +39,35 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task LegacyQueueRowsMigrateOutageTimestampWithoutChangingSignedCouponIssueTime()
+    {
+        using var fixture = new QueueFixture();
+        var issueTime = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        var outageStart = issueTime.AddMinutes(-5);
+        var legacy = new FiscalQueueItem
+        {
+            IdempotencyKey = "legacy-time-semantics",
+            DocumentType = "Sale",
+            PayloadBase64 = "cG9z",
+            SignatureBase64 = "c2ln",
+            CreatedAtUtc = issueTime,
+            OfflineIssuedAtUtc = outageStart,
+            RecoveryDeadlineUtc = outageStart.AddHours(48),
+            NextAttemptAtUtc = issueTime,
+            Status = FiscalQueueStatus.Queued
+        };
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new[] { legacy }, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        await File.WriteAllBytesAsync(fixture.Path, fixture.Protector.Protect(bytes));
+
+        var migrated = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(issueTime, migrated.OfflineIssuedAtUtc);
+        Assert.Equal(outageStart, migrated.OutageStartedAtUtc);
+        Assert.Equal(outageStart.AddHours(48), migrated.RecoveryDeadlineUtc);
+        Assert.Equal(2, migrated.TimestampSemanticsVersion);
+    }
+
+    [Fact]
     public async Task RecoveryDeadline_DoesNotDiscardOrBlockQueuedFiscalDocuments()
     {
         using var fixture = new QueueFixture();
