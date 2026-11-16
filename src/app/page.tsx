@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient, getSupabasePublicConfig } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
-import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, getLocalFiscalAttestation, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, getLocalAtkCertificateAttestation, submitLocalTestCoupon, getLocalAgentQueue, getLocalFiscalAttestation, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { OfflineCheckoutJournal, IndexedDbOfflineSaleStorage } from "@/lib/pos/offline-ledger";
@@ -553,7 +553,35 @@ export default function Home(){
   }
   async function pairAgent(){setBusy(true);setMessage("");try{const result=await pairLocalAgent(pairCode.trim());localStorage.setItem("fiskalo.posAgentToken",result.sessionToken);setAgentToken(result.sessionToken);setPairCode("");setAgentStatus(await getLocalAgentStatus(result.sessionToken));setMessage("POS Agent u lidh me këtë shfletues.");}catch(e){setMessage(e instanceof Error?e.message:"Lidhja me POS Agent dështoi.");}finally{setBusy(false);}}
   async function verifyAtkPos(){const pos=positions.find(p=>p.id===selectedPos);if(!pos||!business||!agentToken){setMessage("Lidh POS Agent dhe zgjidh pajisjen.");return;}if(!pos.application_id){setMessage("Vendos Application ID TEST për këtë POS.");return;}setBusy(true);setMessage("");try{const result=await verifyLocalTestPos(agentToken,{nui:Number(business.nui),fiscalizationNumber:pos.fiscalization_number,posId:pos.pos_id,branchId:pos.branch_id,applicationId:Number(pos.application_id)});setVerification(result);const {error}=await supabase!.from("fiskalo_basic_pos").update({verification_no:result.verificationCode,verified_business_name:result.businessName,certificate_status:"verified"}).eq("id",pos.id);if(error)throw error;await loadWorkspace(user!.id);setMessage("ATK TEST verifikoi POS-in. Tani mund të kërkosh certifikatën.");}catch(e){setMessage(e instanceof Error?e.message:"Verifikimi ATK dështoi.");}finally{setBusy(false);}}
-  async function requestAtkCertificate(){const pos=positions.find(p=>p.id===selectedPos);if(!pos||!business||!agentToken||!pos.application_id||!pos.verification_no){setMessage("Kryej fillimisht verifikimin ATK për këtë POS.");return;}setBusy(true);setMessage("");try{const result=await issueLocalTestCertificate(agentToken,{businessName:pos.verified_business_name||verification?.businessName||business.name,businessNui:Number(business.nui),branchId:pos.branch_id,verificationCode:pos.verification_no,posId:pos.pos_id,applicationId:Number(pos.application_id)});if(!result.certificateStatus.includes("RECEIVED_AND_KEY_MATCHED"))throw new Error("ATK certificate was not confirmed as matching the local POS key.");const {error}=await supabase!.from("fiskalo_basic_pos").update({certificate_status:"certificate_issued"}).eq("id",pos.id);if(error)throw error;setAgentStatus(await getLocalAgentStatus(agentToken));await loadWorkspace(user!.id);setMessage("Certifikata ATK TEST u ruajt në POS dhe çelësi publik u përputh.");}catch(e){setMessage(e instanceof Error?e.message:"Lëshimi i certifikatës dështoi.");}finally{setBusy(false);}}
+  async function requestAtkCertificate(){
+    const pos=positions.find(p=>p.id===selectedPos);
+    if(!pos||!business||!agentToken||!pos.application_id||!pos.verification_no){
+      setMessage("Kryej fillimisht verifikimin ATK për këtë POS.");return;
+    }
+    setBusy(true);setMessage("");
+    try{
+      const result=await issueLocalTestCertificate(agentToken,{
+        businessName:pos.verified_business_name||verification?.businessName||business.name,
+        businessNui:Number(business.nui),branchId:pos.branch_id,verificationCode:pos.verification_no,
+        posId:pos.pos_id,applicationId:Number(pos.application_id)
+      });
+      if(!result.certificateStatus.includes("RECEIVED_AND_KEY_MATCHED"))
+        throw new Error("ATK certificate was not confirmed as matching the local POS key.");
+      const certificateAttestation=await getLocalAtkCertificateAttestation(agentToken,{
+        businessId:business.id,posUuid:pos.id
+      });
+      const {error:registerError}=await supabase!.functions.invoke("fiskalo-basic-atk-receipts",{
+        body:{action:"register",businessId:business.id,posUuid:pos.id,...certificateAttestation}
+      });
+      if(registerError)throw registerError;
+      const {error}=await supabase!.from("fiskalo_basic_pos").update({certificate_status:"certificate_issued"}).eq("id",pos.id);
+      if(error)throw error;
+      setAgentStatus(await getLocalAgentStatus(agentToken));
+      await loadWorkspace(user!.id);
+      setMessage("Certifikata ATK TEST u verifikua nga POS Agent, u regjistrua në regjistrin e sigurt dhe u lidh me këtë POS.");
+    }catch(e){setMessage(e instanceof Error?e.message:"Lëshimi ose regjistrimi i certifikatës dështoi.");}
+    finally{setBusy(false);}
+  }
   async function prepareOfflineCapacity(){
     const pos=positions.find(p=>p.id===selectedPos);
     if(memberRole!=="owner"){setMessage("Vetëm pronari mund të rezervojë kapacitet offline.");return;}
