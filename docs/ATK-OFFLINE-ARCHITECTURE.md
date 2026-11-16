@@ -14,7 +14,7 @@ The POS Agent is the device-side fiscal runtime. Cloudflare hosts the web applic
 4. The PWA commits an immutable checkout snapshot to IndexedDB before network-dependent work. If local fiscal capacity is prepared, checkout uses the local-first path even while online; otherwise it uses the regular online path. This allows a sale to be signed locally if Cloudflare/Supabase is unavailable while the local Agent can still operate.
 5. The Agent constructs and signs the POSCoupon and CitizenCoupon with the POS private key, creates the signed CitizenCoupon QR, and persists the exact signed payload, signature, NUIKF, daily number, certificate thumbprint, checkout key and immutable snapshot fingerprint in its encrypted queue before returning a receipt.
 6. If ATK accepts immediately, the Agent records the returned TransactionNo. If the transport proves the request was not sent, the signed document remains queued and the delivery worker retries it. A timeout or other ambiguous result is locked for reconciliation; the Agent never blindly resubmits it.
-7. When cloud connectivity returns, the PWA calls `fiskalo_basic_sync_offline_sale`. The server checks the reserved CouponId and daily-number ranges, one-time consumption, operator membership, business date, immutable line/tax snapshot and stock state. It preserves the original coupon identity and timestamp. If inventory changed while offline, the sale is retained with an explicit stock-reconciliation flag rather than rewriting the fiscal document.
+7. When cloud connectivity returns, the PWA calls `fiskalo_basic_sync_offline_sale_with_allocations`, preserving the same payment allocations used by the locally signed coupon. The server checks the reserved CouponId and daily-number ranges, one-time consumption, operator membership, business date, immutable line/tax snapshot and stock state. It preserves the original coupon identity and timestamp. If inventory changed while offline, the sale is retained with an explicit stock-reconciliation flag rather than rewriting the fiscal document.
 8. The PWA requests a signed attestation from the local Agent's protected queue. The Supabase Edge Function verifies the attestation signature, the registered POS certificate key, POSCoupon and CitizenCoupon signatures, the coupon snapshot fingerprint, business/POS identity, daily number and sale snapshot. It then calls server-only RPCs to persist either the offline queued receipt or the ATK-accepted response. Browser-supplied ATK response JSON is not accepted as proof of acceptance.
 9. The Agent's background worker continues automatic delivery after the browser is closed. When it accepts the document, the PWA synchronizes the signed accepted attestation and TransactionNo on reconnection.
 
@@ -28,6 +28,7 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - The same checkout key returns the same local claim and same signed document. ECDSA signatures are not regenerated on retry; the exact persisted signed bytes are reused.
 - Claimed CouponIds and daily numbers are never reused, even if checkout is abandoned or the machine restarts.
 - No PAN, CVV, passwords, access tokens or private keys are stored in the offline sale journal.
+- Split tender is stored as canonical integer-cent allocations. The server validates the sum against the sale total and rejects a retry that changes the payment allocation.
 
 ## Database and device components
 
@@ -35,6 +36,7 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - Migration 0019: daily-number trigger compatibility, daily-number consumption ledger and offline sale synchronization RPC. Migrations 0022-0023: atomic CouponId/daily-range capacity reservation with an invoker-only public wrapper. Migration 0024: owner-only daily-number reservations from today through seven days ahead in Kosovo time.
 - Existing Supabase migrations: server-only Basic POS certificate registry and trusted queue/accepted receipt RPCs.
 - Migration 0020: hardens the existing server-only queue/accepted writers with active-certificate binding and keeps signed receipts synchronizable after the 48-hour escalation deadline.
+- Migrations 0025–0031: remove public execution from trigger-only helpers; add Article 44 incident/evidence tracking and the tenth-of-following-month un-fiscalized export; add split-tender online/offline checkout; and harden deadline/idempotency boundaries.
 - Windows POS Agent: DPAPI-protected private key, certificate, reservation store and fiscal queue; local ATK TEST signing and automatic delivery.
 - PWA: cached business/POS/product workspace, IndexedDB sale journal, local-first checkout and reconnect synchronization.
 - Supabase Edge Function `fiskalo-basic-atk-receipts`: verifies local Agent attestations and signature/snapshot bindings before database persistence.
@@ -45,8 +47,17 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - The secure local runtime currently targets Windows. Other operating systems need their own secure-keystore POS Agent.
 - The cached operator identity and paired local Agent are required to issue locally during a network outage. Cloud authorization and data refresh resume when connectivity returns.
 - The local Agent retries only when transport evidence proves the request was not delivered. An ambiguous ATK result remains locked for reconciliation.
-- The 48-hour recovery clock is tied to the first observed ATK connectivity interruption. Overdue signed documents are retained and surfaced; they are not discarded or silently resubmitted.
+- The Agent's retry/recovery timestamps currently use the Windows device clock; a server-signed heartbeat/time anchor has not yet been implemented. The Article 44 UI separately records an owner-reported outage start, not an independently verified server timestamp.
+- Article 44 paragraph 5 notification is only recorded after the owner has actually notified ATK through an official channel or in person and uploaded evidence. Fiskalo does not submit the notice automatically.
+- Article 44 paragraph 6 export combines server-synchronized unaccepted documents with the local POS Agent queue. It fails closed if the paired local queue cannot be read; a server-only export is not described as complete.
+- The tenth-of-following-month export includes every non-accepted offline fiscal document, including rejected documents. The export must still be reviewed and submitted by the taxpayer to ATK.
 - The existing certificate registry stores the ATK certificate and SPKI fingerprint; the Edge Function verifies local proof of possession and binds the certificate public key to the POS. The exact ATK certificate-chain trust anchor and renewal/revocation procedure still require confirmation against ATK's current technical specification and TEST guidance.
+
+## Receipt and payment conformance
+
+- The receipt renders the RKS MF mark within a 20 mm × 8 mm print area, displays the OFFLINE indicator for offline coupons, and includes NUIKF and the signed CitizenCoupon QR.
+- The receipt preview is designed for the ATK 2026 thermal-width range; physical printers and actual paper output still require acceptance testing.
+- Online and offline checkout now persist split-tender allocations in integer cents and map each tender to the ATK payment enum. Internal allocation tests do not substitute for ATK TEST acceptance.
 
 ## Remaining acceptance and certification work
 
