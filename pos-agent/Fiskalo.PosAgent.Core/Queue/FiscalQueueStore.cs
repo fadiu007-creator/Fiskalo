@@ -152,6 +152,7 @@ public sealed class FiscalQueueStore
                 RecoveryDeadlineUtc = (monitoredOutageStart ?? timestamp).Add(RecoveryWindow),
                 OfflineIssuedAtUtc = timestamp,
                 OutageStartedAtUtc = monitoredOutageStart,
+                TimestampSemanticsVersion = 2,
                 NextAttemptAtUtc = timestamp,
                 NuiKf = nuiKf,
                 CitizenPayloadBase64 = citizenPayloadBase64,
@@ -296,6 +297,7 @@ public sealed class FiscalQueueStore
                 NextAttemptAtUtc = timestamp.AddSeconds(delaySeconds),
                 OutageStartedAtUtc = item.OutageStartedAtUtc ?? outageStart,
                 RecoveryDeadlineUtc = item.OutageStartedAtUtc is null ? outageStart.Add(RecoveryWindow) : item.RecoveryDeadlineUtc,
+                TimestampSemanticsVersion = 2,
                 LastError = Truncate(error, 500)
             };
             items[index] = item;
@@ -616,7 +618,35 @@ public sealed class FiscalQueueStore
         try
         {
             plaintext = _protector.Unprotect(encrypted);
-            return JsonSerializer.Deserialize<List<FiscalQueueItem>>(plaintext, JsonOptions) ?? [];
+            var items = JsonSerializer.Deserialize<List<FiscalQueueItem>>(plaintext, JsonOptions) ?? [];
+            var migrated = false;
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item.TimestampSemanticsVersion >= 2) continue;
+
+                // Older Agent builds stored the outage start in OfflineIssuedAtUtc.
+                // Preserve that anchor separately and restore the signed coupon issue
+                // time from CreatedAtUtc; never rewrite the signed payload itself.
+                if (item.OfflineIssuedAtUtc is { } legacyOutageStart &&
+                    item.OutageStartedAtUtc is null)
+                {
+                    items[i] = item with
+                    {
+                        OfflineIssuedAtUtc = item.CreatedAtUtc,
+                        OutageStartedAtUtc = legacyOutageStart,
+                        RecoveryDeadlineUtc = legacyOutageStart.Add(RecoveryWindow),
+                        TimestampSemanticsVersion = 2
+                    };
+                }
+                else
+                {
+                    items[i] = item with { TimestampSemanticsVersion = 2 };
+                }
+                migrated = true;
+            }
+            if (migrated) await SaveAsync(items, cancellationToken);
+            return items;
         }
         finally
         {
