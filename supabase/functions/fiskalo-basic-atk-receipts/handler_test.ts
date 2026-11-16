@@ -1,3 +1,5 @@
+// deno-lint-ignore-file require-await
+// Async mocks intentionally preserve the Promise-based dependency contract.
 Deno.test("matches the POS Agent canonical coupon snapshot hash fixture",async()=>{
   const pos:AtkReceiptPos={id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"certificate_issued",location:"Ferizaj"};
   const sale:AtkReceiptSale={
