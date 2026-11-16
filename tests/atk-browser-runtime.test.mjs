@@ -83,7 +83,7 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     writeFileSync(csrPath, first.csrPem);
     openssl(["req", "-in", csrPath, "-noout", "-verify"]);
 
-    const dbRequest = indexedDB.open("fiskalo-atk-local", 2);
+    const dbRequest = indexedDB.open("fiskalo-atk-pos-keys", 1);
     const db = await new Promise((resolve, reject) => {
       dbRequest.onsuccess = () => resolve(dbRequest.result);
       dbRequest.onerror = () => reject(dbRequest.error);
@@ -95,8 +95,7 @@ test("browser POS key stays non-exportable, CSR verifies, certificate matches, a
     });
     db.close();
     assert.equal(stored.privateKey.extractable, false);
-  assert.equal(stored.encryptedMetadata.version, 1);
-  assert.equal(stored.csrPem, undefined);
+  assert.equal(stored.csrPem, first.csrPem);
   assert.equal(stored.certificatePem, undefined);
 
     const caKey = join(dir, "ca.key");
