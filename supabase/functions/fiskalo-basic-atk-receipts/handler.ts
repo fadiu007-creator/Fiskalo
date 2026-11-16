@@ -197,7 +197,7 @@ export async function computeSaleSnapshotSha256(
     groups.set(item.vatCode,current);
   }
   const taxGroups = [...groups.entries()].map(([taxRate,values])=>({taxRate,...values}))
-    .sort((a,b)=>a.taxRate.localeCompare(b.taxRate)||a.base-b.base);
+    .sort((a,b)=>(a.taxRate<b.taxRate?-1:a.taxRate>b.taxRate?1:0)||a.base-b.base);
   const fields: string[] = [
     "FISKALO-ATK-SNAPSHOT-V1", String(businessNui), String(numeric(sale.couponId)),
     String(pos.branchId), String(pos.posNumber), String(numeric(pos.applicationId)),
