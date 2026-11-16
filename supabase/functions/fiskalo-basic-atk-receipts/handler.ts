@@ -175,7 +175,7 @@ function canonicalField(value: string | number): string {
   const text = String(value);
   return `${new TextEncoder().encode(text).byteLength}:${text}`;
 }
-export async function computeSaleSnapshotSha256(
+export function computeSaleSnapshotSha256(
   businessNui: number, pos: AtkReceiptPos, sale: AtkReceiptSale,
   saleItems: AtkReceiptSaleItem[], verificationNo: string, dailyNumber: number,
 ): Promise<string> {
