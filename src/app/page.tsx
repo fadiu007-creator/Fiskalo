@@ -436,7 +436,7 @@ export default function Home(){
       return ()=>{cancelled=true;};
     }
     try{
-      const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;additionalPayments?:Array<{method?:string;amount?:string}>;selectedPos?:string};
+      const draft=JSON.parse(raw) as {key?:string;attempted?:boolean;lines?:Array<{productId?:string;quantity?:number}>;additionalPayments?:Array<{method?:string;amount?:string}>;payment?:string;selectedPos?:string};
       if(!draft.key||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draft.key)||!Array.isArray(draft.lines)){
         sessionStorage.removeItem(storageKey);setCheckoutDraftLoaded(true);return;
       }
@@ -450,6 +450,11 @@ export default function Home(){
         setCart(restored);setCheckoutKey(draft.key);setCheckoutAttempted(!!draft.attempted);
         if(Array.isArray(draft.additionalPayments))setAdditionalPayments(draft.additionalPayments.filter(item=>isPaymentMethod(item.method??"")&&item.method!=="cash")
           .map(item=>({id:crypto.randomUUID(),method:item.method as AdditionalPaymentMethod,amount:String(item.amount??"")})));
+        else if(draft.payment&&isPaymentMethod(draft.payment)&&draft.payment!=="cash"){
+          const restoredTotal=Object.values(restored).reduce((sum,line)=>sum+Math.round(line.product.price*line.quantity*100)/100+
+            Math.round(Math.round(line.product.price*line.quantity*100)/100*line.product.vat_rate)/100,0);
+          setAdditionalPayments([{id:crypto.randomUUID(),method:draft.payment as AdditionalPaymentMethod,amount:restoredTotal.toFixed(2)}]);
+        }
         if(positions.some(p=>p.id===draft.selectedPos))setSelectedPos(draft.selectedPos!);
       }else{
         sessionStorage.removeItem(storageKey);
