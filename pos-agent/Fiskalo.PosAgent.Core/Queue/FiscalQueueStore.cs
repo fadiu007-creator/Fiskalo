@@ -273,9 +273,10 @@ public sealed class FiscalQueueStore
             // Fall back to this first confirmed no-connect failure if the monitor was
             // unable to persist a probe result.
             var connectivityState = await LoadConnectivityStateAsync(cancellationToken);
+            // OfflineIssuedAtUtc is the coupon's timestamp, not an outage anchor.
+            // If no persisted healthy probe exists, use the first confirmed failure time.
             var outageStart = connectivityState.OutageStartedAtUtc ??
-                connectivityState.LastSuccessfulProbeAtUtc ??
-                items[index].OfflineIssuedAtUtc ?? timestamp;
+                connectivityState.LastSuccessfulProbeAtUtc ?? timestamp;
             for (var i = 0; i < items.Count; i++)
             {
                 if (items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.Submitting)) continue;
