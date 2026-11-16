@@ -318,6 +318,11 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
         const [business, pos] = await Promise.all([deps.getBusiness(businessId), deps.getPos(businessId, posUuid)]);
         if (!business || !pos || pos.id !== posUuid || pos.businessId !== businessId)
           return json(404, { error: "Business or POS was not found." }, headers);
+        if (pos.certificateStatus !== "verified")
+          return json(409, { error: "Verify this POS with ATK TEST before registering its certificate." }, headers);
+        const verifiedBusinessName = (pos.verifiedBusinessName || business.name || "").trim();
+        if (verifiedBusinessName.length < 2)
+          return json(409, { error: "The ATK-verified business name is missing from this POS." }, headers);
         const attestationPayloadBase64 = typeof body.certificateAttestationPayloadBase64 === "string" ? body.certificateAttestationPayloadBase64 : "";
         const attestationSignatureBase64 = typeof body.certificateAttestationSignatureBase64 === "string" ? body.certificateAttestationSignatureBase64 : "";
         const attestationBytes = decodeBase64(attestationPayloadBase64, "ATK certificate attestation");
@@ -364,7 +369,7 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           p_application_id: numeric(pos.applicationId),
           p_certificate_pem: certificateAttestation.certificatePem,
           p_spki_sha256: spkiHash,
-          p_verified_business_name: (pos.verifiedBusinessName || business.name || "").trim(),
+          p_verified_business_name: verifiedBusinessName,
         });
         return json(200, { ok: true, certificateId: registeredId, certificateThumbprint: thumbprint, status: "active" }, headers);
       }
