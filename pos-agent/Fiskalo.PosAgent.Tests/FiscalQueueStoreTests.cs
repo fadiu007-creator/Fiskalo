@@ -64,7 +64,8 @@ public sealed class FiscalQueueStoreTests
         var first = await fixture.Store.RequeueDefinitelyNotSentAsync("sale-outage-1", "DNS failure", outage);
 
         var second = (await fixture.Store.GetAllAsync()).Single(x => x.IdempotencyKey == "sale-outage-2");
-        Assert.Equal(outage, second.OfflineIssuedAtUtc);
+        Assert.Equal(created.AddMinutes(2), second.OfflineIssuedAtUtc);
+        Assert.Equal(outage, second.OutageStartedAtUtc);
         Assert.Equal(outage.AddHours(48), second.RecoveryDeadlineUtc);
 
         await fixture.Store.MarkSubmittingAsync("sale-outage-1");
@@ -72,9 +73,11 @@ public sealed class FiscalQueueStoreTests
         await fixture.Store.MarkSubmittingAsync("sale-outage-2");
         var retried = await fixture.Store.RequeueDefinitelyNotSentAsync("sale-outage-2", "DNS still failing", outage.AddMinutes(10));
 
-        Assert.Equal(outage, first.OfflineIssuedAtUtc);
+        Assert.Equal(created, first.OfflineIssuedAtUtc);
+        Assert.Equal(outage, first.OutageStartedAtUtc);
         Assert.Equal(outage.AddHours(48), first.RecoveryDeadlineUtc);
-        Assert.Equal(outage, retried.OfflineIssuedAtUtc);
+        Assert.Equal(created.AddMinutes(2), retried.OfflineIssuedAtUtc);
+        Assert.Equal(outage, retried.OutageStartedAtUtc);
         Assert.Equal(outage.AddHours(48), retried.RecoveryDeadlineUtc);
     }
 
@@ -212,7 +215,8 @@ public sealed class FiscalQueueStoreTests
 
         var item = await fixture.Store.EnqueueAsync(
             "sale-monitored-outage", "Sale", "cG9z", "c2ln", outageDetectedAt.AddHours(2));
-        Assert.Equal(lastHealthyProbe, item.OfflineIssuedAtUtc);
+        Assert.Equal(outageDetectedAt.AddHours(2), item.OfflineIssuedAtUtc);
+        Assert.Equal(lastHealthyProbe, item.OutageStartedAtUtc);
         Assert.Equal(lastHealthyProbe.AddHours(48), item.RecoveryDeadlineUtc);
     }
 
@@ -334,7 +338,8 @@ public sealed class FiscalQueueStoreTests
             citizenPayloadBase64: signedCitizen.DetailsBase64,
             citizenSignatureBase64: signedCitizen.SignatureBase64,
             dailyNumber: 1);
-        Assert.Equal(lastHealthyProbe, queued.OfflineIssuedAtUtc);
+        Assert.Equal(outageDetected, queued.OfflineIssuedAtUtc);
+        Assert.Equal(lastHealthyProbe, queued.OutageStartedAtUtc);
         Assert.Equal(lastHealthyProbe.AddHours(48), queued.RecoveryDeadlineUtc);
 
         var attempts = 0;
@@ -387,6 +392,7 @@ public sealed class FiscalQueueStoreTests
         var offline = Assert.Single(await fixture.Store.GetAllAsync());
         Assert.Equal(FiscalQueueStatus.Queued, offline.Status);
         Assert.Equal(outage, offline.OfflineIssuedAtUtc);
+        Assert.Equal(outage, offline.OutageStartedAtUtc);
         Assert.Equal(outage.AddHours(48), offline.RecoveryDeadlineUtc);
 
         var recoveredAt = outage.AddHours(47).AddMinutes(59);
