@@ -211,6 +211,59 @@ export default function Home(){
     }
   },[supabase,business,agentToken,positions,checkoutKey]);
 
+  const syncPendingOfflineSales=useCallback(async()=>{
+    if(!supabase||!business||!agentToken||!navigator.onLine)return;
+    const storage=new IndexedDbOfflineSaleStorage();
+    const journal=new OfflineCheckoutJournal(storage);
+    const pending=await journal.listPendingCloudSync();
+    for(const record of pending){
+      const identity=record.fiscalIdentity,receipt=record.fiscalReceipt;
+      if(!identity||!receipt)continue;
+      try{
+        const lines=record.lines.map(line=>({
+          product_id:line.productId,quantity:line.quantityMilli/1000
+        }));
+        const expectedSnapshot=record.lines.map(line=>({
+          product_id:line.productId,quantity:line.quantityMilli/1000,description:line.description,
+          unit_price:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,
+          vat_rate:line.vatRateBasisPoints/100,atk_unit_code:line.atkUnitCode,
+          atk_item_category_code:line.atkCategoryCode,atk_vat_code:line.atkVatCode,
+          line_net:line.lineNetMinor/100,line_vat:line.lineVatMinor/100,line_total:line.lineTotalMinor/100
+        }));
+        const {data:saleId,error:saleSyncError}=await supabase.rpc("fiskalo_basic_sync_offline_sale",{
+          p_business_id:record.businessId,p_pos_id:record.posId,p_payment_method:record.paymentMethod,
+          p_lines:lines,p_checkout_idempotency_key:record.idempotencyKey,
+          p_coupon_id:receipt.couponId,p_daily_number:receipt.dailyNumber,
+          p_business_date:identity.businessDate,p_operator_id:record.operatorId,
+          p_operator_name:identity.operatorName,p_operator_identifier:identity.operatorIdentifier,
+          p_expected_snapshot:expectedSnapshot,p_created_at:record.createdAtUtc
+        });
+        if(saleSyncError)throw saleSyncError;
+        await journal.markCloudSynced(record.idempotencyKey,String(saleId),String(receipt.couponId));
+        const {error:receiptError}=await supabase.rpc("fiskalo_basic_store_offline_receipt",{
+          p_business_id:record.businessId,p_sale_id:saleId,p_coupon_id:receipt.couponId,
+          p_idempotency_key:receipt.fiscalIdempotencyKey,p_signed_payload:receipt.posPayloadBase64,
+          p_signature:receipt.posSignatureBase64,p_nui_kf:receipt.nuiKf,
+          p_citizen_payload:receipt.citizenPayloadBase64,p_citizen_signature:receipt.citizenSignatureBase64,
+          p_daily_number:receipt.dailyNumber,p_offline_issued_at:receipt.offlineIssuedAtUtc
+        });
+        if(receiptError)throw receiptError;
+        const {error:qrError}=await supabase.rpc("fiskalo_basic_set_receipt_qr",{
+          p_business_id:record.businessId,p_sale_id:saleId,p_coupon_id:receipt.couponId,
+          p_idempotency_key:receipt.fiscalIdempotencyKey,
+          p_qr_svg_base64:receipt.qrSvgBase64
+        });
+        if(qrError)throw qrError;
+        if(!navigator.onLine)break;
+      }catch(error){
+        const message=error instanceof Error?error.message:"Offline sale synchronization failed.";
+        await journal.markCloudConflict(record.idempotencyKey,message).catch(()=>undefined);
+      }
+    }
+    await syncAcceptedQueue();
+    if(user)await loadWorkspace(user.id).catch(()=>undefined);
+  },[supabase,business,agentToken,syncAcceptedQueue,user,loadWorkspace]);
+
   async function reconcileSaleQueue(sale:SaleRecord){
     if(memberRole!=="owner"){setMessage("Vetëm pronari mund të autorizojë reconciliimin e radhës fiskale.");return;}
     if(!agentToken||!sale.idempotency_key){setMessage("Lidh POS Agent para reconciliimit.");return;}
