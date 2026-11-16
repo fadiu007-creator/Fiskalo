@@ -32,6 +32,8 @@ public sealed record FiscalQueueItem
     public DateTimeOffset? OfflineIssuedAtUtc { get; init; }
     /// <summary>Local operational estimate of the connectivity outage start. Not legal proof without a trusted time anchor.</summary>
     public DateTimeOffset? OutageStartedAtUtc { get; init; }
+    /// <summary>Version 2 separates coupon issue time from outage start; null marks legacy queue rows.</summary>
+    public int? TimestampSemanticsVersion { get; init; }
     public string? BusinessUuid { get; init; }
     public string? PosUuid { get; init; }
     public string? BusinessDate { get; init; }
