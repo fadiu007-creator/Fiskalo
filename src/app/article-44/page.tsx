@@ -267,7 +267,7 @@ export default function Article44Page() {
         business: { name: business.name, nui: business.nui },
         pos: { id: pos.id, label: pos.label, branch_id: pos.branch_id, pos_number: pos.pos_id },
         period: { from_utc: incident.outage_started_at, to_utc_exclusive: to },
-        database_export: { ...data, documents: serverDocuments, count: serverDocuments.length, duplicates_replaced_by_local_agent: allServerDocuments.length - serverDocuments.length },
+        database_export: { ...data, documents: serverDocuments, count: serverDocuments.length, duplicates_replaced_by_browser_outbox: allServerDocuments.length - serverDocuments.length },
         local_browser_outbox_unaccepted_coupons: localItems,
         totals: {
           database_unaccepted_documents: serverDocuments.length,
@@ -352,7 +352,7 @@ export default function Article44Page() {
       <h1>Neni 44 — Ndërprerja e lidhjes së internetit</h1>
       <p>Regjistro ndërprerjen, afatin 48-orësh, dëshmitë dhe njoftimin që tatimpaguesi duhet t’ia paraqesë ATK-së kur plotësohen kushtet ligjore.</p>
       <p className="article44-warning">Ora e fillimit këtu regjistrohet nga pronari. Fiskalo ende nuk e vërteton automatikisht me orë të nënshkruar nga serveri.</p>
-      <p className="article44-warning">Incidenti dhe eksporti lidhen me një POS. Nëse ndërprerja prek disa POS, regjistro incident dhe krijo eksport për secilin POS nga pajisja/Agent-i përkatës, që të përfshihen të gjitha radhët lokale.</p>
+      <p className="article44-warning">Incidenti dhe eksporti lidhen me një POS. Nëse ndërprerja prek disa POS, regjistro incident dhe krijo eksport për secilin POS nga profili i shfletuesit ku është përdorur ai POS, që të përfshihen të gjitha radhët lokale.</p>
     </section>
     {message && <p className="article44-message" role="status">{message}</p>}
     <section className="article44-card">
@@ -401,8 +401,8 @@ export default function Article44Page() {
           </div>}
           {monthlyRequired && <div className="article44-notice">
             <strong>Afati i datës 10 të muajit vijues ka kaluar.</strong>
-            <p>Sipas Nenit 44(6), nëse lidhja nuk është rivendosur deri më 10 të muajit pasues, tatimpaguesi duhet t’ia paraqesë ATK-së të gjithë kuponët e pafiskalizuar. Gjenero paketën e kombinuar nga databaza dhe radha lokale e POS Agent, kontrolloje dhe dorëzoje te ATK.</p>
-            <p className="article44-muted">Afati: {monthlyDue.display}. Eksporti kërkon POS Agent aktiv në këtë pajisje.</p>
+            <p>Sipas Nenit 44(6), nëse lidhja nuk është rivendosur deri më 10 të muajit pasues, tatimpaguesi duhet t’ia paraqesë ATK-së të gjithë kuponët e pafiskalizuar. Gjenero paketën e kombinuar nga databaza dhe radha lokale e enkriptuar e shfletuesit, kontrolloje dhe dorëzoje te ATK.</p>
+            <p className="article44-muted">Afati: {monthlyDue.display}. Eksporti duhet gjeneruar nga i njëjti profil shfletuesi ku është përdorur POS-i.</p>
             <button className="article44-primary" disabled={!!exportingIncidentId || busy} onClick={() => void exportMonthlyUnfiscalized(incident)}>{exportingIncidentId === incident.id ? "Duke përgatitur…" : "Eksporto kuponët e pafiskalizuar"}</button>
             <label>Kanal i dorëzimit<select value={monthlyChannel} onChange={e => setMonthlyChannel(e.target.value)}><option value="electronic">Elektronik</option><option value="in_person">Personalisht në zyrën përkatëse</option></select></label>
             <label>Referenca e pranimit (nëse ka)<input value={monthlyReference} onChange={e => setMonthlyReference(e.target.value)} maxLength={200}/></label>
