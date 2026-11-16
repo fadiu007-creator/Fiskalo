@@ -53,8 +53,8 @@ export type LocalFiscalQueueItem={
   signatureBase64:string|null;
   recoveryDeadlineExceeded:boolean;
 };
-export async function submitLocalTestCoupon(token:string,idempotencyKey:string,coupon:unknown){
-  return call<AtkCouponSubmitResult>("/api/v1/atk/test/coupon",token,{idempotencyKey,coupon});
+export async function submitLocalTestCoupon(token:string,idempotencyKey:string,coupon:unknown,checkoutIdempotencyKey?:string){
+  return call<AtkCouponSubmitResult>("/api/v1/atk/test/coupon",token,{idempotencyKey,coupon,checkoutIdempotencyKey});
 }
 export async function getLocalAgentQueue(token:string){
   return call<{count:number;overdueCount:number;items:LocalFiscalQueueItem[]}>("/api/v1/queue",token);
