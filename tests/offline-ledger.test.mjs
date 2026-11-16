@@ -17,7 +17,7 @@ class MemoryStorage {
 const sale = (overrides = {}) => ({
   idempotencyKey: "8f57c540-5b38-4e1a-b7e1-9f04c14f3d29", businessId: "business-1",
   posId: "pos-1", operatorId: "operator-1", createdAtUtc: "2026-11-15T20:00:00.000Z",
-  paymentMethod: "cash", currency: "EUR", subtotalMinor: 1000, vatTotalMinor: 180, totalMinor: 1180,
+  paymentMethod: "cash", paymentAllocations: [{ method: "cash", amountCents: 1180 }], currency: "EUR", subtotalMinor: 1000, vatTotalMinor: 180, totalMinor: 1180,
   lines: [{ productId: "product-1", description: "Coffee", quantityMilli: 1000,
     unitPriceMinor: 1000, vatRateBasisPoints: 1800, atkUnitCode: "CP",
     atkCategoryCode: "category-1", atkVatCode: "E", lineNetMinor: 1000,
@@ -30,6 +30,19 @@ test("validates immutable offline sale snapshots and integer-cent totals", () =>
   assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkUnitCode: "Cope" }] })), /measurement-unit code/);
   assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkVatCode: "D" }] })), /VAT code\/rate/);
   assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkVatCode: "X" }] })), /VAT code\/rate/);
+});
+test("rejects offline payment allocations that do not reconcile or repeat a tender", () => {
+  assert.throws(() => validateNewOfflineSale(sale({
+    paymentAllocations: [{ method: "cash", amountCents: 1179 }],
+  })), /payment allocations do not reconcile/);
+  assert.throws(() => validateNewOfflineSale(sale({
+    paymentMethod: "mixed",
+    paymentAllocations: [{ method: "cash", amountCents: 500 }, { method: "cash", amountCents: 680 }],
+  })), /method or amount is invalid/);
+  assert.doesNotThrow(() => validateNewOfflineSale(sale({
+    paymentMethod: "mixed",
+    paymentAllocations: [{ method: "cash", amountCents: 500 }, { method: "card", amountCents: 680 }],
+  })));
 });
 test("records once and rejects idempotency-key content reuse", async () => {
   const journal = new OfflineCheckoutJournal(new MemoryStorage(), () => new Date("2026-11-15T20:01:00.000Z"));
