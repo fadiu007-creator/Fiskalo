@@ -22,6 +22,7 @@ const string QueueAttestationPath = "/api/v1/queue/attestation";
 const string QueueReconcilePath = "/api/v1/queue/reconcile";
 const string AtkVerifyPath = "/api/v1/atk/test/verify";
 const string AtkSignCsrPath = "/api/v1/atk/test/sign-csr";
+const string AtkCertificateAttestationPath = "/api/v1/atk/test/certificate-attestation";
 const string AtkCouponPath = "/api/v1/atk/test/coupon";
 const string OfflineReservationsPath = "/api/v1/offline/reservations";
 const string OfflineProvisionPath = "/api/v1/offline/reservations/provision";
@@ -623,6 +624,53 @@ static bool SamePublicKey(ECDsa first, ECDsa second)
 }
 
 
+app.MapPost(AtkCertificateAttestationPath, async (AtkCertificateAttestationRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("ATK certificate attestation requires Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    if (!Guid.TryParse(request.BusinessId, out _) || !Guid.TryParse(request.PosUuid, out _))
+        return Results.BadRequest(new { error = "businessId and posUuid must be UUIDs." });
+    try
+    {
+        var installation = installationStore.Load();
+        if (installation is null || string.IsNullOrWhiteSpace(installation.CertificateThumbprint) ||
+            !File.Exists(certificatePath) || !File.Exists(keyPath))
+            return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+        using var certificate = X509Certificate2.CreateFromPem(await File.ReadAllTextAsync(certificatePath, cancellationToken));
+        using var localKey = keyStore.LoadOrCreate(keyPath);
+        using var certificateKey = certificate.GetECDsaPublicKey();
+        if (certificateKey is null || !SamePublicKey(localKey, certificateKey) ||
+            !string.Equals(certificate.Thumbprint, installation.CertificateThumbprint, StringComparison.OrdinalIgnoreCase) ||
+            DateTime.UtcNow < certificate.NotBefore.ToUniversalTime() || DateTime.UtcNow > certificate.NotAfter.ToUniversalTime())
+            return Results.Conflict(new { error = "certificate_key_mismatch_or_expired" });
+        var attestation = new
+        {
+            version = 1,
+            businessId = request.BusinessId,
+            posUuid = request.PosUuid,
+            businessNui = installation.Nui,
+            branchId = installation.BranchId,
+            posNumber = installation.PosId,
+            applicationId = installation.ApplicationId,
+            certificatePem = certificate.ExportCertificatePem(),
+            certificateThumbprint = certificate.Thumbprint,
+            spkiBase64 = Convert.ToBase64String(certificateKey.ExportSubjectPublicKeyInfo()),
+            issuedAtUtc = DateTimeOffset.UtcNow.ToString("O")
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(attestation, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var signature = localKey.SignData(bytes, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        return Results.Ok(new
+        {
+            attestationPayloadBase64 = Convert.ToBase64String(bytes),
+            attestationSignatureBase64 = Convert.ToBase64String(signature)
+        });
+    }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or FormatException)
+    {
+        return Results.Problem("Unable to attest the ATK certificate from the protected local POS installation.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
 app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context, CancellationToken cancellationToken) => {
     if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
     if (!OperatingSystem.IsWindows()) return Results.Problem("ATK coupon signing and encrypted queue currently require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
@@ -907,6 +955,10 @@ internal sealed record AtkVerifyRequest(
     [property: JsonPropertyName("posId")] ulong PosId,
     [property: JsonPropertyName("branchId")] ulong BranchId,
     [property: JsonPropertyName("applicationId")] ulong ApplicationId);
+
+internal sealed record AtkCertificateAttestationRequest(
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid);
 
 internal sealed record AtkSignCsrRequest(
     [property: JsonPropertyName("businessName")] string BusinessName,
