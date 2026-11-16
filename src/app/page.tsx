@@ -614,6 +614,9 @@ export default function Home(){
       const offlineStorage=new IndexedDbOfflineSaleStorage();
       const offlineJournal=new OfflineCheckoutJournal(offlineStorage);
       const previousOffline=await offlineStorage.get(checkoutIdempotencyKey);
+      const createdAtUtc=previousOffline?.createdAtUtc??new Date().toISOString();
+      const businessDate=previousOffline?.fiscalIdentity?.businessDate??
+        new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(createdAtUtc));
       const snapshotLines=cartLines.map(line=>{
         const netMinor=Math.round(line.product.price*line.quantity*100);
         const vatMinor=Math.round(netMinor*line.product.vat_rate/100);
@@ -632,7 +635,7 @@ export default function Home(){
       const offlineVat=snapshotLines.reduce((sum,line)=>sum+line.lineVatMinor,0);
       await offlineJournal.recordSale({
         idempotencyKey:checkoutIdempotencyKey,businessId:business.id,posId:selectedPos,
-        operatorId:user!.id,createdAtUtc:previousOffline?.createdAtUtc??new Date().toISOString(),
+        operatorId:user!.id,createdAtUtc,
         paymentMethod:payment as "cash"|"card"|"bank_transfer",currency:"EUR",
         subtotalMinor:offlineSubtotal,vatTotalMinor:offlineVat,totalMinor:offlineSubtotal+offlineVat,
         lines:snapshotLines,
@@ -641,14 +644,13 @@ export default function Home(){
           applicationId:Number(pos.application_id),location:pos.location,
           operatorName:operatorName.trim(),operatorIdentifier:operatorIdentifier.trim(),
           posLabel:pos.label,unitNumber:pos.unit_number??"",
-          businessDate:new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date())
+          businessDate
         }
       });
       if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id)throw new Error("Ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk u regjistrua.");
       const agent=await getLocalAgentStatus(agentToken);
       if(!agent.paired||!agent.testCertificateInstalled||!agent.testInstallationVerified)throw new Error("POS Agent nuk është i çiftuar ose certifikata TEST nuk është verifikuar. Shitja nuk u regjistrua.");
       if(!navigator.onLine){
-        const businessDate=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
         const claim=await claimLocalOfflineNumbers(agentToken,{
           checkoutIdempotencyKey,businessId:business.id,posUuid:pos.id,businessDate
         });
@@ -662,7 +664,7 @@ export default function Home(){
           businessId:Number(business.nui),couponId:claim.couponId,dailyNumber:claim.dailyNumber,
           branchId:pos.branch_id,location:pos.location,operatorId:operatorName.trim(),posId:pos.pos_id,
           applicationId:Number(pos.application_id),verificationNo:"",type:1,
-          unixTime:Math.floor(Date.parse(previousOffline?.createdAtUtc??new Date().toISOString())/1000),
+          unixTime:Math.floor(Date.parse(createdAtUtc)/1000),
           items:snapshotLines.map(line=>({name:line.description,unitPriceEuro:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,
             unit:line.atkUnitCode,quantity:line.quantityMilli/1000,lineTotalCents:line.lineTotalMinor,
             taxRate:line.atkVatCode,itemType:line.atkCategoryCode})),
@@ -702,7 +704,7 @@ export default function Home(){
         setReceipt({
           id:"offline:"+checkoutIdempotencyKey,coupon_id:claim.couponId,status:"paid",
           subtotal:offlineSubtotal/100,vat_total:offlineVat/100,total:(offlineSubtotal+offlineVat)/100,
-          payment_method:payment,created_at:previousOffline?.createdAtUtc??new Date().toISOString(),
+          payment_method:payment,created_at:createdAtUtc,
           pos_id:pos.id,operator_id:user!.id,daily_number:claim.dailyNumber,
           items:snapshotLines.map(line=>({description:line.description,quantity:line.quantityMilli/1000,
             unit_price:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,line_net:line.lineNetMinor/100,
