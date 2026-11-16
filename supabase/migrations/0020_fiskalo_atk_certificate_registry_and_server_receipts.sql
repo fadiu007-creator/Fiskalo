@@ -89,7 +89,7 @@ begin
   return v_id;
 end;
 $$;
-revoke all on function public.fiskalo_basic_store_offline_receipt_v2(uuid,uuid,uuid,bigint,text,text,text,text,text,text,bigint,timestamptz,text) from public,anon,authenticated;
+revoke all on function public.fiskalo_basic_store_offline_receipt_v2(uuid,uuid,uuid,uuid,bigint,text,text,text,text,text,text,bigint,timestamptz,text) from public,anon,authenticated;
 grant execute on function public.fiskalo_basic_store_offline_receipt_v2(uuid,uuid,uuid,bigint,text,text,text,text,text,text,bigint,timestamptz,text) to service_role;
 
 -- Edge Function-only writer for an ATK-accepted response. It requires the exact
