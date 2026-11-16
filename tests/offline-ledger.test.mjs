@@ -99,5 +99,6 @@ test("persists one immutable signed offline receipt beside the sale snapshot", a
   const saved = await storage.get(key);
   assert.equal(saved.fiscalReceipt.couponId, 9001);
   assert.equal(saved.fiscalIdentity.businessDate, "2026-11-15");
+  await journal.recordSale(sale({ fiscalIdentity: saved.fiscalIdentity }));
   await assert.rejects(journal.attachFiscalReceipt(key, { ...receipt, couponId: 9002 }), /cannot be rebound/);
 });
