@@ -6,7 +6,7 @@ const saleId="3a9b0d6d-62f0-4e3e-9b24-7bb0e0a1c033";
 function assert(condition:unknown,message:string):asserts condition{if(!condition)throw new Error(message);}
 function b64(bytes:Uint8Array){let raw="";for(const b of bytes)raw+=String.fromCharCode(b);return btoa(raw);}
 function bytes(text:string){return new TextEncoder().encode(text);}
-async function hash(data:Uint8Array){return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",data)),b=>b.toString(16).padStart(2,"0")).join("");}
+async function hash(data:Uint8Array,algorithm:"SHA-256"|"SHA-1"="SHA-256"){return Array.from(new Uint8Array(await crypto.subtle.digest(algorithm,data)),b=>b.toString(16).padStart(2,"0")).join("");}
 function dateOf(timestamp:string){
   const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(timestamp));
   const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));return `${values.year}-${values.month}-${values.day}`;
@@ -20,7 +20,10 @@ async function setup(status:"queued"|"accepted"="queued"){
   const posSignature=bytes("pos-signature");
   const citizenPayload=bytes("signed-citizen-coupon");
   const citizenSignature=bytes("citizen-signature");
-  const qr=bytes("<svg xmlns='http://www.w3.org/2000/svg'/>");
+  const qr=bytes("<svg/>");
+  const certificateDer=bytes("test-registered-certificate");
+  const certificatePem="-----BEGIN CERTIFICATE-----\\n"+b64(certificateDer)+"\\n-----END CERTIFICATE-----";
+  const certificateThumbprint=(await hash(certificateDer,"SHA-1")).toUpperCase();
   const offlineIssued=status==="queued"?new Date(now.getTime()-10*60_000).toISOString():null;
   const payload={
     version:1,businessId,posUuid,businessNui:123456789,branchId:1,posNumber:2,applicationId:3,
@@ -32,7 +35,7 @@ async function setup(status:"queued"|"accepted"="queued"){
     atkResponseMessage:status==="accepted"?"Accepted by ATK TEST":null,
     nuiKf:"0123456789ABCDEF",verificationNo:"0123456789ABCDEF",
     citizenPayloadBase64:b64(citizenPayload),citizenSignatureBase64:b64(citizenSignature),
-    dailyNumber:42,offlineIssuedAtUtc:offlineIssued,qrSvgBase64:b64(qr),certificateThumbprint:"A1B2C3D4E5F6",
+    dailyNumber:42,offlineIssuedAtUtc:offlineIssued,qrSvgBase64:b64(qr),certificateThumbprint,
   };
   const payloadBytes=bytes(JSON.stringify(payload));
   const attestationSignature=new Uint8Array(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},keyPair.privateKey,payloadBytes));
@@ -42,7 +45,7 @@ async function setup(status:"queued"|"accepted"="queued"){
     isMember:async()=>true,
     getBusiness:async()=>({nui:"123456789"}),
     getPos:async()=>({id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"certificate_issued"}),
-    getCertificate:async()=>({applicationId:3,spkiSha256:await hash(spki),status:"active",revokedAt:null}),
+    getCertificate:async()=>({applicationId:3,spkiSha256:await hash(spki),certificatePem,status:"active",revokedAt:null}),
     getSale:async()=>({id:saleId,businessId,posId:posUuid,couponId:9001,status:"paid",dailyNumber:42,createdAt}),
     queueReceipt:async args=>{queued=args;return "doc-queued";},
     recordReceipt:async args=>{recorded=args;return "doc-accepted";},
