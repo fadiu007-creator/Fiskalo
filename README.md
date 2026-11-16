@@ -12,6 +12,7 @@ The Full application UI is not yet integrated into `main`. A substantial Full/Ba
 
 - Owner and cashier access, business and POS setup.
 - Basic product catalogue, checkout, stock deduction and sale history.
+- Official ATK unit, VAT and item-category dropdowns; all 53 published category rows (52 unique codes, with the duplicated PM code labels combined) and a matching database category constraint.
 - Online and local-first offline checkout using the paired Windows POS Agent.
 - Mixed-tender payments: cash, card, bank transfer, voucher, cheque and cryptocurrency, with integer-cent reconciliation and idempotent online/offline writes.
 - ATK TEST Sale submission when the POS, certificate and local Agent are correctly paired.
@@ -38,6 +39,7 @@ The following new migrations have also been applied to the live project and thei
 - `0030_fiskalo_article44_scope_and_offline_payment_integrity.sql` — limits Article 44 exports to eligible internet interruptions and hardens offline payment retry checks.
 - `0031_fiskalo_article44_deadline_boundary.sql` — fixes the exact midnight boundary after the 10th day.
 - `0032_fiskalo_article44_monthly_export_proof_guard.sql` — enforces both the JSON/CSV export and actual ATK filing proof at the database boundary.
+- `0033_fiskalo_basic_complete_atk_item_categories.sql` — expands the product category constraint to all 52 unique 2026 ATK codes.
 
 Temporary, rolled-back Supabase integration checks exercised online and offline split tender, idempotent retries, rejection of changed payment allocations, Article 44 incident creation, export authorization, deadline enforcement and evidence requirements. No test business or sale records were retained.
 
@@ -45,7 +47,7 @@ The repository's older numbered migration files do not all share the timestamp/v
 
 ## Remaining release gates
 
-- Official ATK unit/category dropdown catalogue with current source/version evidence.
+- Confirm the unit, VAT and category catalogues against every subsequent ATK publication and run representative product/coupon scenarios in the official ATK TEST environment.
 - Cancellation and return POS screens, with end-to-end ATK TEST correction/return scenarios.
 - Full application UI restoration and a safe selectable Full/Basic launcher.
 - Server-signed connectivity heartbeat so outage start and the 48-hour clock are independently verifiable; the Article 44 page currently records the owner-reported start time.
