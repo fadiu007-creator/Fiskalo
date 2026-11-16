@@ -4,9 +4,10 @@ using Fiskalo.PosAgent.Core.Queue;
 namespace Fiskalo.PosAgent.Core.Atk;
 
 /// <summary>
-/// Tracks ATK reachability. The last successful probe is used as a conservative
-/// lower bound for the outage start so probe latency/interval cannot extend the
-/// statutory 48-hour transmission window.
+/// Tracks ATK endpoint reachability for local queue retry/escalation. The last
+/// successful probe is used as a conservative device-clock estimate of when ATK
+/// became unreachable. This is not a server-signed timestamp and must not be used
+/// as proof of an Article 44 internet outage or its statutory notification deadline.
 /// </summary>
 public sealed class FiscalConnectivityMonitor
 {
