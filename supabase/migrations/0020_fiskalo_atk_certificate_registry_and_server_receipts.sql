@@ -178,3 +178,40 @@ end;
 $$;
 revoke all on function public.fiskalo_basic_server_record_atk_receipt_v2(uuid,uuid,uuid,uuid,bigint,text,text,text,numeric,jsonb,text,text,text,text,bigint,timestamptz,text) from public,anon,authenticated;
 grant execute on function public.fiskalo_basic_server_record_atk_receipt_v2(uuid,uuid,uuid,uuid,bigint,text,text,text,numeric,jsonb,text,text,text,text,bigint,timestamptz,text) to service_role;
+
+-- Certificate registration is performed only after the Edge Function validates a
+-- signature produced by the local POS Agent using the certificate private key.
+create or replace function public.fiskalo_basic_register_pos_certificate_v1(
+  p_actor_id uuid,p_business_id uuid,p_pos_id uuid,p_application_id bigint,
+  p_certificate_pem text,p_certificate_thumbprint text,p_spki_sha256 text
+) returns uuid language plpgsql security definer set search_path='' as $$
+declare v_id uuid;
+begin
+  if p_actor_id is null or not exists(select 1 from public.fiskalo_basic_members m
+    where m.business_id=p_business_id and m.user_id=p_actor_id and m.role='owner') then
+    raise exception 'Business owner access required to register an ATK certificate';
+  end if;
+  if p_application_id is null or p_application_id<=0 or
+     char_length(coalesce(p_certificate_pem,'')) not between 100 and 20000 or
+     coalesce(p_certificate_thumbprint,'') !~ '^[A-Fa-f0-9]{40}$' or
+     coalesce(p_spki_sha256,'') !~ '^[A-Fa-f0-9]{64}$' then
+    raise exception 'ATK certificate registration fields are invalid';
+  end if;
+  if not exists(select 1 from public.fiskalo_basic_pos p
+    where p.id=p_pos_id and p.business_id=p_business_id
+      and p.application_id::bigint=p_application_id and p.certificate_status in ('verified','certificate_issued')) then
+    raise exception 'POS identity or ATK application does not match the registered business POS';
+  end if;
+  update public.fiskalo_basic_pos_certificates
+    set status='revoked',revoked_at=now()
+    where business_id=p_business_id and pos_id=p_pos_id and status='active';
+  insert into public.fiskalo_basic_pos_certificates(
+    business_id,pos_id,application_id,certificate_pem,certificate_thumbprint,spki_sha256,status
+  ) values(
+    p_business_id,p_pos_id,p_application_id,p_certificate_pem,upper(p_certificate_thumbprint),lower(p_spki_sha256),'active'
+  ) returning id into v_id;
+  return v_id;
+end;
+$$;
+revoke all on function public.fiskalo_basic_register_pos_certificate_v1(uuid,uuid,uuid,bigint,text,text,text) from public,anon,authenticated;
+grant execute on function public.fiskalo_basic_register_pos_certificate_v1(uuid,uuid,uuid,bigint,text,text,text) to service_role;
