@@ -254,7 +254,10 @@ export default function Home(){
         const pending=records.filter(r=>r.businessId===business.id&&r.fiscalReceipt&&r.fiscalIdentity)
           .sort((a,b)=>b.createdAtUtc.localeCompare(a.createdAtUtc))[0];
         if(!active||!pending||!pending.fiscalReceipt||!pending.fiscalIdentity)return;
-        const r=pending,identity=r.fiscalIdentity,fiscal=r.fiscalReceipt;
+        const r=pending;
+        const identity=r.fiscalIdentity;
+        const fiscal=r.fiscalReceipt;
+        if(!identity||!fiscal)return;
         const record:SaleRecord={
           id:"offline:"+r.idempotencyKey,coupon_id:fiscal.couponId,status:"paid",
           subtotal:r.subtotalMinor/100,vat_total:r.vatTotalMinor/100,total:r.totalMinor/100,
