@@ -82,6 +82,10 @@ public sealed class OfflineNumberReservationStore
                 state.BranchId != branchId || state.PosId != posId || state.ApplicationId != applicationId)
                 throw new InvalidOperationException("Offline reservations do not belong to the selected business and POS.");
             if (state.Claims.TryGetValue(checkoutIdempotencyKey, out var existing)) return existing;
+            var localDate = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow,
+                TimeZoneInfo.FindSystemTimeZoneById("Europe/Belgrade")).ToString("yyyy-MM-dd");
+            if (!string.Equals(businessDate, localDate, StringComparison.Ordinal))
+                throw new InvalidOperationException("A new offline checkout must use the current Kosovo business date.");
             if (state.AvailableCouponIds.Count == 0)
                 throw new InvalidOperationException("No reserved offline coupon IDs remain. Reconnect and replenish offline capacity.");
             var poolIndex = state.DailyPools.FindIndex(p => p.BusinessDate == businessDate && p.NextNumber <= p.LastNumber);
