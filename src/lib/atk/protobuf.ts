@@ -213,3 +213,51 @@ export function encodeAtkBase64(bytes: Uint8Array): string {
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
 }
+
+export type AtkCitizenCouponInput = {
+  businessId: string | number | bigint;
+  couponId: string | number | bigint;
+  branchId: string | number | bigint;
+  posId: string | number | bigint;
+  verificationNo: string;
+  type: 1 | 2 | 3;
+  unixTime: number;
+  totalCents: number;
+  taxGroups: AtkTaxGroupInput[];
+  totalTaxCents: number;
+  totalNoTaxCents: number;
+};
+
+/** Serializes the CitizenCoupon embedded in the signed citizen QR payload. */
+export function encodeAtkCitizenCoupon(input: AtkCitizenCouponInput): Uint8Array {
+  if (![input.businessId, input.couponId, input.branchId, input.posId].every(v => BigInt(v) > BigInt(0))) {
+    throw new Error("ATK CitizenCoupon business, coupon, branch and POS IDs are required.");
+  }
+  if (!input.verificationNo || input.verificationNo.length > 16) {
+    throw new Error("ATK CitizenCoupon verification number must contain 1 to 16 characters.");
+  }
+  if (![1, 2, 3].includes(input.type)) throw new Error("ATK CitizenCoupon type must be Sale, Cancel or Return.");
+  if (!Number.isSafeInteger(input.unixTime) || input.unixTime <= 0) throw new Error("ATK CitizenCoupon timestamp is invalid.");
+  if (!input.taxGroups.length) throw new Error("ATK CitizenCoupon requires at least one tax group.");
+  const total = cents(input.totalCents, "ATK CitizenCoupon total");
+  const totalTax = cents(input.totalTaxCents, "ATK CitizenCoupon tax total");
+  const totalNet = cents(input.totalNoTaxCents, "ATK CitizenCoupon net total");
+  const taxBase = input.taxGroups.reduce((sum, group) => sum + cents(group.totalForTaxCents, "ATK CitizenCoupon tax base"), 0);
+  const taxValue = input.taxGroups.reduce((sum, group) => sum + cents(group.totalTaxCents, "ATK CitizenCoupon tax amount"), 0);
+  if (totalNet + totalTax !== total || taxBase !== totalNet || taxValue !== totalTax) {
+    throw new Error("ATK CitizenCoupon totals and tax groups do not reconcile.");
+  }
+  return concat([
+    uintField(1, input.businessId),
+    uintField(2, input.couponId),
+    uintField(3, input.branchId),
+    uintField(4, input.posId),
+    stringField(5, input.verificationNo),
+    intField(6, input.type),
+    intField(7, input.unixTime),
+    intField(8, total),
+    ...input.taxGroups.map(group => messageField(9, encodeTaxGroup(group))),
+    intField(10, totalTax),
+    intField(11, totalNet),
+  ]);
+}
