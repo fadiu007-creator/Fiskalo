@@ -857,8 +857,9 @@ if (OperatingSystem.IsWindows())
 
 if (OperatingSystem.IsWindows())
 {
-    // Connectivity is probed independently of sales so Article 44's 48-hour
-    // recovery clock starts when the ATK connection first becomes unavailable.
+    // Probe ATK reachability independently of sales so queued coupons are retried
+    // promptly. This device-clock operational timer is not Article 44's legal
+    // internet-outage start time or a server-verified 48-hour notification clock.
     app.Lifetime.ApplicationStarted.Register(() =>
     {
         _ = Task.Run(async () =>
