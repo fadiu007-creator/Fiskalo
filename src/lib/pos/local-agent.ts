@@ -90,3 +90,13 @@ export async function claimLocalOfflineNumbers(token:string,input:{
   return call<{couponId:number;dailyNumber:number;businessDate:string}>(
     "/api/v1/offline/reservations/claim",token,input);
 }
+
+export type LocalFiscalAttestation={
+  attestationPayloadBase64:string;attestationSignatureBase64:string;
+  publicKeySpkiBase64:string;certificateThumbprint:string;
+};
+export async function getLocalFiscalAttestation(token:string,input:{
+  idempotencyKey:string;businessId:string;posUuid:string;
+}){
+  return call<LocalFiscalAttestation>("/api/v1/queue/attestation",token,input);
+}
