@@ -853,7 +853,7 @@ export default function Home(){
         await offlineJournal.markFiscalAccepted(checkoutIdempotencyKey,{
           status:"accepted",environment:"ATK TEST",transactionId:attestation.transactionId||""
         });
-        setReceipt(current=>current?{...current,submission_state:"accepted",transaction_id:attestation.transactionId}:current);
+        setReceipt(current=>current?{...current,submission_state:"accepted",transaction_id:attestation.transactionId??null}:current);
       }
       if(attestation.status==="accepted"){
         setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId);
