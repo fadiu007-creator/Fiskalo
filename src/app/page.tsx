@@ -520,7 +520,7 @@ export default function Home(){
     const payload={name:productName.trim(),price:Number(productPrice),vat_rate:getAtkVatRate(vatCode),
       atk_vat_code:vatCode,atk_unit_code:normalizeAtkUnitCode(unitCode)??"",atk_item_category_code:categoryCode.trim()};
     if(!payload.name||!Number.isFinite(payload.price)||payload.price<0||!Number.isFinite(Number(productStock))||Number(productStock)<0||
-       !isAtkUnitCode(payload.atk_unit_code)||!payload.atk_item_category_code||
+       !isAtkUnitCode(payload.atk_unit_code)||!isAtkItemCategoryCode(payload.atk_item_category_code)||
        !isValidAtkVatClassification(payload.atk_vat_code,payload.vat_rate)){setMessage("Plotëso emrin, çmimin, stokun dhe kodet fiskale me një klasifikim të vlefshëm ATK.");return;}
     setBusy(true);setMessage("");
     try{
