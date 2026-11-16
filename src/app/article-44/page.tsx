@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { getLocalAgentQueue } from "@/lib/pos/local-agent";
+import { listFiscalOutboxItems } from "@/lib/pos/browser-outbox";
 
 type Business = { id: string; name: string; nui: string };
 type Pos = { id: string; label: string; location: string; branch_id: number; pos_id: number };
@@ -226,21 +226,39 @@ export default function Article44Page() {
         p_authority_request_reference: reference, p_limit: 5000
       });
       if (error) throw error;
-      const token = localStorage.getItem("fiskalo.posAgentToken");
-      if (!token) throw new Error("Lidh POS Agent në këtë pajisje. Eksporti duhet të përfshijë edhe radhën lokale të kuponëve.");
-      const queue = await getLocalAgentQueue(token);
-      const prefix = business.nui + ":" + pos.branch_id + ":" + pos.pos_id + ":";
-      const localItems = queue.items.filter(item => {
+      const outbox = await listFiscalOutboxItems(incident.business_id);
+      const localItems = outbox.filter(item => {
         const issued = item.offlineIssuedAtUtc ? Date.parse(item.offlineIssuedAtUtc) : NaN;
-        return item.idempotencyKey.startsWith(prefix) && Number.isFinite(issued) &&
+        return item.posRecordId === incident.pos_id && Number.isFinite(issued) &&
           issued >= Date.parse(incident.outage_started_at) && issued < Date.parse(to) &&
-          item.status.toLowerCase() !== "accepted";
-      });
+          item.state !== "accepted";
+      }).map(item => ({
+        idempotency_key: item.idempotencyKey,
+        document_type: item.documentType,
+        coupon_id: item.couponId,
+        original_coupon_id: item.originalCouponId ?? null,
+        original_transaction_id: item.originalTransactionId ?? null,
+        issued_at_utc: item.issuedAtUtc,
+        offline_issued_at_utc: item.offlineIssuedAtUtc,
+        recovery_deadline_utc: item.recoveryDeadlineUtc,
+        status: item.state,
+        atk_transaction_id: item.transactionId,
+        daily_number: item.dailyNumber,
+        nui_kf: item.nuiKf,
+        verification_no: item.verificationNo,
+        signed_payload_base64: item.detailsBase64,
+        signature_base64: item.signatureBase64,
+        citizen_payload_base64: item.citizenPayloadBase64,
+        citizen_signature_base64: item.citizenSignatureBase64,
+        citizen_qr_payload: item.citizenQrPayload,
+        qr_svg_base64: item.qrSvg,
+        last_error: item.lastError
+      }));
       if ((data as {truncated?:boolean})?.truncated) {
         throw new Error("Eksporti i databazës kalon kufirin 5,000 dokumente. Kërko ndarje të eksportit në periudha më të shkurtra përpara dorëzimit.");
       }
       const allServerDocuments = (data as {documents?:Array<{coupon_id?:string}>})?.documents ?? [];
-      const localCouponIds = new Set(localItems.map(item => item.idempotencyKey.split(":").at(-1)));
+      const localCouponIds = new Set(localItems.map(item => String(item.coupon_id)));
       const serverDocuments = allServerDocuments.filter(doc => !localCouponIds.has(String(doc.coupon_id)));
       const bundle = {
         format: "Fiskalo Article 44(6) un-fiscalized coupon export v1",
@@ -250,15 +268,15 @@ export default function Article44Page() {
         pos: { id: pos.id, label: pos.label, branch_id: pos.branch_id, pos_number: pos.pos_id },
         period: { from_utc: incident.outage_started_at, to_utc_exclusive: to },
         database_export: { ...data, documents: serverDocuments, count: serverDocuments.length, duplicates_replaced_by_local_agent: allServerDocuments.length - serverDocuments.length },
-        local_pos_agent_unaccepted_coupons: localItems,
+        local_browser_outbox_unaccepted_coupons: localItems,
         totals: {
           database_unaccepted_documents: serverDocuments.length,
-          local_agent_unaccepted_documents: localItems.length,
+          local_browser_outbox_unaccepted_documents: localItems.length,
           database_export_truncated: Boolean((data as {truncated?:boolean})?.truncated),
-          local_agent_queue_overdue: queue.overdueCount
+          local_browser_outbox_overdue: localItems.filter(item => Date.parse(item.recovery_deadline_utc) < Date.now()).length
         },
         notes: [
-          "The export combines server-synchronized fiscal documents and the local POS Agent queue.",
+          "The export combines server-synchronized fiscal documents and the encrypted browser-local fiscal outbox. Run this export in the same browser profile used by the affected POS.",
           "Review the export against every POS before submitting it to ATK.",
           "Downloading this file does not submit it to ATK."
         ]
