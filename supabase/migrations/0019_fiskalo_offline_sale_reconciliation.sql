@@ -301,3 +301,179 @@ create or replace function public.fiskalo_basic_sync_offline_sale(
 $$;
 revoke all on function public.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamptz) from public,anon;
 grant execute on function public.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamptz) to authenticated;
+
+
+-- Trusted ATK TEST certificate registry and accepted-receipt server writer.
+-- These objects were already present in the connected Supabase project; keeping
+-- their baseline here makes a fresh database reproducible from repository SQL.
+alter table public.fiskalo_basic_fiscal_documents
+  add column if not exists attempt_count integer not null default 0,
+  add column if not exists next_attempt_at timestamptz,
+  add column if not exists last_attempt_at timestamptz,
+  add column if not exists last_error text,
+  add column if not exists recovery_deadline_at timestamptz,
+  add column if not exists offline_issued_at timestamptz;
+
+create index if not exists fiskalo_basic_fiscal_documents_delivery_idx
+  on public.fiskalo_basic_fiscal_documents(submission_state,next_attempt_at)
+  where submission_state in ('queued','submitting');
+
+create table if not exists public.fiskalo_basic_pos_certificates (
+  id uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.fiskalo_basic_businesses(id) on delete cascade,
+  pos_id uuid not null references public.fiskalo_basic_pos(id) on delete cascade,
+  application_id bigint not null check (application_id>0),
+  certificate_pem text not null check (length(certificate_pem) between 64 and 16384),
+  spki_sha256 text not null check (spki_sha256 ~ '^[a-f0-9]{64}$'),
+  status text not null default 'active' check (status in ('active','superseded','revoked')),
+  issued_at timestamptz not null default now(),
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check ((status='active' and revoked_at is null) or status<>'active')
+);
+create unique index if not exists fiskalo_basic_one_active_certificate_per_pos
+  on public.fiskalo_basic_pos_certificates(pos_id) where status='active';
+create index if not exists fiskalo_basic_pos_certificates_lookup_idx
+  on public.fiskalo_basic_pos_certificates(business_id,pos_id,application_id,issued_at desc);
+alter table public.fiskalo_basic_pos_certificates enable row level security;
+revoke all on public.fiskalo_basic_pos_certificates from public,anon,authenticated;
+grant select,insert,update,delete on public.fiskalo_basic_pos_certificates to service_role;
+
+create or replace function public.fiskalo_basic_server_record_atk_receipt(
+  p_actor_id uuid,p_business_id uuid,p_sale_id uuid,p_pos_record_id uuid,p_coupon_id bigint,
+  p_idempotency_key text,p_signed_payload text,p_signature text,p_atk_transaction_id numeric,
+  p_atk_response jsonb,p_nui_kf text,p_citizen_payload text,p_citizen_signature text,
+  p_daily_number bigint,p_offline_issued_at timestamptz,p_qr_svg_base64 text
+) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare
+  v_sale public.fiskalo_basic_sales%rowtype;
+  v_existing public.fiskalo_basic_fiscal_documents%rowtype;
+  v_id uuid;
+begin
+  if p_actor_id is null or p_business_id is null or p_sale_id is null or p_pos_record_id is null then
+    raise exception 'Authenticated actor, business, sale and POS are required';
+  end if;
+  if not exists(select 1 from public.fiskalo_basic_members m
+    where m.business_id=p_business_id and m.user_id=p_actor_id) then
+    raise exception 'Actor is not a member of this business';
+  end if;
+  select s.* into v_sale
+  from public.fiskalo_basic_sales s
+  join public.fiskalo_basic_pos p on p.id=s.pos_id and p.business_id=s.business_id
+  where s.id=p_sale_id and s.business_id=p_business_id
+    and s.pos_id=p_pos_record_id and s.coupon_id=p_coupon_id;
+  if not found or v_sale.status not in ('paid','fiscalized') then
+    raise exception 'Sale, POS and coupon identity do not match';
+  end if;
+  if p_atk_transaction_id is null or p_atk_transaction_id<=0
+     or p_atk_transaction_id>18446744073709551615 then
+    raise exception 'A valid ATK uint64 transaction_id is required';
+  end if;
+  if p_atk_response is null
+     or coalesce(p_atk_response->>'status','')<>'accepted'
+     or coalesce(p_atk_response->>'transactionId','')<>p_atk_transaction_id::text
+     or coalesce(p_atk_response->>'environment','')<>'ATK TEST' then
+    raise exception 'Trusted ATK TEST response does not match the transaction ID';
+  end if;
+  if coalesce(p_idempotency_key,'')='' or coalesce(p_signed_payload,'')=''
+     or coalesce(p_signature,'')='' or coalesce(p_citizen_payload,'')=''
+     or coalesce(p_citizen_signature,'')='' then
+    raise exception 'Signed POS and CitizenCoupon payloads are required';
+  end if;
+  if coalesce(p_nui_kf,'') !~ '^[A-Z0-9]{16}$'
+     or p_daily_number is null or p_daily_number<=0 then
+    raise exception 'NUIKF or daily coupon number is invalid';
+  end if;
+  if p_qr_svg_base64 is null or length(p_qr_svg_base64)>1500000 then
+    raise exception 'A valid persisted CitizenCoupon QR SVG is required';
+  end if;
+
+  select * into v_existing from public.fiskalo_basic_fiscal_documents d
+    where d.idempotency_key=p_idempotency_key for update;
+  if found then
+    if v_existing.business_id<>p_business_id or v_existing.sale_id<>p_sale_id
+       or v_existing.coupon_id<>p_coupon_id or v_existing.document_type<>1
+       or v_existing.signed_payload<>p_signed_payload or v_existing.signature<>p_signature
+       or v_existing.nui_kf<>p_nui_kf or v_existing.citizen_payload<>p_citizen_payload
+       or v_existing.citizen_signature<>p_citizen_signature
+       or v_existing.daily_number<>p_daily_number then
+      raise exception 'Idempotency key already exists with different fiscal document data';
+    end if;
+    if v_existing.submission_state='accepted'
+       and v_existing.atk_transaction_id<>p_atk_transaction_id then
+      raise exception 'Accepted fiscal document cannot be assigned a different ATK transaction';
+    end if;
+    update public.fiskalo_basic_fiscal_documents
+      set atk_transaction_id=p_atk_transaction_id,
+          submission_state='accepted',atk_response=p_atk_response,
+          qr_svg_base64=p_qr_svg_base64,
+          offline_issued_at=coalesce(offline_issued_at,p_offline_issued_at),
+          recovery_deadline_at=coalesce(recovery_deadline_at,
+            case when p_offline_issued_at is null then null else p_offline_issued_at+interval '48 hours' end)
+      where id=v_existing.id returning id into v_id;
+  else
+    insert into public.fiskalo_basic_fiscal_documents(
+      business_id,sale_id,coupon_id,idempotency_key,document_type,
+      signed_payload,signature,atk_transaction_id,submission_state,atk_response,
+      nui_kf,citizen_payload,citizen_signature,daily_number,qr_svg_base64,
+      offline_issued_at,recovery_deadline_at
+    ) values(
+      p_business_id,p_sale_id,p_coupon_id,p_idempotency_key,1,
+      p_signed_payload,p_signature,p_atk_transaction_id,'accepted',p_atk_response,
+      p_nui_kf,p_citizen_payload,p_citizen_signature,p_daily_number,p_qr_svg_base64,
+      p_offline_issued_at,
+      case when p_offline_issued_at is null then null else p_offline_issued_at+interval '48 hours' end
+    ) returning id into v_id;
+  end if;
+  update public.fiskalo_basic_sales set status='fiscalized'
+    where id=p_sale_id and business_id=p_business_id and status='paid';
+  return v_id;
+end;
+$$;
+revoke all on function public.fiskalo_basic_server_record_atk_receipt(
+  uuid,uuid,uuid,uuid,bigint,text,text,text,numeric,jsonb,text,text,text,bigint,timestamptz,text
+) from public,anon,authenticated;
+grant execute on function public.fiskalo_basic_server_record_atk_receipt(
+  uuid,uuid,uuid,uuid,bigint,text,text,text,numeric,jsonb,text,text,text,bigint,timestamptz,text
+) to service_role;
+
+create or replace function public.fiskalo_basic_server_register_pos_certificate_v1(
+  p_business_id uuid,p_pos_record_id uuid,p_application_id bigint,
+  p_certificate_pem text,p_spki_sha256 text,p_verified_business_name text
+) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare certificate_id uuid:=gen_random_uuid();
+begin
+  if p_business_id is null or p_pos_record_id is null or p_application_id is null or p_application_id<=0 or
+     coalesce(p_certificate_pem,'') !~ '-----BEGIN CERTIFICATE-----' or length(p_certificate_pem)>16384 or
+     coalesce(p_spki_sha256,'') !~ '^[a-f0-9]{64}$' or
+     length(trim(coalesce(p_verified_business_name,'')))<2 then
+    raise exception 'ATK Basic certificate registration input is invalid';
+  end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_pos_record_id::text,0));
+  if not exists(select 1 from public.fiskalo_basic_pos p
+    where p.id=p_pos_record_id and p.business_id=p_business_id
+      and p.application_id ~ '^[0-9]+$' and p.application_id::bigint=p_application_id
+      and p.certificate_status='verified') then
+    raise exception 'ATK Application ID is not verified for this Basic POS';
+  end if;
+  update public.fiskalo_basic_pos_certificates set status='superseded',updated_at=now()
+    where business_id=p_business_id and pos_id=p_pos_record_id and status='active' and revoked_at is null;
+  insert into public.fiskalo_basic_pos_certificates(
+    id,business_id,pos_id,application_id,certificate_pem,spki_sha256,status,issued_at,revoked_at,updated_at
+  ) values(
+    certificate_id,p_business_id,p_pos_record_id,p_application_id,p_certificate_pem,p_spki_sha256,
+    'active',now(),null,now()
+  );
+  update public.fiskalo_basic_pos set certificate_status='certificate_issued',
+    verified_business_name=trim(p_verified_business_name)
+    where id=p_pos_record_id and business_id=p_business_id;
+  return certificate_id;
+end;
+$$;
+revoke all on function public.fiskalo_basic_server_register_pos_certificate_v1(uuid,uuid,bigint,text,text,text)
+  from public,anon,authenticated;
+grant execute on function public.fiskalo_basic_server_register_pos_certificate_v1(uuid,uuid,bigint,text,text,text)
+  to service_role;
