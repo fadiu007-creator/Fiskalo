@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient, getSupabasePublicConfig } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
-import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, getLocalAtkCertificateAttestation, submitLocalTestCoupon, getLocalAgentQueue, getLocalFiscalAttestation, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, getLocalAtkCertificateAttestation, submitLocalTestCoupon, getLocalAgentQueue, getLocalFiscalAttestation, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, getLocalOfflineReservationSummary, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { OfflineCheckoutJournal, IndexedDbOfflineSaleStorage } from "@/lib/pos/offline-ledger";
