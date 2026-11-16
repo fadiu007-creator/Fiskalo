@@ -206,9 +206,12 @@ export default function Article44Page() {
           issued >= Date.parse(incident.outage_started_at) && issued < Date.parse(to) &&
           item.status.toLowerCase() !== "accepted";
       });
+      if ((data as {truncated?:boolean})?.truncated) {
+        throw new Error("Eksporti i databazës kalon kufirin 5,000 dokumente. Kërko ndarje të eksportit në periudha më të shkurtra përpara dorëzimit.");
+      }
+      const allServerDocuments = (data as {documents?:Array<{coupon_id?:string}>})?.documents ?? [];
       const localCouponIds = new Set(localItems.map(item => item.idempotencyKey.split(":").at(-1)));
-      const serverDocuments = ((data as {documents?:Array<{coupon_id?:string}>})?.documents ?? [])
-        .filter(doc => !localCouponIds.has(String(doc.coupon_id)));
+      const serverDocuments = allServerDocuments.filter(doc => !localCouponIds.has(String(doc.coupon_id)));
       const bundle = {
         format: "Fiskalo Article 44(6) un-fiscalized coupon export v1",
         legal_reference: "Administrative Instruction MFPT No. 01/2026, Article 44(6)",
@@ -216,7 +219,7 @@ export default function Article44Page() {
         business: { name: business.name, nui: business.nui },
         pos: { id: pos.id, label: pos.label, branch_id: pos.branch_id, pos_number: pos.pos_id },
         period: { from_utc: incident.outage_started_at, to_utc_exclusive: to },
-        database_export: { ...data, documents: serverDocuments },
+        database_export: { ...data, documents: serverDocuments, count: serverDocuments.length, duplicates_replaced_by_local_agent: allServerDocuments.length - serverDocuments.length },
         local_pos_agent_unaccepted_coupons: localItems,
         totals: {
           database_unaccepted_documents: serverDocuments.length,
@@ -324,7 +327,6 @@ export default function Article44Page() {
       {!incidents.length && <p className="article44-muted">Nuk ka incidente të regjistruara për këtë biznes.</p>}
       {incidents.map(incident => {
         const due = deadline(incident.outage_started_at);
-        const remaining = due.getTime() - Date.now();
         const effectiveEnd = incident.restored_at ? Date.parse(incident.restored_at) : Date.now();
         const requiresNotice = eligible(incident.cause) && effectiveEnd >= due.getTime() && !incident.notice_submitted_at;
         const monthlyDue = monthlySubmissionDeadline(incident.outage_started_at);
