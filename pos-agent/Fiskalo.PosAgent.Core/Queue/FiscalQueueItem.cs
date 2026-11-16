@@ -28,7 +28,10 @@ public sealed record FiscalQueueItem
     public string? CitizenPayloadBase64 { get; init; }
     public string? CitizenSignatureBase64 { get; init; }
     public long? DailyNumber { get; init; }
+    /// <summary>The signed coupon's actual issuance time; never the start of an internet outage.</summary>
     public DateTimeOffset? OfflineIssuedAtUtc { get; init; }
+    /// <summary>Local operational estimate of the connectivity outage start. Not legal proof without a trusted time anchor.</summary>
+    public DateTimeOffset? OutageStartedAtUtc { get; init; }
     public string? BusinessUuid { get; init; }
     public string? PosUuid { get; init; }
     public string? BusinessDate { get; init; }
