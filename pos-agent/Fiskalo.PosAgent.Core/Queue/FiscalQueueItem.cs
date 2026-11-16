@@ -29,4 +29,17 @@ public sealed record FiscalQueueItem
     public string? CitizenSignatureBase64 { get; init; }
     public long? DailyNumber { get; init; }
     public DateTimeOffset? OfflineIssuedAtUtc { get; init; }
+    public string? BusinessUuid { get; init; }
+    public string? PosUuid { get; init; }
+    public string? BusinessDate { get; init; }
+    public string? CheckoutIdempotencyKey { get; init; }
+    public ulong? CouponId { get; init; }
+    public ulong? BusinessNui { get; init; }
+    public ulong? BranchId { get; init; }
+    public ulong? PosNumber { get; init; }
+    public ulong? ApplicationId { get; init; }
+    public string? VerificationNo { get; init; }
+    public string? QrSvgBase64 { get; init; }
+    public string? CertificateThumbprint { get; init; }
+    public string? AtkResponseMessage { get; init; }
 }
