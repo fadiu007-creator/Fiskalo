@@ -282,9 +282,7 @@ export default function Home(){
       const identity=record.fiscalIdentity,receipt=record.fiscalReceipt;
       if(!identity||!receipt)continue;
       try{
-        const lines=record.lines.map(line=>({
-          product_id:line.productId,quantity:line.quantityMilli/1000
-        }));
+        const lines=record.lines.map(line=>({product_id:line.productId,quantity:line.quantityMilli/1000}));
         const expectedSnapshot=record.lines.map(line=>({
           product_id:line.productId,quantity:line.quantityMilli/1000,description:line.description,
           unit_price:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,
@@ -301,28 +299,56 @@ export default function Home(){
           p_expected_snapshot:expectedSnapshot,p_created_at:record.createdAtUtc
         });
         if(saleSyncError)throw saleSyncError;
-        const localQueue=await getLocalAgentQueue(agentToken);
-        const queueItem=localQueue.items.find(item=>item.idempotencyKey===receipt.fiscalIdempotencyKey);
-        if(!queueItem||!["queued","accepted"].includes(queueItem.status.toLowerCase()))
-          throw new Error("POS Agent has no safely queued or ATK-accepted copy of this signed offline coupon.");
-        const action=queueItem.status.toLowerCase()==="accepted"?"accepted":"queue";
-        const attestation=await getLocalFiscalAttestation(agentToken,{
-          idempotencyKey:receipt.fiscalIdempotencyKey,businessId:record.businessId,posUuid:record.posId
-        });
-        const {error:attestationError}=await supabase.functions.invoke("fiskalo-basic-atk-receipts",{
-          body:{action,businessId:record.businessId,posUuid:record.posId,saleId,
-            couponId:receipt.couponId,idempotencyKey:receipt.fiscalIdempotencyKey,...attestation}
-        });
-        if(attestationError)throw attestationError;
         await journal.markCloudSynced(record.idempotencyKey,String(saleId),String(receipt.couponId));
-        if(!navigator.onLine)break;
       }catch(error){
         const message=error instanceof Error?error.message:"Offline sale synchronization failed.";
         if(/differs|already been consumed|not reserved|does not belong|no longer a member|invalid .*snapshot/i.test(message))
           await journal.markCloudConflict(record.idempotencyKey,message).catch(()=>undefined);
-        else
-          setMessage("Shitja offline mbetet në radhën lokale për sinkronizim: "+message);
+        else setMessage("Shitja offline mbetet në radhën lokale për sinkronizim: "+message);
       }
+      if(!navigator.onLine)break;
+    }
+
+    const allRecords=await storage.list();
+    const localQueue=await getLocalAgentQueue(agentToken);
+    for(const record of allRecords){
+      const receipt=record.fiscalReceipt;
+      if(record.cloudSyncState!=="synced"||!record.serverSaleId||!record.couponId||!receipt)continue;
+      const queueItem=localQueue.items.find(item=>item.idempotencyKey===receipt.fiscalIdempotencyKey);
+      if(!queueItem)continue;
+      const status=queueItem.status.toLowerCase();
+      if(status==="rejected"){
+        await journal.markFiscalRejected(record.idempotencyKey,queueItem.lastError||"ATK rejected the fiscal document.").catch(()=>undefined);
+        continue;
+      }
+      if(status==="needsreconciliation"||status==="submitting"){
+        await journal.markNeedsReconciliation(record.idempotencyKey,"ATK outcome is uncertain; reconcile before retrying.").catch(()=>undefined);
+        continue;
+      }
+      if(status!=="queued"&&status!=="accepted")continue;
+      try{
+        const attestation=await getLocalFiscalAttestation(agentToken,{
+          idempotencyKey:receipt.fiscalIdempotencyKey,businessId:record.businessId,posUuid:record.posId
+        });
+        const action=status==="accepted"?"accepted":"queue";
+        const {error}=await supabase.functions.invoke("fiskalo-basic-atk-receipts",{
+          body:{action,businessId:record.businessId,posUuid:record.posId,saleId:record.serverSaleId,
+            couponId:receipt.couponId,idempotencyKey:receipt.fiscalIdempotencyKey,...attestation}
+        });
+        if(error)throw error;
+        if(action==="accepted"){
+          await journal.attachFiscalReceipt(record.idempotencyKey,{
+            ...receipt,status:"accepted",transactionId:queueItem.atkTransactionId??undefined
+          });
+          await journal.markFiscalAccepted(record.idempotencyKey,{
+            status:"accepted",environment:"ATK TEST",transactionId:queueItem.atkTransactionId||""
+          });
+        }
+      }catch(error){
+        const message=error instanceof Error?error.message:"Fiscal receipt attestation failed.";
+        setMessage("Kuponi i nënshkruar mbetet në POS Agent; sinkronizimi i regjistrit fiskal do të riprovohet: "+message);
+      }
+      if(!navigator.onLine)break;
     }
     await syncAcceptedQueue();
     if(user)await loadWorkspace(user.id).catch(()=>undefined);
