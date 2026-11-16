@@ -17,6 +17,16 @@ type Incident = {
 };
 const BUCKET = "fiskalo-article44-evidence";
 const ALLOWED = ["application/pdf", "image/jpeg", "image/png", "text/plain"];
+function evidenceMime(file: File) {
+  const declared = (file.type || "").toLowerCase().trim();
+  const extension = file.name.toLowerCase().split(".").pop() || "";
+  const byExtension: Record<string,string> = {
+    pdf:"application/pdf",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",
+    txt:"text/plain",json:"application/json",csv:"text/csv"
+  };
+  if (declared && declared !== "application/octet-stream" && declared !== "image/jpg") return declared;
+  return byExtension[extension] ?? (declared === "image/jpg" ? "image/jpeg" : declared || "application/octet-stream");
+}
 function kosovoLocalDateTimeValue(value: Date) {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23" }).formatToParts(value);
   const get = (type:string) => parts.find(p=>p.type===type)?.value ?? "00";
@@ -167,7 +177,8 @@ export default function Article44Page() {
 
   async function submitNotice(incident: Incident) {
     if (!supabase || !evidenceFile) { setMessage("Ngarko së paku një dokument ose dëshmi para regjistrimit të njoftimit."); return; }
-    if (!ALLOWED.includes(evidenceFile.type) || evidenceFile.size < 1 || evidenceFile.size > 10 * 1024 * 1024) {
+    const mimeType = evidenceMime(evidenceFile);
+    if (!ALLOWED.includes(mimeType) || evidenceFile.size < 1 || evidenceFile.size > 10 * 1024 * 1024) {
       setMessage("Dëshmia duhet të jetë PDF, JPG, PNG ose TXT dhe maksimumi 10 MB."); return;
     }
     setBusy(true); setMessage("");
@@ -178,12 +189,12 @@ export default function Article44Page() {
         const safeName = evidenceFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100) || "evidence";
         uploadedPath = businessId + "/" + incident.id + "/" + crypto.randomUUID() + "-" + safeName;
         const { error: uploadError } = await supabase.storage.from(BUCKET).upload(uploadedPath, evidenceFile, {
-          upsert: false, contentType: evidenceFile.type
+          upsert: false, contentType: mimeType
         });
         if (uploadError) throw uploadError;
         const hash = hex(await crypto.subtle.digest("SHA-256", await evidenceFile.arrayBuffer()));
         manifest = [{ storage_path: uploadedPath, file_name: evidenceFile.name,
-          mime_type: evidenceFile.type, size_bytes: evidenceFile.size, sha256: hash }];
+          mime_type: mimeType, size_bytes: evidenceFile.size, sha256: hash }];
         setPendingManifest(manifest);
       }
       const { error } = await supabase.rpc("fiskalo_basic_record_article44_notice", {
@@ -265,10 +276,11 @@ export default function Article44Page() {
   async function recordMonthlySubmission(incident: Incident) {
     if (!supabase) return;
     if (monthlyFiles.length < 2) { setMessage("Ngarko eksportin JSON/CSV dhe dëshminë e dorëzimit te ATK (PDF, JPG, PNG ose TXT)."); return; }
-    const hasExport = monthlyFiles.some(f => f.type === "application/json" || f.type === "text/csv");
-    const hasProof = monthlyFiles.some(f => ["application/pdf","image/jpeg","image/png","text/plain"].includes(f.type));
+    const monthlyMimes = monthlyFiles.map(evidenceMime);
+    const hasExport = monthlyMimes.some(type => type === "application/json" || type === "text/csv");
+    const hasProof = monthlyMimes.some(type => ["application/pdf","image/jpeg","image/png","text/plain"].includes(type));
     if (!hasExport || !hasProof) { setMessage("Kërkohet një eksport JSON/CSV dhe së paku një dëshmi e dorëzimit."); return; }
-    if (monthlyFiles.some(f => f.size < 1 || f.size > 10 * 1024 * 1024 || ![...ALLOWED,"application/json","text/csv"].includes(f.type))) {
+    if (monthlyFiles.some((f,index) => f.size < 1 || f.size > 10 * 1024 * 1024 || ![...ALLOWED,"application/json","text/csv"].includes(monthlyMimes[index]))) {
       setMessage("Çdo skedar duhet të jetë PDF/JPG/PNG/TXT/JSON/CSV dhe maksimumi 10 MB."); return;
     }
     setBusy(true); setMessage("");
@@ -279,10 +291,10 @@ export default function Article44Page() {
         for (const file of monthlyFiles) {
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100) || "evidence";
           const path = incident.business_id + "/" + incident.id + "/monthly-" + crypto.randomUUID() + "-" + safeName;
-          const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type });
+          const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: evidenceMime(file) });
           if (uploadError) throw uploadError;
           const hash = hex(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
-          manifest.push({ storage_path:path,file_name:file.name,mime_type:file.type,size_bytes:file.size,sha256:hash });
+          manifest.push({ storage_path:path,file_name:file.name,mime_type:evidenceMime(file),size_bytes:file.size,sha256:hash });
         }
         setMonthlyManifest(manifest);
       }
