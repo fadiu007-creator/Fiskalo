@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
+using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Fiskalo.PosAgent.Core.Atk;
 using Fiskalo.PosAgent.Core.Queue;
@@ -20,6 +22,9 @@ const string QueueReconcilePath = "/api/v1/queue/reconcile";
 const string AtkVerifyPath = "/api/v1/atk/test/verify";
 const string AtkSignCsrPath = "/api/v1/atk/test/sign-csr";
 const string AtkCouponPath = "/api/v1/atk/test/coupon";
+const string OfflineReservationsPath = "/api/v1/offline/reservations";
+const string OfflineProvisionPath = "/api/v1/offline/reservations/provision";
+const string OfflineClaimPath = "/api/v1/offline/reservations/claim";
 const string PrintersPath = "/api/v1/printers";
 const string PrinterPrintPath = "/api/v1/printers/print";
 const string PrinterTestPath = "/api/v1/printers/test";
@@ -36,11 +41,14 @@ var pairLockedUntil = DateTimeOffset.MinValue;
 var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fiskalo", "PosAgent");
 var keyPath = Path.Combine(dataDirectory, "pos-signing-key.dpapi");
 var queuePath = Path.Combine(dataDirectory, "fiscal-queue.bin");
+var reservationPath = Path.Combine(dataDirectory, "offline-reservations.bin");
 var certificatePath = Path.Combine(dataDirectory, "atk-test-certificate.pem");
 var installationPath = Path.Combine(dataDirectory, "atk-test-installation.dpapi");
 var installationStore = new WindowsDpapiInstallationStore(installationPath);
 var keyStore = new WindowsDpapiEcdsaKeyStore();
-var queueStore = new FiscalQueueStore(queuePath, new WindowsDpapiFiscalQueueProtector());
+var queueProtector = new WindowsDpapiFiscalQueueProtector();
+var queueStore = new FiscalQueueStore(queuePath, queueProtector);
+var reservationStore = new OfflineNumberReservationStore(reservationPath, queueProtector);
 
 Console.WriteLine("Fiskalo POS Agent " + AgentVersion);
 Console.WriteLine("Local endpoint: http://127.0.0.1:17843");
@@ -165,6 +173,134 @@ app.MapGet(StatusPath, (HttpContext context) =>
         testInstallationVerified = OperatingSystem.IsWindows() && File.Exists(installationPath),
         nextStep = "ATK-test-certificate-onboarding-required"
     });
+});
+
+app.MapGet(OfflineReservationsPath, async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    try
+    {
+        var summary = await reservationStore.GetSummaryAsync(cancellationToken);
+        return Results.Ok(new { summary.AvailableCouponIds, summary.AvailableDailyNumbers, storage = "Windows DPAPI CurrentUser" });
+    }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException)
+    {
+        return Results.Problem("Unable to read protected offline reservations.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
+app.MapPost(OfflineProvisionPath, async (OfflineReservationProvisionRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    if (string.IsNullOrWhiteSpace(request.BusinessId) || string.IsNullOrWhiteSpace(request.PosUuid) ||
+        string.IsNullOrWhiteSpace(request.SupabaseUrl) || string.IsNullOrWhiteSpace(request.AnonKey) ||
+        string.IsNullOrWhiteSpace(request.AccessToken) || request.CouponCount is < 1 or > 500 ||
+        request.DaysAhead is < 0 or > 7)
+        return Results.BadRequest(new { error = "businessId, posUuid, Supabase credentials, couponCount (1-500), and daysAhead (0-7) are required." });
+
+    if (!Uri.TryCreate(request.SupabaseUrl, UriKind.Absolute, out var supabaseUri) ||
+        supabaseUri.Scheme != Uri.UriSchemeHttps || !supabaseUri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase) ||
+        !string.IsNullOrEmpty(supabaseUri.UserInfo) || !string.IsNullOrEmpty(supabaseUri.Query) || !string.IsNullOrEmpty(supabaseUri.Fragment))
+        return Results.BadRequest(new { error = "Only an HTTPS Supabase project URL is accepted." });
+
+    var installation = installationStore.Load();
+    if (installation is null || string.IsNullOrWhiteSpace(installation.CertificateThumbprint) ||
+        !File.Exists(certificatePath) || !File.Exists(keyPath))
+        return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+
+    try
+    {
+        using var certificate = X509Certificate2.CreateFromPem(await File.ReadAllTextAsync(certificatePath, cancellationToken));
+        using var localKey = keyStore.LoadOrCreate(keyPath);
+        using var certificateKey = certificate.GetECDsaPublicKey();
+        if (certificateKey is null || !SamePublicKey(localKey, certificateKey) ||
+            !string.Equals(certificate.Thumbprint, installation.CertificateThumbprint, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { error = "certificate_key_mismatch" });
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+        async Task<JsonDocument> CallRpc(string rpc, object body)
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Post, new Uri(supabaseUri, "/rest/v1/rpc/" + rpc));
+            message.Headers.TryAddWithoutValidation("apikey", request.AnonKey);
+            message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + request.AccessToken);
+            message.Content = JsonContent.Create(body);
+            using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException("Supabase reservation RPC failed with HTTP " + (int)response.StatusCode + ".");
+            return JsonDocument.Parse(responseBody);
+        }
+
+        using var couponResponse = await CallRpc("fiskalo_basic_reserve_offline_coupon_ids", new
+        {
+            p_business_id = request.BusinessId, p_pos_id = request.PosUuid, p_count = request.CouponCount
+        });
+        var couponRoot = couponResponse.RootElement;
+        if (couponRoot.ValueKind != JsonValueKind.Array || couponRoot.GetArrayLength() != 1 ||
+            !couponRoot[0].TryGetProperty("coupon_ids", out var couponArray) || couponArray.ValueKind != JsonValueKind.Array)
+            return Results.Problem("Supabase returned an invalid CouponId reservation response.", statusCode: StatusCodes.Status502BadGateway);
+        var couponIds = couponArray.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String
+            ? ulong.Parse(x.GetString()!) : x.GetUInt64()).ToArray();
+        if (couponIds.Length != request.CouponCount || couponIds.Any(x => x == 0) || couponIds.Distinct().Count() != couponIds.Length)
+            return Results.Problem("Supabase returned an incomplete or invalid CouponId reservation.", statusCode: StatusCodes.Status502BadGateway);
+
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Belgrade");
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, tz).DateTime);
+        var dailyRanges = new List<OfflineDailyNumberPool>();
+        for (var day = 0; day <= request.DaysAhead; day++)
+        {
+            var date = today.AddDays(day).ToString("yyyy-MM-dd");
+            using var dailyResponse = await CallRpc("fiskalo_basic_reserve_offline_daily_numbers", new
+            {
+                p_business_id = request.BusinessId, p_pos_id = request.PosUuid,
+                p_business_date = date, p_count = request.CouponCount
+            });
+            var dailyRoot = dailyResponse.RootElement;
+            if (dailyRoot.ValueKind != JsonValueKind.Array || dailyRoot.GetArrayLength() != 1)
+                return Results.Problem("Supabase returned an invalid daily-number reservation response.", statusCode: StatusCodes.Status502BadGateway);
+            var first = dailyRoot[0].GetProperty("first_number").GetInt64();
+            var last = dailyRoot[0].GetProperty("last_number").GetInt64();
+            dailyRanges.Add(new OfflineDailyNumberPool(date, first, last));
+        }
+
+        await reservationStore.ImportAsync(request.BusinessId, request.PosUuid, installation.Nui,
+            installation.BranchId, installation.PosId, installation.ApplicationId,
+            couponIds, dailyRanges, cancellationToken);
+        var summary = await reservationStore.GetSummaryAsync(cancellationToken);
+        return Results.Ok(new { provisionedCouponIds = couponIds.Length, provisionedDailyDates = dailyRanges.Count,
+            availableCouponIds = summary.AvailableCouponIds, availableDailyNumbers = summary.AvailableDailyNumbers,
+            storage = "Windows DPAPI CurrentUser", source = "authenticated Supabase reservation RPC" });
+    }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+    catch (HttpRequestException) { return Results.Problem("Could not reach Supabase to reserve offline fiscal numbers.", statusCode: StatusCodes.Status502BadGateway); }
+    catch (TaskCanceledException) { return Results.Problem("Supabase reservation request timed out.", statusCode: StatusCodes.Status504GatewayTimeout); }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or JsonException or FormatException or OverflowException)
+    {
+        return Results.Problem("Offline reservation provisioning failed. No new local capacity was reported.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
+app.MapPost(OfflineClaimPath, async (OfflineReservationClaimRequest request, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
+    var installation = installationStore.Load();
+    if (installation is null) return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+    try
+    {
+        var claim = await reservationStore.ClaimAsync(request.CheckoutIdempotencyKey, request.BusinessId,
+            request.PosUuid, installation.Nui, installation.BranchId, installation.PosId,
+            installation.ApplicationId, request.BusinessDate, cancellationToken);
+        return Results.Ok(new { couponId = claim.CouponId, dailyNumber = claim.DailyNumber, businessDate = claim.BusinessDate });
+    }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+    catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException)
+    {
+        return Results.Problem("Unable to claim a protected offline number.", statusCode: StatusCodes.Status500InternalServerError);
+    }
 });
 
 app.MapPost(CsrPath, (CsrRequest request, HttpContext context) => {
@@ -620,6 +756,21 @@ internal sealed record AtkSignCsrRequest(
 internal sealed record AtkCouponRequest(
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
     [property: JsonPropertyName("coupon")] PosCouponInput Coupon);
+
+internal sealed record OfflineReservationProvisionRequest(
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid,
+    [property: JsonPropertyName("supabaseUrl")] string SupabaseUrl,
+    [property: JsonPropertyName("anonKey")] string AnonKey,
+    [property: JsonPropertyName("accessToken")] string AccessToken,
+    [property: JsonPropertyName("couponCount")] int CouponCount,
+    [property: JsonPropertyName("daysAhead")] int DaysAhead);
+
+internal sealed record OfflineReservationClaimRequest(
+    [property: JsonPropertyName("checkoutIdempotencyKey")] string CheckoutIdempotencyKey,
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid,
+    [property: JsonPropertyName("businessDate")] string BusinessDate);
 
 internal sealed record PrinterPrintRequest(
     [property: JsonPropertyName("printerName")] string? PrinterName,
