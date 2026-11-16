@@ -22,7 +22,7 @@ async function setup(status:"queued"|"accepted"="queued"){
   const citizenSignature=bytes("citizen-signature");
   const qr=bytes("<svg/>");
   const certificateDer=bytes("test-registered-certificate");
-  const certificatePem="-----BEGIN CERTIFICATE-----\\n"+b64(certificateDer)+"\\n-----END CERTIFICATE-----";
+  const certificatePem="-----BEGIN CERTIFICATE-----\n"+b64(certificateDer)+"\n-----END CERTIFICATE-----";
   const certificateThumbprint=(await hash(certificateDer,"SHA-1")).toUpperCase();
   const offlineIssued=status==="queued"?new Date(now.getTime()-10*60_000).toISOString():null;
   const payload={
