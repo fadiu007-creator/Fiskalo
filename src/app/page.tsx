@@ -805,6 +805,15 @@ export default function Home(){
         operator_identifier:sale.operator_identifier??null,document_type:"SHITJE",is_offline:fiscal.offline
       };
       setReceipt(receiptRecord);
+      const [citizenPayload,citizenSignature]=fiscal.citizenQrPayload.split("|");
+      await offlineJournal.attachFiscalReceipt(checkoutIdempotencyKey,{
+        couponId:Number(sale.coupon_id),dailyNumber:Number(fiscal.dailyNumber),fiscalIdempotencyKey:idempotencyKey,
+        nuiKf:fiscal.nuiKf,posPayloadBase64:fiscal.detailsBase64,posSignatureBase64:fiscal.signatureBase64,
+        citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
+        qrSvgBase64:fiscal.qrSvgBase64,offlineIssuedAtUtc:fiscal.offlineIssuedAtUtc??null,
+        recoveryDeadlineUtc:fiscal.recoveryDeadlineUtc??null,
+        status:fiscal.status==="accepted"?"accepted":"queued",transactionId:fiscal.transactionId??undefined
+      });
 
       const attestation=await getLocalFiscalAttestation(agentToken,{
         idempotencyKey,businessId:business.id,posUuid:pos.id
