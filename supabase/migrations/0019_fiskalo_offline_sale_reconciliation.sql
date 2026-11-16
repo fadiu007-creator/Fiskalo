@@ -98,6 +98,7 @@ declare
   v_daily_claim public.fiskalo_basic_daily_number_consumptions%rowtype;
   v_expected_count integer;
   v_line record;
+  v_product public.fiskalo_basic_products%rowtype;
   v_total_net numeric(12,2):=0;
   v_total_vat numeric(12,2):=0;
   v_total_gross numeric(12,2):=0;
@@ -210,10 +211,9 @@ begin
        v_line.line_total<>v_line.line_net+v_line.line_vat then
       raise exception 'Offline line snapshot has invalid prices, VAT or ATK mapping';
     end if;
-    if not exists(select 1 from public.fiskalo_basic_products p
-      where p.id=v_line.product_id and p.business_id=p_business_id for update) then
-      raise exception 'Offline sale references a product that does not belong to this business';
-    end if;
+    select * into v_product from public.fiskalo_basic_products p
+      where p.id=v_line.product_id and p.business_id=p_business_id for update;
+    if not found then raise exception 'Offline sale references a product that does not belong to this business'; end if;
     v_total_net:=v_total_net+v_line.line_net;
     v_total_vat:=v_total_vat+v_line.line_vat;
     v_total_gross:=v_total_gross+v_line.line_total;
