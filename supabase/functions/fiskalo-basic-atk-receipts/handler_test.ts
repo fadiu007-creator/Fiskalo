@@ -135,3 +135,64 @@ Deno.test("rejects an unauthenticated request",async()=>{
   }));
   assert(response.status===401,"unauthenticated users must not persist fiscal receipts");
 });
+
+
+Deno.test("registers an ATK certificate only with a valid local POS proof-of-possession",async()=>{
+  const privateKeyDer=Uint8Array.from(atob("MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaNMiMIyKgBVhC7OBr8FiFqvXCSa5ElI/YFZZz7baWxihRANCAARi7/tb1VSsaniJPDyhYi97FFwaDZvwtQAj+3xMNR5okJJ1Rhb+Lsg0UrwnZbokY/wv0pV9xV3Xg+2hrjRCv5xj"),c=>c.charCodeAt(0));
+  const privateKey=await crypto.subtle.importKey("pkcs8",privateKeyDer,{name:"ECDSA",namedCurve:"P-256"},false,["sign"]);
+  const certificateBase64="MIIBwzCCAWmgAwIBAgIUIcIQ5twWcVrbBEX/92eppci5vxQwCgYIKoZIzj0EAwIwNzELMAkGA1UEBhMCVVMxETAPBgNVBAoMCFRlc3QgUE9TMRUwEwYDVQQDDAxGaXNrYWxvIFRlc3QwHhcNMjYxMTE2MTIwNzI5WhcNMzYxMTEzMTIwNzI5WjA3MQswCQYDVQQGEwJVUzERMA8GA1UECgwIVGVzdCBQT1MxFTATBgNVBAMMDEZpc2thbG8gVGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGLv+1vVVKxqeIk8PKFiL3sUXBoNm/C1ACP7fEw1HmiQknVGFv4uyDRSvCdluiRj/C/SlX3FXdeD7aGuNEK/nGOjUzBRMB0GA1UdDgQWBBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAfBgNVHSMEGDAWgBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIGFPyaeP97gPTfOKXvyljm3Uf+SWR/IOFHTe78MfO4IbAiEApl3hnkk5JVaD7BqNd674fywChHxiykLWHLeHn6KCOa0=";
+  const certificatePem="-----BEGIN CERTIFICATE-----\\n"+certificateBase64+"\\n-----END CERTIFICATE-----";
+  const attestation={
+    version:1,businessId,posUuid,businessNui:123456789,branchId:1,posNumber:2,applicationId:3,
+    certificatePem,certificateThumbprint:"4925AC41860A1BA9DF67762705029C5D88E353B5",
+    spkiBase64:"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYu/7W9VUrGp4iTw8oWIvexRcGg2b8LUAI/t8TDUeaJCSdUYW/i7INFK8J2W6JGP8L9KVfcVd14Ptoa40Qr+cYw==",
+    issuedAtUtc:new Date().toISOString(),
+  };
+  const payloadBytes=new TextEncoder().encode(JSON.stringify(attestation));
+  const signature=new Uint8Array(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},privateKey,payloadBytes));
+  let registered:Record<string,unknown>|null=null;
+  const deps:AtkReceiptDependencies={
+    authenticate:async token=>token==="valid-token"?{id:"owner-user"}:null,
+    isMember:async()=>true,
+    isOwner:async()=>true,
+    registerCertificate:async args=>{registered=args;return "registered-certificate-id";},
+    getBusiness:async()=>({nui:"123456789"}),
+    getPos:async()=>({id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"verified",location:"Ferizaj"}),
+    getCertificate:async()=>null,
+    getSale:async()=>null,
+    getSaleItems:async()=>[],
+    queueReceipt:async()=>"",
+    recordReceipt:async()=>""
+  };
+  const handler=createAtkReceiptHandler(deps);
+  const response=await handler(new Request("https://example.test/functions/v1/fiskalo-basic-atk-receipts",{
+    method:"POST",headers:{authorization:"Bearer valid-token","content-type":"application/json",
+      origin:"https://fiskalo.shqiptare.workers.dev"},
+    body:JSON.stringify({action:"register",businessId,posUuid,
+      certificateAttestationPayloadBase64:b64(payloadBytes),
+      certificateAttestationSignatureBase64:b64(signature)})
+  }));
+  const result=await response.json() as {ok?:boolean;certificateThumbprint?:string};
+  assert(response.status===200&&result.ok===true,"valid POS certificate proof should register");
+  assert(registered?.p_spki_sha256!==undefined,"registered certificate must persist the derived SPKI fingerprint");
+});
+
+Deno.test("rejects a forged certificate proof-of-possession",async()=>{
+  const deps:AtkReceiptDependencies={
+    authenticate:async()=>({id:"owner-user"}),isMember:async()=>true,isOwner:async()=>true,
+    registerCertificate:async()=>"should-not-register",
+    getBusiness:async()=>({nui:"123456789"}),
+    getPos:async()=>({id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"verified",location:"Ferizaj"}),
+    getCertificate:async()=>null,getSale:async()=>null,getSaleItems:async()=>[],
+    queueReceipt:async()=>"doc",recordReceipt:async()=>"doc"
+  };
+  const handler=createAtkReceiptHandler(deps);
+  const response=await handler(new Request("https://example.test/functions/v1/fiskalo-basic-atk-receipts",{
+    method:"POST",headers:{authorization:"Bearer valid-token","content-type":"application/json",
+      origin:"https://fiskalo.shqiptare.workers.dev"},
+    body:JSON.stringify({action:"register",businessId,posUuid,
+      certificateAttestationPayloadBase64:b64(bytes("forged")),
+      certificateAttestationSignatureBase64:b64(bytes("invalid"))})
+  }));
+  assert(response.status===400,"invalid certificate attestation must be rejected");
+});
