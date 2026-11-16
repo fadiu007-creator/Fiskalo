@@ -1,5 +1,5 @@
 export type AtkReceiptActor = { id: string };
-export type AtkReceiptBusiness = { nui: string | number };
+export type AtkReceiptBusiness = { nui: string | number; name?: string };
 export type AtkReceiptPos = {
   id: string;
   businessId: string;
@@ -8,6 +8,7 @@ export type AtkReceiptPos = {
   applicationId: string | number;
   certificateStatus: string;
   location: string;
+  verifiedBusinessName?: string | null;
 };
 export type AtkReceiptCertificate = {
   applicationId: number;
@@ -359,10 +360,11 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
         );
         if (!signatureValid) return json(403, { error: "POS Agent certificate proof-of-possession signature is invalid." }, headers);
         const registeredId = await deps.registerCertificate({
-          p_actor_id: actor.id, p_business_id: businessId, p_pos_id: posUuid,
+          p_business_id: businessId, p_pos_record_id: posUuid,
           p_application_id: numeric(pos.applicationId),
           p_certificate_pem: certificateAttestation.certificatePem,
-          p_certificate_thumbprint: thumbprint, p_spki_sha256: spkiHash,
+          p_spki_sha256: spkiHash,
+          p_verified_business_name: (pos.verifiedBusinessName || business.name || "").trim(),
         });
         return json(200, { ok: true, certificateId: registeredId, certificateThumbprint: thumbprint, status: "active" }, headers);
       }
@@ -493,10 +495,10 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
         // to discard the signed document or block later synchronization.
         const overdue = offlineIssuedAt.getTime() + 48 * 60 * 60 * 1000 <= Date.now();
         const documentId = await deps.queueReceipt({
-          p_actor_id: actor.id, p_business_id: businessId, p_sale_id: saleId, p_coupon_id: couponId,
-          p_idempotency_key: idempotencyKey, p_signed_payload: attestation.signedPayloadBase64,
+          p_actor_id: actor.id, p_business_id: businessId, p_sale_id: saleId, p_pos_record_id: posUuid,
+          p_coupon_id: couponId, p_idempotency_key: idempotencyKey, p_signed_payload: attestation.signedPayloadBase64,
           p_signature: attestation.signatureBase64, p_nui_kf: attestation.nuiKf,
-          p_citizen_payload: attestation.citizenPayloadBase64,
+          p_verification_no: attestation.verificationNo, p_citizen_payload: attestation.citizenPayloadBase64,
           p_citizen_signature: attestation.citizenSignatureBase64,
           p_daily_number: attestation.dailyNumber, p_offline_issued_at: offlineIssuedAt.toISOString(),
           p_qr_svg_base64: attestation.qrSvgBase64,
