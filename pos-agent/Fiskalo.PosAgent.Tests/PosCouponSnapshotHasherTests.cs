@@ -22,6 +22,7 @@ public sealed class PosCouponSnapshotHasherTests
         var hash = PosCouponSnapshotHasher.ComputeSha256(first, "0123456789ABCDEF");
         Assert.Equal(hash, PosCouponSnapshotHasher.ComputeSha256(reversed, "0123456789ABCDEF"));
         Assert.NotEqual(hash, PosCouponSnapshotHasher.ComputeSha256(changed, "0123456789ABCDEF"));
+        Assert.Equal("501626cc9856ab9e0ec49b7eb871198414881decb73e471ceaf58934d253553a", hash);
         Assert.Equal(64, hash.Length);
     }
 
