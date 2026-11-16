@@ -232,6 +232,41 @@ export default function Home(){
     }
   },[supabase,business,agentToken,positions,checkoutKey]);
 
+  useEffect(()=>{
+    if(!business||!checkoutDraftLoaded)return;
+    let active=true;
+    void (async()=>{
+      try{
+        const storage=new IndexedDbOfflineSaleStorage();
+        const records=await storage.list();
+        const pending=records.filter(r=>r.businessId===business.id&&r.fiscalReceipt&&r.fiscalIdentity)
+          .sort((a,b)=>b.createdAtUtc.localeCompare(a.createdAtUtc))[0];
+        if(!active||!pending||!pending.fiscalReceipt||!pending.fiscalIdentity)return;
+        const r=pending,identity=r.fiscalIdentity,fiscal=r.fiscalReceipt;
+        const record:SaleRecord={
+          id:"offline:"+r.idempotencyKey,coupon_id:fiscal.couponId,status:"paid",
+          subtotal:r.subtotalMinor/100,vat_total:r.vatTotalMinor/100,total:r.totalMinor/100,
+          payment_method:r.paymentMethod,created_at:r.createdAtUtc,pos_id:r.posId,operator_id:r.operatorId,
+          daily_number:fiscal.dailyNumber,
+          items:r.lines.map(line=>({description:line.description,quantity:line.quantityMilli/1000,
+            unit_price:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,
+            line_net:line.lineNetMinor/100,line_vat:line.lineVatMinor/100,line_total:line.lineTotalMinor/100,
+            atk_unit_code:line.atkUnitCode,atk_vat_code:line.atkVatCode})),
+          transaction_id:fiscal.transactionId??null,nui_kf:fiscal.nuiKf,
+          submission_state:fiscal.status,offline_issued_at:fiscal.offlineIssuedAtUtc,
+          recovery_deadline_at:fiscal.recoveryDeadlineUtc,qr_svg_base64:fiscal.qrSvgBase64,
+          pos_identifier:identity.unitNumber+"-"+business.nui+"-"+String(identity.posNumber).padStart(2,"0"),
+          unit_number:identity.unitNumber,unit_code:identity.branchId,pos_number:identity.posNumber,
+          unit_name:identity.posLabel,business_address:identity.location,
+          operator_name:identity.operatorName,operator_identifier:identity.operatorIdentifier,
+          document_type:"SHITJE",is_offline:true
+        };
+        setReceipt(current=>current??record);
+      }catch{}
+    })();
+    return()=>{active=false;};
+  },[business,checkoutDraftLoaded]);
+
   const syncPendingOfflineSales=useCallback(async()=>{
     if(!supabase||!business||!agentToken||!navigator.onLine)return;
     const storage=new IndexedDbOfflineSaleStorage();
@@ -633,7 +668,17 @@ export default function Home(){
         };
         const fiscalIdempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+claim.couponId;
         await offlineJournal.markFiscalQueued(checkoutIdempotencyKey);
-        const fiscal=await submitLocalTestCoupon(agentToken,fiscalIdempotencyKey,coupon);
+        let fiscal;
+        try{fiscal=await submitLocalTestCoupon(agentToken,fiscalIdempotencyKey,coupon);}
+        catch(submitError){
+          const localQueue=await getLocalAgentQueue(agentToken).catch(()=>null);
+          const queuedItem=localQueue?.items.find(item=>item.idempotencyKey===fiscalIdempotencyKey);
+          if(queuedItem?.status.toLowerCase()==="rejected")
+            await offlineJournal.markFiscalRejected(checkoutIdempotencyKey,queuedItem.lastError||"ATK rejected the fiscal document.");
+          else if(queuedItem?.status.toLowerCase()==="needsreconciliation"||queuedItem?.status.toLowerCase()==="submitting")
+            await offlineJournal.markNeedsReconciliation(checkoutIdempotencyKey,"ATK outcome is uncertain; reconcile before retrying.");
+          throw submitError;
+        }
         if(!/^[A-Z0-9]{16}$/.test(fiscal.nuiKf||"")||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)
           throw new Error("POS Agent nuk prodhoi kuponin e nënshkruar dhe QR. Shitja mbetet në radhën lokale.");
         const issuedAt=fiscal.offlineIssuedAtUtc??new Date().toISOString();
