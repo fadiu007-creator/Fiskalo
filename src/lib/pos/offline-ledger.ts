@@ -7,6 +7,16 @@ export type OfflineSaleLine = {
   vatRateBasisPoints: number; atkUnitCode: string; atkCategoryCode: string; atkVatCode: string;
   lineNetMinor: number; lineVatMinor: number; lineTotalMinor: number;
 };
+export type OfflineFiscalIdentity = {
+  businessNui:number;branchId:number;posNumber:number;applicationId:number;location:string;
+  operatorName:string;operatorIdentifier:string;posLabel:string;unitNumber:string;businessDate:string;
+};
+export type OfflineFiscalReceipt = {
+  couponId:number;dailyNumber:number;fiscalIdempotencyKey:string;nuiKf:string;
+  posPayloadBase64:string;posSignatureBase64:string;citizenPayloadBase64:string;citizenSignatureBase64:string;
+  qrSvgBase64:string;offlineIssuedAtUtc:string;recoveryDeadlineUtc:string;
+  status:"queued"|"accepted";transactionId?:string;
+};
 export type OfflineSaleRecord = {
   idempotencyKey: string; businessId: string; posId: string; operatorId: string;
   createdAtUtc: string; updatedAtUtc: string; paymentMethod: OfflinePaymentMethod; currency: "EUR";
@@ -14,6 +24,7 @@ export type OfflineSaleRecord = {
   cloudSyncState: "pending" | "synced" | "conflict";
   fiscalState: "not_prepared" | "queued" | "accepted" | "rejected" | "needs_reconciliation";
   serverSaleId?: string; couponId?: string; atkTransactionId?: string;
+  fiscalIdentity?:OfflineFiscalIdentity; fiscalReceipt?:OfflineFiscalReceipt;
   atkEnvironment?: "ATK TEST"; lastError?: string;
 };
 export type NewOfflineSale = Omit<OfflineSaleRecord,
@@ -101,6 +112,24 @@ export class OfflineCheckoutJournal {
       if (r.serverSaleId && (r.serverSaleId !== serverSaleId || r.couponId !== couponId))
         throw new OfflineSaleConflictError("A synchronized sale cannot be rebound to another server sale or coupon.");
       return { ...r, cloudSyncState: "synced", serverSaleId, couponId, lastError: undefined };
+    });
+  }
+  async attachFiscalReceipt(key:string,receipt:OfflineFiscalReceipt):Promise<OfflineSaleRecord>{
+    if(!Number.isSafeInteger(receipt.couponId)||receipt.couponId<=0||
+       !Number.isSafeInteger(receipt.dailyNumber)||receipt.dailyNumber<=0||
+       !/^[A-Z0-9]{16}$/.test(receipt.nuiKf)||
+       !receipt.posPayloadBase64||!receipt.posSignatureBase64||
+       !receipt.citizenPayloadBase64||!receipt.citizenSignatureBase64||!receipt.qrSvgBase64||
+       !Number.isFinite(Date.parse(receipt.offlineIssuedAtUtc))||
+       !Number.isFinite(Date.parse(receipt.recoveryDeadlineUtc)))
+      throw new Error("Offline signed fiscal receipt is incomplete or invalid.");
+    return this.mutate(key,r=>{
+      if(r.fiscalReceipt&&(r.fiscalReceipt.couponId!==receipt.couponId||
+        r.fiscalReceipt.fiscalIdempotencyKey!==receipt.fiscalIdempotencyKey||
+        r.fiscalReceipt.posPayloadBase64!==receipt.posPayloadBase64||
+        r.fiscalReceipt.posSignatureBase64!==receipt.posSignatureBase64))
+        throw new OfflineSaleConflictError("An offline sale cannot be rebound to another signed fiscal receipt.");
+      return {...r,fiscalReceipt:receipt};
     });
   }
   async markFiscalQueued(key: string): Promise<OfflineSaleRecord> {
