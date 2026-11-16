@@ -28,7 +28,7 @@ function b64(value:Uint8Array){let raw="";for(const b of value)raw+=String.fromC
 function bytes(value:string){return new TextEncoder().encode(value);}
 const TEST_PRIVATE_KEY_DER=Uint8Array.from(atob("MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaNMiMIyKgBVhC7OBr8FiFqvXCSa5ElI/YFZZz7baWxihRANCAARi7/tb1VSsaniJPDyhYi97FFwaDZvwtQAj+3xMNR5okJJ1Rhb+Lsg0UrwnZbokY/wv0pV9xV3Xg+2hrjRCv5xj"),c=>c.charCodeAt(0));
 const TEST_CERTIFICATE_BASE64="MIIBwzCCAWmgAwIBAgIUIcIQ5twWcVrbBEX/92eppci5vxQwCgYIKoZIzj0EAwIwNzELMAkGA1UEBhMCVVMxETAPBgNVBAoMCFRlc3QgUE9TMRUwEwYDVQQDDAxGaXNrYWxvIFRlc3QwHhcNMjYxMTE2MTIwNzI5WhcNMzYxMTEzMTIwNzI5WjA3MQswCQYDVQQGEwJVUzERMA8GA1UECgwIVGVzdCBQT1MxFTATBgNVBAMMDEZpc2thbG8gVGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGLv+1vVVKxqeIk8PKFiL3sUXBoNm/C1ACP7fEw1HmiQknVGFv4uyDRSvCdluiRj/C/SlX3FXdeD7aGuNEK/nGOjUzBRMB0GA1UdDgQWBBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAfBgNVHSMEGDAWgBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIGFPyaeP97gPTfOKXvyljm3Uf+SWR/IOFHTe78MfO4IbAiEApl3hnkk5JVaD7BqNd674fywChHxiykLWHLeHn6KCOa0=";
-const TEST_CERTIFICATE_PEM="-----BEGIN CERTIFICATE-----\\n"+TEST_CERTIFICATE_BASE64+"\\n-----END CERTIFICATE-----";
+const TEST_CERTIFICATE_PEM="-----BEGIN CERTIFICATE-----\n"+TEST_CERTIFICATE_BASE64+"\n-----END CERTIFICATE-----";
 const TEST_SPKI_BASE64="MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYu/7W9VUrGp4iTw8oWIvexRcGg2b8LUAI/t8TDUeaJCSdUYW/i7INFK8J2W6JGP8L9KVfcVd14Ptoa40Qr+cYw==";
 const TEST_SPKI=Uint8Array.from(atob(TEST_SPKI_BASE64),c=>c.charCodeAt(0));
 const TEST_CERTIFICATE_THUMBPRINT="4925AC41860A1BA9DF67762705029C5D88E353B5";
@@ -66,9 +66,9 @@ async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
   const citizenPayload=bytes("signed-citizen-coupon");
   const citizenSignature=new Uint8Array(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},keyPair.privateKey,citizenPayload));
   const qr=bytes("<svg/>");
-  const certificateDer=bytes("test-registered-certificate");
-  const certificatePem="-----BEGIN CERTIFICATE-----\n"+b64(certificateDer)+"\n-----END CERTIFICATE-----";
-  const certificateThumbprint=(await hash(certificateDer,"SHA-1")).toUpperCase();
+  const certificateDer=Uint8Array.from(atob(TEST_CERTIFICATE_BASE64),c=>c.charCodeAt(0));
+  const certificatePem=TEST_CERTIFICATE_PEM;
+  const certificateThumbprint=TEST_CERTIFICATE_THUMBPRINT;
   const offlineIssued=status==="queued"?new Date(now.getTime()-offlineAgeMinutes*60_000).toISOString():null;
   const payload={
     version:1,businessId,posUuid,businessNui:123456789,branchId:1,posNumber:2,applicationId:3,
