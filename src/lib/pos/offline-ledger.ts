@@ -3,7 +3,7 @@ import { isAtkUnitCode } from "../atk/product-units.ts";
 
 export type OfflinePaymentMethod = "cash" | "card" | "bank_transfer";
 export type OfflineSaleLine = {
-  productId: string; description: string; quantityMilli: number; unitPriceMinor: number;
+  productId: string; description: string; quantityMilli: number; unitPriceMinor: number; unitPrice4dp?:number;
   vatRateBasisPoints: number; atkUnitCode: string; atkCategoryCode: string; atkVatCode: string;
   lineNetMinor: number; lineVatMinor: number; lineTotalMinor: number;
 };
@@ -74,7 +74,7 @@ export function validateNewOfflineSale(input: NewOfflineSale): void {
     if (!isValidAtkVatClassification(line.atkVatCode, line.vatRateBasisPoints / 100))
       throw new Error("Offline sale contains an invalid ATK VAT code/rate combination.");
     if (!Number.isSafeInteger(line.quantityMilli) || line.quantityMilli <= 0 ||
-        !minor(line.unitPriceMinor) || !Number.isSafeInteger(line.vatRateBasisPoints) ||
+        !minor(line.unitPriceMinor) || (line.unitPrice4dp!==undefined&&(!Number.isSafeInteger(line.unitPrice4dp)||line.unitPrice4dp<0)) || !Number.isSafeInteger(line.vatRateBasisPoints) ||
         line.vatRateBasisPoints < 0 || !minor(line.lineNetMinor) || !minor(line.lineVatMinor) ||
         !minor(line.lineTotalMinor) || line.lineNetMinor + line.lineVatMinor !== line.lineTotalMinor)
       throw new Error("Offline sale line quantity, VAT or money values are invalid.");
