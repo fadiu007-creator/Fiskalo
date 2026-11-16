@@ -13,6 +13,11 @@ begin
       and column_name='stock_reconciliation_required') then
     raise exception 'Offline stock reconciliation marker is missing';
   end if;
+  if not exists(select 1 from information_schema.columns
+    where table_schema='public' and table_name='fiskalo_basic_sales'
+      and column_name='payment_allocations') then
+    raise exception 'Offline sale must preserve its payment allocation snapshot';
+  end if;
 
   fn:=to_regprocedure('public.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamp with time zone)');
   if fn is null or not has_function_privilege('authenticated',fn,'EXECUTE')
@@ -29,8 +34,17 @@ begin
      position('p_expected_snapshot' in def)=0 then
     raise exception 'Offline sale must validate original Kosovo business date and immutable line snapshot';
   end if;
-  if position('stock_reconciliation_required' in def)=0 then
-    raise exception 'Offline stock mismatch must be explicitly flagged';
+  if position('stock_reconciliation_required' in def)=0 or
+     position('payment_allocations' in def)=0 or
+     position('line_net is null' in def)=0 or
+     position('line_vat is null' in def)=0 then
+    raise exception 'Offline sale must preserve tenders and validate every fiscal line total';
+  end if;
+
+  fn:=to_regprocedure('fiskalo_private.fiskalo_basic_assign_daily_number()');
+  select pg_get_functiondef(fn) into def;
+  if position('if new.daily_number is not null then return new' in def)=0 then
+    raise exception 'Daily-number trigger must preserve a pre-reserved offline number';
   end if;
   if has_function_privilege('anon','fiskalo_private.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamp with time zone)','EXECUTE') then
     raise exception 'Private offline sale function must not be executable by anon';
