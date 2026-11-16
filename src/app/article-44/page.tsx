@@ -17,6 +17,28 @@ type Incident = {
 };
 const BUCKET = "fiskalo-article44-evidence";
 const ALLOWED = ["application/pdf", "image/jpeg", "image/png", "text/plain"];
+function kosovoLocalDateTimeValue(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23" }).formatToParts(value);
+  const get = (type:string) => parts.find(p=>p.type===type)?.value ?? "00";
+  return get("year")+"-"+get("month")+"-"+get("day")+"T"+get("hour")+":"+get("minute");
+}
+function kosovoLocalDateTimeToIso(value: string) {
+  const [datePart,timePart] = value.split("T");
+  const [year,month,day] = datePart.split("-").map(Number);
+  const [hour,minute] = timePart.split(":").map(Number);
+  const target = Date.UTC(year,month-1,day,hour,minute);
+  let guess = target;
+  const formatter = new Intl.DateTimeFormat("en-GB", { timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23" });
+  for(let i=0;i<4;i++){
+    const parts = formatter.formatToParts(new Date(guess));
+    const get = (type:string) => Number(parts.find(p=>p.type===type)?.value ?? 0);
+    const represented = Date.UTC(get("year"),get("month")-1,get("day"),get("hour"),get("minute"));
+    const delta = represented-target;
+    if(delta===0) return new Date(guess).toISOString();
+    guess -= delta;
+  }
+  throw new Error("Koha lokale nuk ekziston në zonën kohore të Kosovës. Zgjidh një orë tjetër.");
+}
 const fmt = (value: string) => new Intl.DateTimeFormat("sq-XK", {
   dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Belgrade"
 }).format(new Date(value));
@@ -54,10 +76,7 @@ export default function Article44Page() {
   const [positions, setPositions] = useState<Pos[]>([]);
   const [posId, setPosId] = useState("");
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [startedAt, setStartedAt] = useState(() => {
-    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
-    return d.toISOString().slice(0, 16);
-  });
+  const [startedAt, setStartedAt] = useState(() => kosovoLocalDateTimeValue(new Date()));
   const [cause, setCause] = useState("isp_failure");
   const [description, setDescription] = useState("");
   const [noticeChannel, setNoticeChannel] = useState("electronic");
@@ -135,7 +154,7 @@ export default function Article44Page() {
     try {
       const { error } = await supabase.rpc("fiskalo_basic_create_article44_incident", {
         p_business_id: businessId, p_pos_id: posId,
-        p_outage_started_at: new Date(startedAt).toISOString(),
+        p_outage_started_at: kosovoLocalDateTimeToIso(startedAt),
         p_cause: cause, p_description: description.trim()
       });
       if (error) throw error;
@@ -310,7 +329,7 @@ export default function Article44Page() {
       <form onSubmit={createIncident} className="article44-form">
         <label>Biznesi<select value={businessId} onChange={e => setBusinessId(e.target.value)}>{businesses.map(b => <option key={b.id} value={b.id}>{b.name} · NUI {b.nui}</option>)}</select></label>
         <label>POS<select value={posId} onChange={e => setPosId(e.target.value)}>{positions.map(p => <option key={p.id} value={p.id}>{p.label} — {p.location}</option>)}</select></label>
-        <label>Koha kur filloi ndërprerja<input type="datetime-local" required value={startedAt} onChange={e => setStartedAt(e.target.value)}/></label>
+        <label>Koha e Kosovës kur filloi ndërprerja<input type="datetime-local" required value={startedAt} onChange={e => setStartedAt(e.target.value)}/></label>
         <label>Shkaku<select value={cause} onChange={e => setCause(e.target.value)}>
           <option value="isp_failure">Ofruesi i internetit nuk mund të vendosë lidhjen</option>
           <option value="equipment_change">Duhet ndërruar pajisja e lidhjes</option>
@@ -331,7 +350,7 @@ export default function Article44Page() {
         const requiresNotice = eligible(incident.cause) && effectiveEnd >= due.getTime() && !incident.notice_submitted_at;
         const monthlyDue = monthlySubmissionDeadline(incident.outage_started_at);
         const monthlyEffectiveEndKey = localDateKey(incident.restored_at ?? new Date());
-        const monthlyRequired = monthlyEffectiveEndKey >= monthlyDue.afterDeadlineKey &&
+        const monthlyRequired = eligible(incident.cause) && monthlyEffectiveEndKey >= monthlyDue.afterDeadlineKey &&
           !incident.monthly_export_submitted_at;
         return <article className="article44-card" key={incident.id}>
           <div className="article44-incident-head"><div><span className="article44-kicker">{causeLabel[incident.cause] || incident.cause}</span><h3>{positions.find(p => p.id === incident.pos_id)?.label || "POS"}</h3></div>
