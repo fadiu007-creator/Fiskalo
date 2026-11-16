@@ -637,6 +637,46 @@ public sealed class FiscalQueueStoreTests
         }
     }
 
+    [Fact]
+    public async Task DeliveryService_StillAutomaticallySubmitsAfterFortyEightHourRecoveryDeadline()
+    {
+        using var fixture = new QueueFixture();
+        var issued = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.EnqueueAsync("sale-worker-overdue", "Sale", "cG9z", "c2ln", issued);
+        var attempts = 0;
+        var delivery = new FiscalQueueDeliveryService(fixture.Store, (signed, token) =>
+        {
+            attempts++;
+            return Task.FromResult(new AtkPosCouponResponse("accepted after recovery deadline", 987655));
+        });
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(issued.AddHours(49)));
+        var accepted = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(FiscalQueueStatus.Accepted, accepted.Status);
+        Assert.Equal("987655", accepted.AtkTransactionId);
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task DeliveryService_QuarantinesAmbiguousTimeoutInsteadOfBlindlyResubmitting()
+    {
+        using var fixture = new QueueFixture();
+        var issued = DateTimeOffset.Parse("2026-11-07T12:00:00Z");
+        await fixture.Store.EnqueueAsync("sale-worker-timeout", "Sale", "cG9z", "c2ln", issued);
+        var attempts = 0;
+        var delivery = new FiscalQueueDeliveryService(fixture.Store, (signed, token) =>
+        {
+            attempts++;
+            return Task.FromException<AtkPosCouponResponse>(new TaskCanceledException("ATK response timed out after request transmission"));
+        });
+
+        Assert.Equal(1, await delivery.DeliverDueAsync(issued));
+        var uncertain = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(FiscalQueueStatus.NeedsReconciliation, uncertain.Status);
+        Assert.Empty(await fixture.Store.GetDueAsync(issued.AddHours(49)));
+        Assert.Equal(1, attempts);
+    }
+
     private sealed class QueueFixture : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(
