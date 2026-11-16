@@ -46,6 +46,8 @@ export type AtkReceiptSaleItem = {
 export type AtkReceiptDependencies = {
   authenticate(token: string): Promise<AtkReceiptActor | null>;
   isMember(businessId: string, userId: string): Promise<boolean>;
+  isOwner(businessId: string, userId: string): Promise<boolean>;
+  registerCertificate(args: Record<string, unknown>): Promise<string>;
   getBusiness(businessId: string): Promise<AtkReceiptBusiness | null>;
   getPos(businessId: string, posUuid: string): Promise<AtkReceiptPos | null>;
   getCertificate(businessId: string, posUuid: string): Promise<AtkReceiptCertificate | null>;
@@ -217,6 +219,52 @@ export async function computeSaleSnapshotSha256(
   const canonical = fields.map(canonicalField).join("|");
   return sha256(new TextEncoder().encode(canonical));
 }
+type CertificateAttestation = {
+  version: number; businessId: string; posUuid: string; businessNui: number;
+  branchId: number; posNumber: number; applicationId: number;
+  certificatePem: string; certificateThumbprint: string; spkiBase64: string; issuedAtUtc: string;
+};
+type DerNode = { tag: number; start: number; contentStart: number; end: number };
+function derNode(bytes: Uint8Array, offset: number): DerNode {
+  if (offset + 2 > bytes.length) throw new AtkReceiptRequestError(400, "ATK certificate DER is truncated.");
+  const tag = bytes[offset];
+  let length = bytes[offset + 1];
+  let contentStart = offset + 2;
+  if ((length & 0x80) !== 0) {
+    const count = length & 0x7f;
+    if (count === 0 || count > 4 || contentStart + count > bytes.length)
+      throw new AtkReceiptRequestError(400, "ATK certificate DER length is invalid.");
+    length = 0;
+    for (let i = 0; i < count; i++) length = length * 256 + bytes[contentStart + i];
+    contentStart += count;
+  }
+  const end = contentStart + length;
+  if (end > bytes.length) throw new AtkReceiptRequestError(400, "ATK certificate DER is truncated.");
+  return { tag, start: offset, contentStart, end };
+}
+function derChildren(bytes: Uint8Array, parent: DerNode): DerNode[] {
+  const result: DerNode[] = [];
+  let offset = parent.contentStart;
+  while (offset < parent.end) {
+    const child = derNode(bytes, offset);
+    result.push(child);
+    offset = child.end;
+  }
+  if (offset !== parent.end) throw new AtkReceiptRequestError(400, "ATK certificate DER structure is invalid.");
+  return result;
+}
+function certificateSpki(der: Uint8Array): Uint8Array {
+  const root = derNode(der, 0);
+  if (root.tag !== 0x30 || root.end !== der.length) throw new AtkReceiptRequestError(400, "ATK certificate is not a DER X.509 certificate.");
+  const rootChildren = derChildren(der, root);
+  const tbs = rootChildren[0];
+  if (!tbs || tbs.tag !== 0x30) throw new AtkReceiptRequestError(400, "ATK certificate TBSCertificate is missing.");
+  const fields = derChildren(der, tbs);
+  const offset = fields[0]?.tag === 0xa0 ? 6 : 5;
+  const spki = fields[offset];
+  if (!spki || spki.tag !== 0x30) throw new AtkReceiptRequestError(400, "ATK certificate SubjectPublicKeyInfo is missing.");
+  return der.slice(spki.start, spki.end);
+}
 function parseAttestation(bytes: Uint8Array): Attestation {
   let value: unknown;
   try {
@@ -261,11 +309,69 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
       const action = body.action;
       const businessId = typeof body.businessId === "string" ? body.businessId : "";
       const posUuid = typeof body.posUuid === "string" ? body.posUuid : "";
+      if (action === "register") {
+        if (!UUID.test(businessId) || !UUID.test(posUuid))
+          return json(400, { error: "Business and POS identity is invalid." }, headers);
+        if (!(await deps.isOwner(businessId, actor.id)))
+          return json(403, { error: "Only a business owner can register the ATK POS certificate." }, headers);
+        const [business, pos] = await Promise.all([deps.getBusiness(businessId), deps.getPos(businessId, posUuid)]);
+        if (!business || !pos || pos.id !== posUuid || pos.businessId !== businessId)
+          return json(404, { error: "Business or POS was not found." }, headers);
+        const attestationPayloadBase64 = typeof body.certificateAttestationPayloadBase64 === "string" ? body.certificateAttestationPayloadBase64 : "";
+        const attestationSignatureBase64 = typeof body.certificateAttestationSignatureBase64 === "string" ? body.certificateAttestationSignatureBase64 : "";
+        const attestationBytes = decodeBase64(attestationPayloadBase64, "ATK certificate attestation");
+        const attestationSignature = decodeBase64(attestationSignatureBase64, "ATK certificate attestation signature");
+        let certificateAttestation: CertificateAttestation;
+        try { certificateAttestation = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(attestationBytes)) as CertificateAttestation; }
+        catch { throw new AtkReceiptRequestError(400, "ATK certificate attestation JSON is invalid."); }
+        if (!certificateAttestation || certificateAttestation.version !== 1 ||
+            certificateAttestation.businessId !== businessId || certificateAttestation.posUuid !== posUuid ||
+            numeric(certificateAttestation.businessNui) !== numeric(business.nui) ||
+            numeric(certificateAttestation.branchId) !== pos.branchId ||
+            numeric(certificateAttestation.posNumber) !== pos.posNumber ||
+            numeric(certificateAttestation.applicationId) !== numeric(pos.applicationId) ||
+            typeof certificateAttestation.certificatePem !== "string" ||
+            typeof certificateAttestation.certificateThumbprint !== "string" ||
+            typeof certificateAttestation.spkiBase64 !== "string" ||
+            typeof certificateAttestation.issuedAtUtc !== "string") {
+          return json(409, { error: "ATK certificate attestation does not match the selected business POS." }, headers);
+        }
+        const issuedAt = new Date(certificateAttestation.issuedAtUtc);
+        if (!Number.isFinite(issuedAt.getTime()) || Math.abs(Date.now() - issuedAt.getTime()) > 5 * 60_000)
+          return json(409, { error: "ATK certificate attestation is stale; refresh it from the local POS Agent." }, headers);
+        const certDer = certificateDer(certificateAttestation.certificatePem);
+        const thumbprint = (await sha1(certDer)).toUpperCase();
+        if (thumbprint !== certificateAttestation.certificateThumbprint.replace(/:/g, "").toUpperCase())
+          return json(403, { error: "ATK certificate thumbprint does not match its DER certificate." }, headers);
+        const extractedSpki = certificateSpki(certDer);
+        const suppliedSpki = decodeBase64(certificateAttestation.spkiBase64, "ATK certificate public key");
+        if (toHex(extractedSpki) !== toHex(suppliedSpki))
+          return json(403, { error: "POS Agent public key does not match the public key embedded in the ATK certificate." }, headers);
+        const spkiHash = await sha256(extractedSpki);
+        let publicKey: CryptoKey;
+        try {
+          publicKey = await crypto.subtle.importKey("spki", toArrayBuffer(extractedSpki),
+            { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+        } catch { return json(400, { error: "ATK certificate does not contain a supported ECDSA P-256 public key." }, headers); }
+        const signatureValid = await crypto.subtle.verify(
+          { name: "ECDSA", hash: "SHA-256" }, publicKey,
+          toArrayBuffer(attestationSignature), toArrayBuffer(attestationBytes),
+        );
+        if (!signatureValid) return json(403, { error: "POS Agent certificate proof-of-possession signature is invalid." }, headers);
+        const registeredId = await deps.registerCertificate({
+          p_actor_id: actor.id, p_business_id: businessId, p_pos_id: posUuid,
+          p_application_id: numeric(pos.applicationId),
+          p_certificate_pem: certificateAttestation.certificatePem,
+          p_certificate_thumbprint: thumbprint, p_spki_sha256: spkiHash,
+        });
+        return json(200, { ok: true, certificateId: registeredId, certificateThumbprint: thumbprint, status: "active" }, headers);
+      }
+      if (action !== "queue" && action !== "accepted")
+        return json(400, { error: "Fiscal receipt action is invalid." }, headers);
       const saleId = typeof body.saleId === "string" ? body.saleId : "";
       const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey : "";
       const couponId = numeric(body.couponId as string | number | undefined);
-      if ((action !== "queue" && action !== "accepted") || !UUID.test(businessId) ||
-          !UUID.test(posUuid) || !UUID.test(saleId) || !idempotencyKey || idempotencyKey.length > 256 ||
+      if (!UUID.test(businessId) || !UUID.test(posUuid) || !UUID.test(saleId) || !idempotencyKey || idempotencyKey.length > 256 ||
           !Number.isSafeInteger(couponId) || couponId <= 0) {
         return json(400, { error: "Fiscal document identity or action is invalid." }, headers);
       }
@@ -385,7 +491,7 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           return json(409, { error: "Offline coupon is outside the 48-hour recovery window." }, headers);
         }
         const documentId = await deps.queueReceipt({
-          p_business_id: businessId, p_sale_id: saleId, p_coupon_id: couponId,
+          p_actor_id: actor.id, p_business_id: businessId, p_sale_id: saleId, p_coupon_id: couponId,
           p_idempotency_key: idempotencyKey, p_signed_payload: attestation.signedPayloadBase64,
           p_signature: attestation.signatureBase64, p_nui_kf: attestation.nuiKf,
           p_citizen_payload: attestation.citizenPayloadBase64,
