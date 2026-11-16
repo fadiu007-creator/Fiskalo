@@ -34,7 +34,7 @@ const uint64Id = (value: string) => {
   if (!/^\d+$/.test(value)) return false;
   try {
     const parsed = BigInt(value);
-    return parsed > 0n && parsed <= BigInt("18446744073709551615");
+    return parsed > BigInt("0") && parsed <= BigInt("18446744073709551615");
   } catch {
     return false;
   }
