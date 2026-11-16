@@ -88,8 +88,8 @@ export async function encryptBrowserFiscalData<T>(scope: string, value: T): Prom
   try {
     const encrypted = await crypto.subtle.encrypt({
       name: "AES-GCM",
-      iv: Uint8Array.from(iv).buffer,
-      additionalData: Uint8Array.from(additionalData).buffer,
+      iv: Uint8Array.from(iv).buffer as ArrayBuffer,
+      additionalData: Uint8Array.from(additionalData).buffer as ArrayBuffer,
       tagLength: 128,
     }, key, plaintext);
     return { version: 1, ivBase64: toBase64(iv), ciphertextBase64: toBase64(new Uint8Array(encrypted)) };
@@ -111,7 +111,7 @@ export async function decryptBrowserFiscalData<T>(scope: string, payload: Encryp
       iv: Uint8Array.from(iv).buffer,
       additionalData: Uint8Array.from(additionalData).buffer,
       tagLength: 128,
-    }, key, Uint8Array.from(ciphertext).buffer);
+    }, key, Uint8Array.from(ciphertext).buffer as ArrayBuffer);
     try {
       return JSON.parse(decoder.decode(plaintext)) as T;
     } finally {
