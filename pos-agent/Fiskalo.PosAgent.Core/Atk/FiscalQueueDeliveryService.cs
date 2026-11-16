@@ -43,7 +43,7 @@ public sealed class FiscalQueueDeliveryService
                 var response = await _submit(signed, cancellationToken);
                 if (response.TransactionId == 0)
                     throw new AtkApiException("ATK returned no transaction_id.", System.Net.HttpStatusCode.BadGateway, "");
-                await _queue.MarkAcceptedAsync(item.IdempotencyKey, response.TransactionId.ToString(), cancellationToken);
+                await _queue.MarkAcceptedAsync(item.IdempotencyKey, response.TransactionId.ToString(), cancellationToken, response.Message);
             }
             catch (AtkApiException ex) when (AtkTransportFailureClassifier.IsDefinitiveRejection(ex.StatusCode))
             {
