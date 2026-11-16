@@ -329,10 +329,10 @@ export default function Home(){
         if(error)throw error;
         if(action==="accepted"){
           await journal.attachFiscalReceipt(record.idempotencyKey,{
-            ...receipt,status:"accepted",transactionId:queueItem.atkTransactionId??undefined
+            ...receipt,status:"accepted",transactionId:attestation.transactionId??undefined
           });
           await journal.markFiscalAccepted(record.idempotencyKey,{
-            status:"accepted",environment:"ATK TEST",transactionId:queueItem.atkTransactionId||""
+            status:"accepted",environment:"ATK TEST",transactionId:attestation.transactionId||""
           });
         }
       }catch(error){
@@ -848,12 +848,12 @@ export default function Home(){
           citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
           qrSvgBase64:fiscal.qrSvgBase64,offlineIssuedAtUtc:fiscal.offlineIssuedAtUtc??null,
           recoveryDeadlineUtc:fiscal.recoveryDeadlineUtc??null,status:"accepted",
-          transactionId:fiscal.transactionId??undefined
+          transactionId:attestation.transactionId??undefined
         });
         await offlineJournal.markFiscalAccepted(checkoutIdempotencyKey,{
-          status:"accepted",environment:"ATK TEST",transactionId:fiscal.transactionId||""
+          status:"accepted",environment:"ATK TEST",transactionId:attestation.transactionId||""
         });
-        setReceipt(current=>current?{...current,submission_state:"accepted",transaction_id:fiscal.transactionId}:current);
+        setReceipt(current=>current?{...current,submission_state:"accepted",transaction_id:attestation.transactionId}:current);
       }
       if(attestation.status==="accepted"){
         setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId);
