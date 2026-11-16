@@ -351,7 +351,7 @@ export default function Article44Page() {
           </div>}
           {monthlyRequired && <div className="article44-notice">
             <strong>Afati i datës 10 të muajit vijues ka kaluar.</strong>
-            <p>Sipas Nenit 44(6), nëse lidhja nuk është rivendosur deri më 10 të muajit pasues, tatimpaguesi duhet t'ia paraqesë ATK-së të gjithë kuponët e pafiskalizuar. Gjenero paketën e kombinuar nga databaza dhe radha lokale e POS Agent, kontrolloje dhe dorëzoje te ATK.</p>
+            <p>Sipas Nenit 44(6), nëse lidhja nuk është rivendosur deri më 10 të muajit pasues, tatimpaguesi duhet t’ia paraqesë ATK-së të gjithë kuponët e pafiskalizuar. Gjenero paketën e kombinuar nga databaza dhe radha lokale e POS Agent, kontrolloje dhe dorëzoje te ATK.</p>
             <p className="article44-muted">Afati: {monthlyDue.display}. Eksporti kërkon POS Agent aktiv në këtë pajisje.</p>
             <button className="article44-primary" disabled={!!exportingIncidentId || busy} onClick={() => void exportMonthlyUnfiscalized(incident)}>{exportingIncidentId === incident.id ? "Duke përgatitur…" : "Eksporto kuponët e pafiskalizuar"}</button>
             <label>Kanal i dorëzimit<select value={monthlyChannel} onChange={e => setMonthlyChannel(e.target.value)}><option value="electronic">Elektronik</option><option value="in_person">Personalisht në zyrën përkatëse</option></select></label>
