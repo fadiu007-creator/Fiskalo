@@ -68,6 +68,8 @@ test("uncertain ATK outcome is locked against blind retry", async () => {
   await journal.markNeedsReconciliation(key, "Timeout after request write");
   await assert.rejects(journal.markFiscalQueued(key), /Reconcile the ATK outcome/);
   assert.equal((await journal.listNeedsReconciliation()).length, 1);
+  await journal.markFiscalAccepted(key,{status:"accepted",environment:"ATK TEST",transactionId:"123456"});
+  assert.equal((await journal.listNeedsReconciliation()).length, 0);
 });
 test("acceptance requires a positive uint64 ATK TEST transaction ID", async () => {
   const journal = new OfflineCheckoutJournal(new MemoryStorage()), key = sale().idempotencyKey;
