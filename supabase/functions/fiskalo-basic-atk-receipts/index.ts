@@ -63,7 +63,7 @@ if (!supabaseUrl || !serviceRoleKey) {
     },
     async getSale(businessId, saleId) {
       const { data, error } = await admin.from("fiskalo_basic_sales")
-        .select("id,business_id,pos_id,coupon_id,status,daily_number,created_at")
+        .select("id,business_id,pos_id,coupon_id,status,daily_number,created_at,checkout_idempotency_key")
         .eq("id", saleId).eq("business_id", businessId).maybeSingle();
       if (error) throw error;
       return data ? {
@@ -74,6 +74,7 @@ if (!supabaseUrl || !serviceRoleKey) {
         status: data.status,
         dailyNumber: data.daily_number,
         createdAt: data.created_at,
+        checkoutIdempotencyKey: data.checkout_idempotency_key,
       } : null;
     },
     async queueReceipt(args) {
