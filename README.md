@@ -37,6 +37,7 @@ The following new migrations have also been applied to the live project and thei
 - `0029_fiskalo_basic_split_payment_allocations.sql` — validated split-tender online/offline checkout and synchronization.
 - `0030_fiskalo_article44_scope_and_offline_payment_integrity.sql` — limits Article 44 exports to eligible internet interruptions and hardens offline payment retry checks.
 - `0031_fiskalo_article44_deadline_boundary.sql` — fixes the exact midnight boundary after the 10th day.
+- `0032_fiskalo_article44_monthly_export_proof_guard.sql` — enforces both the JSON/CSV export and actual ATK filing proof at the database boundary.
 
 Temporary, rolled-back Supabase integration checks exercised online and offline split tender, idempotent retries, rejection of changed payment allocations, Article 44 incident creation, export authorization, deadline enforcement and evidence requirements. No test business or sale records were retained.
 
