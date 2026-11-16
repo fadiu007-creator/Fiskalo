@@ -73,11 +73,12 @@ begin
     v_total_cents:=round(v_existing.total*100)::bigint;
     v_allocations:=fiskalo_private.fiskalo_basic_normalize_payment_allocations(v_total_cents,p_payment_allocations);
     v_payment_method:=case when jsonb_array_length(v_allocations)=1 then v_allocations->0->>'method' else 'mixed' end;
-    if v_existing.payment_allocations is not null and v_existing.payment_allocations is distinct from v_allocations then
+    if v_existing.payment_allocations is not null and
+       (v_existing.payment_allocations is distinct from v_allocations or v_existing.payment_method<>v_payment_method) then
       raise exception 'Checkout idempotency key was retried with different payment allocations';
     end if;
-    if v_existing.payment_method not in (v_payment_method,'cash') and v_existing.payment_allocations is not null then
-      raise exception 'Checkout idempotency key has a different payment method';
+    if v_existing.payment_allocations is null and v_existing.payment_method<>v_payment_method then
+      raise exception 'Legacy checkout idempotency key has a different payment method';
     end if;
     update public.fiskalo_basic_sales set payment_method=v_payment_method,payment_allocations=v_allocations
       where id=v_existing.id and (payment_allocations is null or payment_method='cash');
@@ -172,7 +173,9 @@ begin
        v_existing.operator_identifier<>trim(p_operator_identifier) or
        v_existing.created_at<>p_created_at or
        v_existing.checkout_request_lines is distinct from v_normalized_lines or
-       (v_existing.payment_allocations is not null and v_existing.payment_allocations is distinct from v_allocations) then
+       (v_existing.payment_allocations is not null and
+         (v_existing.payment_allocations is distinct from v_allocations or v_existing.payment_method<>v_payment_method)) or
+       (v_existing.payment_allocations is null and v_existing.payment_method<>v_payment_method) then
       raise exception 'Offline checkout key already exists with different fiscal identity or payment allocation';
     end if;
     if exists(
