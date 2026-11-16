@@ -24,7 +24,7 @@ begin
      position('p_offline_issued_at>now()' in replace(def,' ',''))=0 then
     raise exception 'Offline queue writer must bind an active POS certificate and reject future issue timestamps';
   end if;
-  if position('p_offline_issued_at+interval ''48 hours''<=now()' in replace(def,' ',''))>0 then
+  if position('p_offline_issued_at + interval ''48 hours'' <= now()' in def)>0 then
     raise exception 'Offline queue writer must not discard documents after the 48-hour escalation deadline';
   end if;
 
