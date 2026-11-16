@@ -1,54 +1,66 @@
 # Fiskalo — Basic ATK MVP
 
-A deliberately small Kosovo fiscalization product focused on ATK POS onboarding, signed fiscal coupons, corrections, offline retention and receipt delivery.
+Kosovo fiscalization software focused on owner/cashier workflows, ATK TEST coupons, signed receipts, online/offline checkout, reconciliation and reporting.
 
-This repository is the Basic MVP implementation. It is separate from `Fiskalo1`; no files or deployment settings in `Fiskalo1` are modified. The current `Fiskalo` repository does not contain the former Full application source or a Full/Basic selector. No Full application code has been removed; a selectable Full version remains blocked until its source is located and safely integrated.
+## Product and repository status
 
-## Scope
+This repository's current `main` application is the **Basic MVP**. It remains separate from `Fiskalo1`; no files or deployment settings in `Fiskalo1` are modified.
 
-- Owner and cashier access
-- Business and POS setup
-- Product catalogue with official ATK unit, item-category and VAT mappings
-- POS checkout and payment recording
-- ATK Sale, Cancel and Return workflows
-- Device-held private keys and ATK certificates
-- Encrypted offline fiscal journal, safe recovery and reconciliation
-- Basic receipts and sales/fiscal status reporting
+The Full application UI is not yet integrated into `main`. A substantial Full/Basic release-candidate branch exists, but it cannot be merged blindly because it removes or replaces the current Windows POS Agent and offline implementation. The Full UI must be reconciled with the current Basic implementation before a selectable Full/Basic launcher can be considered complete.
 
-Supplier purchasing, advanced inventory, subscriptions, advanced cash management, ARBK lookup and multi-client parity are intentionally out of scope.
+## Implemented in source
+
+- Owner and cashier access, business and POS setup.
+- Basic product catalogue, checkout, stock deduction and sale history.
+- Online and local-first offline checkout using the paired Windows POS Agent.
+- Mixed-tender payments: cash, card, bank transfer, voucher, cheque and cryptocurrency, with integer-cent reconciliation and idempotent online/offline writes.
+- ATK TEST Sale submission when the POS, certificate and local Agent are correctly paired.
+- ATK coupon signing, NUIKF, QR payload and receipt generation.
+- RKS MF receipt mark, OFFLINE marking, business/operator identity, SEF identifier, daily number and transaction details.
+- DPAPI-protected local private key and encrypted local fiscal queue.
+- Pre-reserved CouponIds and Kosovo-local daily-number ranges for offline issuance.
+- Background delivery, safe retry, ambiguous-result reconciliation and cloud synchronization.
+- Article 44 owner workflow: outage register, 48-hour notice tracking, private evidence storage, 10th-of-following-month un-fiscalized coupon export and manual submission record.
+- Server-side verification of POS Agent attestations before offline queue/ATK acceptance records are written.
+- Basic inventory, supplier purchases and expense source.
+
+## Verified against the live Supabase project
+
+The existing Supabase project `zikos` was inspected directly. Its migration ledger contains the earlier Fiskalo Basic/Full feature migrations and the offline fiscalization migrations.
+
+The following new migrations have also been applied to the live project and their SQL regression scripts executed:
+
+- `0025_fiskalo_revoke_trigger_function_api_execute.sql` — removes direct API execution from trigger-only helper functions.
+- `0026_fiskalo_basic_article44_incident_register.sql` — owner-only Article 44 incident and private evidence register.
+- `0027_fiskalo_basic_article44_monthly_untransmitted_submission.sql` — 48-hour restoration rule and monthly submission evidence.
+- `0028_fiskalo_basic_article44_unfiscalized_export.sql` — export of every unaccepted offline document, including rejected documents.
+- `0029_fiskalo_basic_split_payment_allocations.sql` — validated split-tender online/offline checkout and synchronization.
+- `0030_fiskalo_article44_scope_and_offline_payment_integrity.sql` — limits Article 44 exports to eligible internet interruptions and hardens offline payment retry checks.
+- `0031_fiskalo_article44_deadline_boundary.sql` — fixes the exact midnight boundary after the 10th day.
+
+Temporary, rolled-back Supabase integration checks exercised online and offline split tender, idempotent retries, rejection of changed payment allocations, Article 44 incident creation, export authorization, deadline enforcement and evidence requirements. No test business or sale records were retained.
+
+The repository's older numbered migration files do not all share the timestamp/version identifiers in the live Supabase migration ledger. For a fresh installation, migration-history reconciliation and a clean-database replay are still required; do not assume that copying only the latest migrations creates the full existing `zikos` schema.
+
+## Remaining release gates
+
+- Official ATK unit/category dropdown catalogue with current source/version evidence.
+- Cancellation and return POS screens, with end-to-end ATK TEST correction/return scenarios.
+- Full application UI restoration and a safe selectable Full/Basic launcher.
+- Server-signed connectivity heartbeat so outage start and the 48-hour clock are independently verifiable; the Article 44 page currently records the owner-reported start time.
+- Actual ATK TEST acceptance using ATK-issued certificates and registered POS devices, including QR scan/verification and exactly-once transaction confirmation.
+- Certificate-chain trust anchor, expiry, renewal and revocation validation against ATK's current process.
+- Physical printer testing across supported thermal widths, offline receipt verification and restart/recovery tests.
+- Cloudflare production deployment and live smoke tests for the exact latest commit.
+- Clean-database migration replay, authenticated owner/cashier RLS tests and tenant-isolation tests.
+- Provider/software certification and production authorization.
 
 ## Compliance boundary
 
-A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued. See `docs/ATK-MVP-SCOPE.md`.
+A passing build, internal signature test or single accepted TEST coupon is not ATK certification. Production fiscalization remains disabled until ATK has approved the provider and software and production credentials are issued.
 
-
-## Current implementation state
-
-- [x] Clean Next.js/Cloudflare application foundation
-- [x] Supabase email/password login UI
-- [x] Owner-only worker invitation and team roster source through a Supabase Edge Function; deployment and live email-delivery verification remain release gates.
-- [x] Isolated `fiskalo_basic_*` schema and owner onboarding / atomic paid-sale RPCs
-- [x] Basic product catalogue and ATK field storage (official dropdown catalogue still needs a verified ATK source)
-- [x] POS checkout with stock deduction and payment recording
-- [x] Automatic ATK TEST Sale submission after payment when a verified POS, matching TEST certificate and paired local POS Agent are available
-- [x] Accepted ATK TEST response is persisted only when a valid transaction ID is returned
-- [x] Windows POS Agent source: local DPAPI key storage, encrypted fiscal queue, ATK TEST client and thermal printer support
-- [x] Browser-session restoration for the paired local POS Agent
-- [x] Migrations 0004–0006 are documented as applied to the existing Supabase project `zikos`; migrations 0014–0017 are committed but have not been executed against the database. Treat database migration execution and authenticated RLS integration testing as separate release gates.
-- [x] Correction coupon factory and durable accepted-correction journal/RPC source (migration 0015 committed; not applied; cancellation/return UI and end-to-end submission tests remain open)
-- [x] Basic inventory ledger, supplier purchases and expenses source (migrations 0016–0017 committed; not applied; owner/RLS integration tests remain open)
-- [ ] Official ATK unit/category dropdown catalogue with source/version evidence
-- [ ] Apply and verify migrations 0014–0017 on the approved Fiskalo Supabase project; run SQL contract tests 0014–0017 and authenticated tenant-isolation tests
-- [ ] Complete ambiguous-submission reconciliation UI and authority-request export
-- [ ] Complete cancellation/return POS workflow using the existing correction-document factory
-- [ ] Deploy `supabase/functions/fiskalo-basic-workers` to the approved Supabase project and verify owner-only worker invitation/listing with real Auth email delivery
-- [ ] Verify physical POS installation, printer, offline recovery and ATK TEST acceptance
-- [ ] Cloudflare deployment and live smoke tests
-
-The online ATK TEST Sale path and the local-first Windows offline fiscalization source are implemented. Offline issuance includes pre-reserved CouponIds and Kosovo daily-number ranges, DPAPI-protected local signing, durable signed-document queuing, retry/reconciliation safeguards, and cloud synchronization. This is not yet evidence of live ATK TEST acceptance: real ATK-issued certificate/POS scenarios, QR verification, exactly-once ATK transaction recording, certificate-chain renewal/revocation checks, and outage/recovery acceptance tests remain release gates. Cancel/Return UI, official catalogue dropdowns, authority exports, Android support, live deployment and production submission are not complete. Basic inventory, purchases and expenses are implemented in source but remain unavailable until migrations 0016–0017 are applied and verified. Migrations 0004–0006 are documented as applied to the existing `zikos` project; migrations 0014–0017 are committed but not executed there. All Basic objects use the isolated `fiskalo_basic_*` namespace and do not alter the existing `fiskalo_*`, `dhuroje_*`, `sjelle_*`, `kafja_*` or `mikrotekos_*` tables. A paid sale is marked fiscalized only after ATK returns an accepted response with a valid transaction ID and the database persists it.
-
-A successful build or TEST coupon is not ATK certification. Production fiscalization stays disabled until the provider and solution are authorized/certified and production credentials are issued.
-
-## Database security migration
-
-Migration `supabase/migrations/0004_fiskalo_basic_security_hardening.sql` has been applied to Supabase project `zikos`; its catalog/privilege regression script passed there. The private helper schema must remain outside the exposed Data API schemas. Full authenticated owner/cashier and cross-tenant RLS integration tests are still required before enabling cashier provisioning.
+See:
+- [Article 44 implementation and limits](docs/ATK-ARTICLE-44.md)
+- [Offline fiscalization architecture](docs/ATK-OFFLINE-ARCHITECTURE.md)
+- [Basic MVP scope](docs/ATK-MVP-SCOPE.md)
+- [Official ATK C# POS sample](https://github.com/fiskalizimi/pos-csharp)
