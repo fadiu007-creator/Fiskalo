@@ -227,7 +227,7 @@ export default function Home(){
       }
       if(sale.checkout_idempotency_key===checkoutKey){
         setCart({});setCheckoutKey("");setCheckoutAttempted(false);
-        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+        localStorage.removeItem("fiskalo.pendingCheckout."+business.id);
       }
     }
   },[supabase,business,agentToken,positions,checkoutKey]);
@@ -601,7 +601,7 @@ export default function Home(){
     const checkoutIdempotencyKey=checkoutKey||crypto.randomUUID();
     setCheckoutKey(checkoutIdempotencyKey);setCheckoutAttempted(true);
     try{
-      sessionStorage.setItem("fiskalo.pendingCheckout."+business.id,JSON.stringify({
+      localStorage.setItem("fiskalo.pendingCheckout."+business.id,JSON.stringify({
         key:checkoutIdempotencyKey,attempted:true,
         lines:cartLines.map(line=>({productId:line.product.id,quantity:line.quantity})),
         payment,selectedPos
@@ -719,7 +719,7 @@ export default function Home(){
           operator_identifier:operatorIdentifier.trim(),document_type:"SHITJE",is_offline:true
         });
         setCart({});setCheckoutKey("");setCheckoutAttempted(false);
-        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+        localStorage.removeItem("fiskalo.pendingCheckout."+business.id);
         setMessage("Kuponi fiskal u nënshkrua dhe u ruajt lokalisht OFFLINE. POS Agent do ta dërgojë automatikisht pas rikthimit të internetit. Afati: "+new Date(deadline).toLocaleString());
         return;
       }
@@ -828,7 +828,7 @@ export default function Home(){
         setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
       }
       setCart({});setCheckoutKey("");setCheckoutAttempted(false);
-      sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+      localStorage.removeItem("fiskalo.pendingCheckout."+business.id);
       await loadWorkspace(user!.id);
     }catch(e){
       const {data:existingSale,error:lookupError}=await supabase!.from("fiskalo_basic_sales")
