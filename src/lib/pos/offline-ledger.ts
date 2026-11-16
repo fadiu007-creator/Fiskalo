@@ -1,3 +1,6 @@
+import { isValidAtkVatClassification } from "../atk/product-tax.ts";
+import { isAtkUnitCode } from "../atk/product-units.ts";
+
 export type OfflinePaymentMethod = "cash" | "card" | "bank_transfer";
 export type OfflineSaleLine = {
   productId: string; description: string; quantityMilli: number; unitPriceMinor: number;
@@ -10,7 +13,7 @@ export type OfflineSaleRecord = {
   subtotalMinor: number; vatTotalMinor: number; totalMinor: number; lines: OfflineSaleLine[];
   cloudSyncState: "pending" | "synced" | "conflict";
   fiscalState: "not_prepared" | "queued" | "accepted" | "rejected" | "needs_reconciliation";
-  serverSaleId?: string; couponId?: number; atkTransactionId?: string;
+  serverSaleId?: string; couponId?: string; atkTransactionId?: string;
   atkEnvironment?: "ATK TEST"; lastError?: string;
 };
 export type NewOfflineSale = Omit<OfflineSaleRecord,
@@ -27,6 +30,15 @@ export class OfflineSaleConflictError extends Error {
 }
 const nonEmpty = (v: string) => typeof v === "string" && v.trim().length > 0;
 const minor = (v: number) => Number.isSafeInteger(v) && v >= 0;
+const uint64Id = (value: string) => {
+  if (!/^\d+$/.test(value)) return false;
+  try {
+    const parsed = BigInt(value);
+    return parsed > 0n && parsed <= 18446744073709551615n;
+  } catch {
+    return false;
+  }
+};
 export function validateNewOfflineSale(input: NewOfflineSale): void {
   if (!nonEmpty(input.idempotencyKey) || !nonEmpty(input.businessId) ||
       !nonEmpty(input.posId) || !nonEmpty(input.operatorId))
@@ -43,8 +55,13 @@ export function validateNewOfflineSale(input: NewOfflineSale): void {
   let net = 0, vat = 0, gross = 0;
   for (const line of input.lines) {
     if (!nonEmpty(line.productId) || !nonEmpty(line.description) ||
-        !nonEmpty(line.atkUnitCode) || !nonEmpty(line.atkCategoryCode) || !nonEmpty(line.atkVatCode))
-      throw new Error("Every offline sale line requires a product snapshot and ATK codes.");
+        !nonEmpty(line.atkCategoryCode) || line.atkCategoryCode.length > 128 ||
+        /[\u0000-\u001f]/.test(line.atkCategoryCode))
+      throw new Error("Every offline sale line requires a product snapshot and ATK category code.");
+    if (!isAtkUnitCode(line.atkUnitCode))
+      throw new Error("Offline sale contains an unrecognized ATK measurement-unit code.");
+    if (!isValidAtkVatClassification(line.atkVatCode, line.vatRateBasisPoints / 100))
+      throw new Error("Offline sale contains an invalid ATK VAT code/rate combination.");
     if (!Number.isSafeInteger(line.quantityMilli) || line.quantityMilli <= 0 ||
         !minor(line.unitPriceMinor) || !Number.isSafeInteger(line.vatRateBasisPoints) ||
         line.vatRateBasisPoints < 0 || !minor(line.lineNetMinor) || !minor(line.lineVatMinor) ||
@@ -76,9 +93,9 @@ export class OfflineCheckoutJournal {
       throw error;
     }
   }
-  async markCloudSynced(key: string, serverSaleId: string, couponId: number): Promise<OfflineSaleRecord> {
-    if (!nonEmpty(serverSaleId) || !Number.isSafeInteger(couponId) || couponId <= 0)
-      throw new Error("A server sale ID and positive coupon ID are required.");
+  async markCloudSynced(key: string, serverSaleId: string, couponId: string): Promise<OfflineSaleRecord> {
+    if (!nonEmpty(serverSaleId) || !uint64Id(couponId))
+      throw new Error("A server sale ID and positive uint64 coupon ID are required.");
     return this.mutate(key, r => {
       if (r.cloudSyncState === "conflict") throw new OfflineSaleConflictError("A conflicted sale cannot be marked synchronized.");
       if (r.serverSaleId && (r.serverSaleId !== serverSaleId || r.couponId !== couponId))
