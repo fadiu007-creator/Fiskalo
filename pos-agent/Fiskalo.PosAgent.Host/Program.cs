@@ -279,37 +279,29 @@ app.MapPost(OfflineProvisionPath, async (OfflineReservationProvisionRequest requ
             return JsonDocument.Parse(responseBody);
         }
 
-        using var couponResponse = await CallRpc("fiskalo_basic_reserve_offline_coupon_ids", new
+        // One server transaction reserves all CouponIds and every daily range.
+        // A failed date reservation cannot strand a partial batch on the server.
+        using var capacityResponse = await CallRpc("fiskalo_basic_reserve_offline_capacity", new
         {
-            p_business_id = request.BusinessId, p_pos_id = request.PosUuid, p_count = request.CouponCount
+            p_business_id = request.BusinessId, p_pos_id = request.PosUuid,
+            p_coupon_count = request.CouponCount, p_days_ahead = request.DaysAhead
         });
-        var couponRoot = couponResponse.RootElement;
-        if (couponRoot.ValueKind != JsonValueKind.Array || couponRoot.GetArrayLength() != 1 ||
-            !couponRoot[0].TryGetProperty("coupon_ids", out var couponArray) || couponArray.ValueKind != JsonValueKind.Array)
-            return Results.Problem("Supabase returned an invalid CouponId reservation response.", statusCode: StatusCodes.Status502BadGateway);
+        var capacityRoot = capacityResponse.RootElement;
+        if (capacityRoot.ValueKind != JsonValueKind.Object ||
+            !capacityRoot.TryGetProperty("coupon_ids", out var couponArray) || couponArray.ValueKind != JsonValueKind.Array ||
+            !capacityRoot.TryGetProperty("daily_ranges", out var dailyArray) || dailyArray.ValueKind != JsonValueKind.Array)
+            return Results.Problem("Supabase returned an invalid atomic offline-capacity reservation response.", statusCode: StatusCodes.Status502BadGateway);
         var couponIds = couponArray.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String
             ? ulong.Parse(x.GetString()!) : x.GetUInt64()).ToArray();
         if (couponIds.Length != request.CouponCount || couponIds.Any(x => x == 0) || couponIds.Distinct().Count() != couponIds.Length)
             return Results.Problem("Supabase returned an incomplete or invalid CouponId reservation.", statusCode: StatusCodes.Status502BadGateway);
-
-        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Belgrade");
-        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, tz).DateTime);
-        var dailyRanges = new List<OfflineDailyNumberPool>();
-        for (var day = 0; day <= request.DaysAhead; day++)
-        {
-            var date = today.AddDays(day).ToString("yyyy-MM-dd");
-            using var dailyResponse = await CallRpc("fiskalo_basic_reserve_offline_daily_numbers", new
-            {
-                p_business_id = request.BusinessId, p_pos_id = request.PosUuid,
-                p_business_date = date, p_count = request.CouponCount
-            });
-            var dailyRoot = dailyResponse.RootElement;
-            if (dailyRoot.ValueKind != JsonValueKind.Array || dailyRoot.GetArrayLength() != 1)
-                return Results.Problem("Supabase returned an invalid daily-number reservation response.", statusCode: StatusCodes.Status502BadGateway);
-            var first = dailyRoot[0].GetProperty("first_number").GetInt64();
-            var last = dailyRoot[0].GetProperty("last_number").GetInt64();
-            dailyRanges.Add(new OfflineDailyNumberPool(date, first, last));
-        }
+        var dailyRanges = dailyArray.EnumerateArray().Select(x => new OfflineDailyNumberPool(
+            x.GetProperty("business_date").GetString() ?? throw new JsonException("Missing business_date."),
+            x.GetProperty("first_number").GetInt64(),
+            x.GetProperty("last_number").GetInt64())).ToList();
+        if (dailyRanges.Count != request.DaysAhead + 1 ||
+            dailyRanges.Any(x => x.LastNumber - x.NextNumber + 1 != request.CouponCount))
+            return Results.Problem("Supabase returned incomplete daily-number reservations.", statusCode: StatusCodes.Status502BadGateway);
 
         await reservationStore.ImportAsync(request.BusinessId, request.PosUuid, installation.Nui,
             installation.BranchId, installation.PosId, installation.ApplicationId,
