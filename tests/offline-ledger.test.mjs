@@ -25,7 +25,7 @@ const sale = (overrides = {}) => ({
 });
 test("validates immutable offline sale snapshots and integer-cent totals", () => {
   assert.doesNotThrow(() => validateNewOfflineSale(sale()));
-  assert.throws(() => validateNewOfflineSale(sale({ totalMinor: 1179 })), /totals do not reconcile/);
+  assert.throws(() => validateNewOfflineSale(sale({ totalMinor: 1179, paymentAllocations: [{ method: "cash", amountCents: 1179 }] })), /totals do not reconcile/);
   assert.throws(() => validateNewOfflineSale(sale({ lines: [] })), /at least one line/);
   assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkUnitCode: "Cope" }] })), /measurement-unit code/);
   assert.throws(() => validateNewOfflineSale(sale({ lines: [{ ...sale().lines[0], atkVatCode: "D" }] })), /VAT code\/rate/);
@@ -48,7 +48,7 @@ test("records once and rejects idempotency-key content reuse", async () => {
   const journal = new OfflineCheckoutJournal(new MemoryStorage(), () => new Date("2026-11-15T20:01:00.000Z"));
   const first = await journal.recordSale(sale()), duplicate = await journal.recordSale(sale());
   assert.equal(first.idempotencyKey, duplicate.idempotencyKey);
-  await assert.rejects(journal.recordSale(sale({ subtotalMinor: 1001, totalMinor: 1181, lines: [{ ...sale().lines[0], lineNetMinor: 1001, lineTotalMinor: 1181 }] })), OfflineSaleConflictError);
+  await assert.rejects(journal.recordSale(sale({ subtotalMinor: 1001, totalMinor: 1181, paymentAllocations: [{ method: "cash", amountCents: 1181 }], lines: [{ ...sale().lines[0], lineNetMinor: 1001, lineTotalMinor: 1181 }] })), OfflineSaleConflictError);
 });
 test("cloud synchronization and ATK acceptance are independent", async () => {
   const storage = new MemoryStorage();
