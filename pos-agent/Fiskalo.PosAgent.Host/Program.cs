@@ -655,7 +655,14 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf();
         var coupon = PosCouponBuilder.Build(request.Coupon, nuiKf);
         var couponSnapshotSha256 = PosCouponSnapshotHasher.ComputeSha256(request.Coupon, nuiKf);
-        var signed = AtkCouponSigner.SignPosCoupon(coupon, key);
+        if (existing?.CouponSnapshotSha256 is not null &&
+            !string.Equals(existing.CouponSnapshotSha256, couponSnapshotSha256, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_snapshot" });
+        // ECDSA signatures may be randomized. Reuse the exact persisted signed bytes
+        // on every retry; never create a second signature for the same fiscal ID.
+        var signed = existing is null
+            ? AtkCouponSigner.SignPosCoupon(coupon, key)
+            : new SignedAtkCoupon(existing.PayloadBase64, existing.SignatureBase64, "");
         if (!string.IsNullOrWhiteSpace(request.CheckoutIdempotencyKey))
         {
             if (!Guid.TryParse(request.CheckoutIdempotencyKey, out _))
