@@ -23,6 +23,7 @@ export type AtkReceiptSale = {
   status: string;
   dailyNumber: number | string | null;
   createdAt: string;
+  checkoutIdempotencyKey?: string | null;
 };
 export type AtkReceiptDependencies = {
   authenticate(token: string): Promise<AtkReceiptActor | null>;
@@ -257,6 +258,8 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           numeric(attestation.businessNui) !== numeric(business.nui) ||
           numeric(attestation.branchId) !== pos.branchId || numeric(attestation.posNumber) !== pos.posNumber ||
           numeric(attestation.applicationId) !== numeric(pos.applicationId) ||
+          idempotencyKey !== `${attestation.businessNui}:${attestation.branchId}:${attestation.posNumber}:${attestation.couponId}` ||
+          (attestation.checkoutIdempotencyKey !== null && attestation.checkoutIdempotencyKey !== sale.checkoutIdempotencyKey) ||
           attestation.nuiKf !== attestation.verificationNo || !NUIKF.test(attestation.nuiKf) ||
           !attestation.citizenPayloadBase64 || !attestation.citizenSignatureBase64 ||
           attestation.qrSvgBase64.length === 0 || attestation.certificateThumbprint.length < 8 ||
@@ -266,9 +269,18 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
       const citizenPayload = decodeBase64(attestation.citizenPayloadBase64, "CitizenCoupon payload");
       const citizenSignature = decodeBase64(attestation.citizenSignatureBase64, "CitizenCoupon signature");
       const qrBytes = decodeBase64(attestation.qrSvgBase64, "CitizenCoupon QR");
-      if (citizenPayload.length === 0 || citizenSignature.length === 0 || qrBytes.length === 0 ||
-          attestation.qrSvgBase64.length > 1_500_000) {
-        return json(400, { error: "CitizenCoupon signed QR data is invalid." }, headers);
+      if (citizenPayload.length === 0 || citizenSignature.length !== 64 || signatureBytes.length !== 64 ||
+          qrBytes.length === 0 || attestation.qrSvgBase64.length > 1_500_000) {
+        return json(400, { error: "CitizenCoupon or POSCoupon signature data is invalid." }, headers);
+      }
+      const posSignatureValid = await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" }, publicKey, signatureBytes, payloadBytes,
+      );
+      const citizenSignatureValid = await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" }, publicKey, citizenSignature, citizenPayload,
+      );
+      if (!posSignatureValid || !citizenSignatureValid) {
+        return json(403, { error: "POSCoupon or CitizenCoupon signature does not match the active ATK certificate." }, headers);
       }
       if (action === "queue") {
         if (attestation.status !== "queued" || !attestation.offlineIssuedAtUtc || attestation.transactionId) {
