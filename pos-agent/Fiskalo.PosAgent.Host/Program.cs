@@ -34,25 +34,28 @@ var allowedOrigins = (Environment.GetEnvironmentVariable("FISKALO_ALLOWED_ORIGIN
     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .ToHashSet(StringComparer.Ordinal);
 
-var pairingCode = Base64Url(RandomNumberGenerator.GetBytes(32));
-string? sessionToken = null;
-var failedPairAttempts = 0;
-var pairLockedUntil = DateTimeOffset.MinValue;
 var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fiskalo", "PosAgent");
 var keyPath = Path.Combine(dataDirectory, "pos-signing-key.dpapi");
 var queuePath = Path.Combine(dataDirectory, "fiscal-queue.bin");
 var reservationPath = Path.Combine(dataDirectory, "offline-reservations.bin");
 var certificatePath = Path.Combine(dataDirectory, "atk-test-certificate.pem");
 var installationPath = Path.Combine(dataDirectory, "atk-test-installation.dpapi");
+var sessionPath = Path.Combine(dataDirectory, "agent-session.dpapi");
 var installationStore = new WindowsDpapiInstallationStore(installationPath);
+var sessionStore = new WindowsDpapiAgentSessionStore(sessionPath);
 var keyStore = new WindowsDpapiEcdsaKeyStore();
 var queueProtector = new WindowsDpapiFiscalQueueProtector();
 var queueStore = new FiscalQueueStore(queuePath, queueProtector);
 var reservationStore = new OfflineNumberReservationStore(reservationPath, queueProtector);
+string? sessionToken = OperatingSystem.IsWindows() ? sessionStore.Load() : null;
+var pairingCode = sessionToken is null ? Base64Url(RandomNumberGenerator.GetBytes(32)) : "";
+var failedPairAttempts = 0;
+var pairLockedUntil = DateTimeOffset.MinValue;
 
 Console.WriteLine("Fiskalo POS Agent " + AgentVersion);
 Console.WriteLine("Local endpoint: http://127.0.0.1:17843");
-Console.WriteLine("One-time pairing code (keep private): " + pairingCode);
+if (sessionToken is null) Console.WriteLine("One-time pairing code (keep private): " + pairingCode);
+else Console.WriteLine("Existing protected pairing restored; use the previously paired browser.");
 Console.WriteLine("Allowed browser origins: " + string.Join(", ", allowedOrigins));
 
 var builder = WebApplication.CreateBuilder(args);
@@ -148,7 +151,11 @@ app.MapPost(PairPath, (PairRequest request, HttpContext context) =>
         return Results.Unauthorized();
     }
 
-    sessionToken = Base64Url(RandomNumberGenerator.GetBytes(32));
+    var newSessionToken = Base64Url(RandomNumberGenerator.GetBytes(32));
+    try { sessionStore.Save(newSessionToken); }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+    { return Results.Problem("Unable to persist the protected local-agent pairing.", statusCode: StatusCodes.Status500InternalServerError); }
+    sessionToken = newSessionToken;
     pairingCode = ""; // One-time code cannot be reused after successful pairing.
     failedPairAttempts = 0;
     return Results.Ok(new PairResponse(sessionToken, AgentVersion));
@@ -165,7 +172,7 @@ app.MapGet(StatusPath, (HttpContext context) =>
         version = AgentVersion,
         paired = true,
         fiscalizationEnabled = false,
-        capabilities = new[] { "health", "secure-local-pairing", "windows-dpapi-key-csr", "encrypted-queue-inspection", "manual-queue-reconciliation", "atk-test-coupon-submission", "thermal-printer-windows-spooler", "thermal-printer-lan-9100", "thermal-printer-test" },
+        capabilities = new[] { "health", "secure-local-pairing", "windows-dpapi-key-csr", "encrypted-queue-inspection", "manual-queue-reconciliation", "atk-test-coupon-submission", "encrypted-offline-number-reservations", "restart-persistent-pairing", "thermal-printer-windows-spooler", "thermal-printer-lan-9100", "thermal-printer-test" },
         windowsKeyStoreAvailable = OperatingSystem.IsWindows(),
         signingKeyInitialized = OperatingSystem.IsWindows() && File.Exists(keyPath),
         queueInitialized = OperatingSystem.IsWindows() && File.Exists(queuePath),
