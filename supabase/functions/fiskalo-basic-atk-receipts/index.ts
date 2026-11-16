@@ -49,12 +49,13 @@ if (!supabaseUrl || !serviceRoleKey) {
     },
     async getCertificate(businessId, posUuid) {
       const { data, error } = await admin.from("fiskalo_basic_pos_certificates")
-        .select("application_id,spki_sha256,status,revoked_at")
+        .select("application_id,certificate_pem,spki_sha256,status,revoked_at")
         .eq("business_id", businessId).eq("pos_id", posUuid)
         .order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (error) throw error;
       return data ? {
         applicationId: Number(data.application_id),
+        certificatePem: data.certificate_pem,
         spkiSha256: data.spki_sha256,
         status: data.status,
         revokedAt: data.revoked_at,
