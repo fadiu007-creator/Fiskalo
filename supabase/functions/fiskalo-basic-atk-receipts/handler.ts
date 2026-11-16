@@ -7,6 +7,7 @@ export type AtkReceiptPos = {
   posNumber: number;
   applicationId: string | number;
   certificateStatus: string;
+  location: string;
 };
 export type AtkReceiptCertificate = {
   applicationId: number;
@@ -24,6 +25,23 @@ export type AtkReceiptSale = {
   dailyNumber: number | string | null;
   createdAt: string;
   checkoutIdempotencyKey?: string | null;
+  operatorName: string;
+  paymentMethod: string;
+  paymentAllocations: Array<{ method: string; amount_cents: number | string }> | null;
+  subtotal: number | string;
+  vatTotal: number | string;
+  total: number | string;
+};
+export type AtkReceiptSaleItem = {
+  description: string;
+  unitPrice: number | string;
+  quantity: number | string;
+  lineTotal: number | string;
+  lineNet: number | string;
+  lineVat: number | string;
+  unitCode: string;
+  categoryCode: string;
+  vatCode: string;
 };
 export type AtkReceiptDependencies = {
   authenticate(token: string): Promise<AtkReceiptActor | null>;
@@ -32,6 +50,7 @@ export type AtkReceiptDependencies = {
   getPos(businessId: string, posUuid: string): Promise<AtkReceiptPos | null>;
   getCertificate(businessId: string, posUuid: string): Promise<AtkReceiptCertificate | null>;
   getSale(businessId: string, saleId: string): Promise<AtkReceiptSale | null>;
+  getSaleItems(saleId: string): Promise<AtkReceiptSaleItem[]>;
   queueReceipt(args: Record<string, unknown>): Promise<string>;
   recordReceipt(args: Record<string, unknown>): Promise<string>;
 };
@@ -58,6 +77,7 @@ type Attestation = {
   signatureBase64: string;
   payloadSha256: string;
   signatureSha256: string;
+  couponSnapshotSha256: string;
   status: "queued" | "accepted";
   transactionId: string | null;
   atkResponseMessage: string | null;
@@ -133,6 +153,65 @@ function businessDateOf(timestamp: string): string {
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
+function cents(value: string | number): number {
+  const result = Math.round(Number(value) * 100);
+  if (!Number.isSafeInteger(result)) throw new AtkReceiptRequestError(400, "Sale amount is outside the supported range.");
+  return result;
+}
+function fixed(value: string | number, decimals: number): string {
+  const result = Number(value);
+  if (!Number.isFinite(result)) throw new AtkReceiptRequestError(400, "Sale item numeric value is invalid.");
+  return result.toFixed(decimals);
+}
+function canonicalField(value: string | number): string {
+  const text = String(value);
+  return `${new TextEncoder().encode(text).byteLength}:${text}`;
+}
+async function computeSaleSnapshotSha256(
+  businessNui: number, pos: AtkReceiptPos, sale: AtkReceiptSale,
+  saleItems: AtkReceiptSaleItem[], verificationNo: string, dailyNumber: number,
+): Promise<string> {
+  const totalCents = cents(sale.total);
+  const totalTaxCents = cents(sale.vatTotal);
+  const totalNoTaxCents = cents(sale.subtotal);
+  const itemRows = saleItems.map(item => [
+    item.description.trim(), fixed(item.unitPrice, 4), item.unitCode.trim(),
+    fixed(item.quantity, 3), String(cents(item.lineTotal)), item.vatCode, item.categoryCode.trim(),
+  ].join("\\u001f")).sort();
+  const rawPayments = sale.paymentAllocations?.length
+    ? sale.paymentAllocations
+    : [{ method: sale.paymentMethod, amount_cents: totalCents }];
+  const paymentTypes: Record<string, number> = { cash: 1, card: 2, bank_transfer: 6 };
+  const payments = rawPayments.map(payment => {
+    const type = paymentTypes[payment.method];
+    const amount = Number(payment.amount_cents);
+    if (type === undefined || !Number.isSafeInteger(amount) || amount < 0)
+      throw new AtkReceiptRequestError(409, "Sale payment allocation cannot be represented in the signed ATK coupon.");
+    return { type, amount };
+  }).sort((a,b)=>a.type-b.type||a.amount-b.amount);
+  const groups = new Map<string,{base:number;tax:number}>();
+  for (const item of saleItems) {
+    const current = groups.get(item.vatCode) ?? { base: 0, tax: 0 };
+    current.base += cents(item.lineNet);
+    current.tax += cents(item.lineVat);
+    groups.set(item.vatCode,current);
+  }
+  const taxGroups = [...groups.entries()].map(([taxRate,values])=>({taxRate,...values}))
+    .sort((a,b)=>a.taxRate.localeCompare(b.taxRate)||a.base-b.base);
+  const fields: string[] = [
+    "FISKALO-ATK-SNAPSHOT-V1", String(businessNui), String(numeric(sale.couponId)),
+    String(pos.branchId), String(pos.posNumber), String(numeric(pos.applicationId)),
+    String(Math.floor(new Date(sale.createdAt).getTime()/1000)), String(dailyNumber),
+    verificationNo.trim(), "1", pos.location.trim(), sale.operatorName.trim(),
+    String(totalCents), String(totalTaxCents), String(totalNoTaxCents), "0", "0",
+    String(itemRows.length), ...itemRows, String(payments.length),
+    ...payments.map(payment=>[String(payment.type),String(payment.amount)].join("\\u001f")),
+    String(taxGroups.length),
+    ...taxGroups.map(group=>[group.taxRate,String(group.base),String(group.tax)].join("\\u001f")),
+  ];
+  const canonical = fields.map(canonicalField).join("|");
+  return sha256(new TextEncoder().encode(canonical));
+}
 function parseAttestation(bytes: Uint8Array): Attestation {
   let value: unknown;
   try {
@@ -189,9 +268,10 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
         return json(403, { error: "The user is not a member of this business." }, headers);
       }
 
-      const [business, pos, certificate, sale] = await Promise.all([
+      const [business, pos, certificate, sale, saleItems] = await Promise.all([
         deps.getBusiness(businessId), deps.getPos(businessId, posUuid),
         deps.getCertificate(businessId, posUuid), deps.getSale(businessId, saleId),
+        deps.getSaleItems(saleId),
       ]);
       if (!business || !pos || !certificate || !sale) {
         return json(404, { error: "Business, POS, certificate or sale was not found." }, headers);
@@ -237,6 +317,7 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           typeof attestation.signatureBase64 !== "string" ||
           typeof attestation.payloadSha256 !== "string" ||
           typeof attestation.signatureSha256 !== "string" ||
+          typeof attestation.couponSnapshotSha256 !== "string" ||
           typeof attestation.certificateThumbprint !== "string" ||
           typeof attestation.businessDate !== "string" ||
           typeof attestation.nuiKf !== "string" ||
@@ -263,8 +344,15 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           attestation.nuiKf !== attestation.verificationNo || !NUIKF.test(attestation.nuiKf) ||
           !attestation.citizenPayloadBase64 || !attestation.citizenSignatureBase64 ||
           attestation.qrSvgBase64.length === 0 || attestation.certificateThumbprint.length < 8 ||
-          attestation.businessDate !== businessDateOf(sale.createdAt)) {
+          attestation.businessDate !== businessDateOf(sale.createdAt) ||
+          saleItems.length === 0) {
         return json(409, { error: "Signed attestation metadata does not match the registered sale and POS." }, headers);
+      }
+      const snapshotHash = await computeSaleSnapshotSha256(
+        numeric(business.nui), pos, sale, saleItems, attestation.nuiKf, numeric(sale.dailyNumber),
+      );
+      if (snapshotHash !== attestation.couponSnapshotSha256.toLowerCase()) {
+        return json(409, { error: "Cloud sale line, payment or tax snapshot does not match the locally signed ATK coupon." }, headers);
       }
       const citizenPayload = decodeBase64(attestation.citizenPayloadBase64, "CitizenCoupon payload");
       const citizenSignature = decodeBase64(attestation.citizenSignatureBase64, "CitizenCoupon signature");
