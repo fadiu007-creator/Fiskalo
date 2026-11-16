@@ -264,7 +264,7 @@ grant execute on function fiskalo_private.fiskalo_basic_sync_offline_sale(uuid,u
 create or replace function public.fiskalo_basic_sync_offline_sale(
   p_business_id uuid,p_pos_id uuid,p_payment_method text,p_lines jsonb,
   p_checkout_idempotency_key uuid,p_coupon_id bigint,p_daily_number bigint,p_business_date date,
-  p_operator_id uuid,p_operator_name text,p_operator_identifier text,p_expected_snapshot jsonb
+  p_operator_id uuid,p_operator_name text,p_operator_identifier text,p_expected_snapshot jsonb,p_created_at timestamptz
 ) returns uuid language sql security invoker set search_path=pg_catalog,public,pg_temp as $$
   select fiskalo_private.fiskalo_basic_sync_offline_sale(
     p_business_id,p_pos_id,p_payment_method,p_lines,p_checkout_idempotency_key,p_coupon_id,
