@@ -76,6 +76,8 @@ async function setup(status:"queued"|"accepted"="queued"){
   const deps:AtkReceiptDependencies={
     authenticate:async token=>token==="valid-token"?{id:"owner-user"}:null,
     isMember:async()=>true,
+    isOwner:async()=>true,
+    registerCertificate:async()=> "certificate-id",
     getBusiness:async()=>({nui:"123456789"}),
     getPos:async()=>pos,
     getCertificate:async()=>({applicationId:3,spkiSha256:await hash(spki),certificatePem,status:"active",revokedAt:null}),
