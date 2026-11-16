@@ -32,7 +32,7 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 ## Database and device components
 
 - Migration 0018: CouponId and daily-number reservation tables/RPCs.
-- Migration 0019: seven-day daily-number provisioning, daily-number trigger compatibility, daily-number consumption ledger and offline sale synchronization RPC.
+- Migration 0019: daily-number trigger compatibility, daily-number consumption ledger and offline sale synchronization RPC. Migrations 0022-0023: atomic CouponId/daily-range capacity reservation with an invoker-only public wrapper. Migration 0024: owner-only daily-number reservations from today through seven days ahead in Kosovo time.
 - Existing Supabase migrations: server-only Basic POS certificate registry and trusted queue/accepted receipt RPCs.
 - Migration 0020: hardens the existing server-only queue/accepted writers with active-certificate binding and keeps signed receipts synchronizable after the 48-hour escalation deadline.
 - Windows POS Agent: DPAPI-protected private key, certificate, reservation store and fiscal queue; local ATK TEST signing and automatic delivery.
