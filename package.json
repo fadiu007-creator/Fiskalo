@@ -10,7 +10,7 @@
     "cf-build": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs",
+    "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs tests/product-categories.test.mjs",
     "test:offline": "node --experimental-strip-types --test tests/offline-ledger.test.mjs",
     "test:payments": "node --experimental-strip-types --test tests/payment-allocation.test.mjs"
   },
