@@ -214,13 +214,10 @@ export default function Home(){
         for(const item of queued){
           touchedPosIds.add(item.posRecordId);
           if(!active||!navigator.onLine)break;
-          if(Date.parse(item.recoveryDeadlineUtc)<=Date.now()){
-            await updateFiscalOutboxItem(item.idempotencyKey,{
-              state:"needs_reconciliation",
-              lastError:"Afati 48-orësh ka kaluar. Mos e dërgo më; kërko reconciliim me ATK."
-            });
-            continue;
-          }
+          const recoveryOverdue=Date.parse(item.recoveryDeadlineUtc)<=Date.now();
+          // The 48-hour point is an escalation/notification deadline, not permission
+          // to discard or stop synchronizing a signed fiscal document. The local
+          // Agent continues safe delivery; cloud sync must preserve the evidence.
           try{
             if(item.documentType===1){
               await queueCloudTestCoupon(supabase,{
@@ -245,7 +242,10 @@ export default function Home(){
               });
             }
             await updateFiscalOutboxItem(item.idempotencyKey,{
-              state:"cloud_queued",transactionId:null,lastError:null
+              state:"cloud_queued",transactionId:null,
+              lastError:recoveryOverdue
+                ?"Afati 48-orësh ka kaluar. Dokumenti u ruajt në radhën cloud; ndiq procedurën përkatëse të nenit 44 dhe mos e ridërgo manualisht."
+                :null
             });
           }catch(error){
             const conflict=error instanceof CloudAtkError&&[400,401,403,409,422].includes(error.httpStatus);
