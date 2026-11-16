@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient, getSupabasePublicConfig } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
-import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, getLocalOfflineReservationSummary, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { OfflineCheckoutJournal, IndexedDbOfflineSaleStorage } from "@/lib/pos/offline-ledger";
@@ -495,7 +495,7 @@ export default function Home(){
         return {
           productId:line.product.id,description:line.product.name,
           quantityMilli:Math.round(line.quantity*1000),
-          unitPriceMinor:Math.round(line.product.price*100),
+          unitPriceMinor:Math.round(line.product.price*100),unitPrice4dp:Math.round(line.product.price*10000),
           vatRateBasisPoints:Math.round(line.product.vat_rate*100),
           atkUnitCode:line.product.atk_unit_code,
           atkCategoryCode:line.product.atk_item_category_code,
@@ -510,12 +510,83 @@ export default function Home(){
         operatorId:user!.id,createdAtUtc:previousOffline?.createdAtUtc??new Date().toISOString(),
         paymentMethod:payment as "cash"|"card"|"bank_transfer",currency:"EUR",
         subtotalMinor:offlineSubtotal,vatTotalMinor:offlineVat,totalMinor:offlineSubtotal+offlineVat,
-        lines:snapshotLines
+        lines:snapshotLines,
+        fiscalIdentity:{
+          businessNui:Number(business.nui),branchId:pos.branch_id,posNumber:pos.pos_id,
+          applicationId:Number(pos.application_id),location:pos.location,
+          operatorName:operatorName.trim(),operatorIdentifier:operatorIdentifier.trim(),
+          posLabel:pos.label,unitNumber:pos.unit_number??"",
+          businessDate:new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date())
+        }
       });
-      const {error:operatorError}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(operatorError)throw operatorError;
       if(!agentToken||pos.certificate_status!=="certificate_issued"||!pos.verification_no||!pos.application_id)throw new Error("Ky POS nuk ka certifikatë TEST aktive ose POS Agent të lidhur. Shitja nuk u regjistrua.");
       const agent=await getLocalAgentStatus(agentToken);
       if(!agent.paired||!agent.testCertificateInstalled||!agent.testInstallationVerified)throw new Error("POS Agent nuk është i çiftuar ose certifikata TEST nuk është verifikuar. Shitja nuk u regjistrua.");
+      if(!navigator.onLine){
+        const businessDate=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+        const claim=await claimLocalOfflineNumbers(agentToken,{
+          checkoutIdempotencyKey,businessId:business.id,posUuid:pos.id,businessDate
+        });
+        const groupedOffline=new Map<string,{taxRate:string;base:number;tax:number}>();
+        for(const line of snapshotLines){
+          const group=groupedOffline.get(line.atkVatCode)??{taxRate:line.atkVatCode,base:0,tax:0};
+          group.base+=line.lineNetMinor;group.tax+=line.lineVatMinor;groupedOffline.set(line.atkVatCode,group);
+        }
+        const paymentType=payment==="cash"?1:payment==="card"?2:6;
+        const coupon={
+          businessId:Number(business.nui),couponId:claim.couponId,dailyNumber:claim.dailyNumber,
+          branchId:pos.branch_id,location:pos.location,operatorId:operatorName.trim(),posId:pos.pos_id,
+          applicationId:Number(pos.application_id),verificationNo:"",type:1,
+          unixTime:Math.floor(Date.parse(previousOffline?.createdAtUtc??new Date().toISOString())/1000),
+          items:snapshotLines.map(line=>({name:line.description,unitPriceEuro:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,
+            unit:line.atkUnitCode,quantity:line.quantityMilli/1000,lineTotalCents:line.lineTotalMinor,
+            taxRate:line.atkVatCode,itemType:line.atkCategoryCode})),
+          payments:[{type:paymentType,amountCents:offlineSubtotal+offlineVat}],
+          totalCents:offlineSubtotal+offlineVat,
+          taxGroups:Array.from(groupedOffline.values()).map(g=>({taxRate:g.taxRate,totalForTaxCents:g.base,totalTaxCents:g.tax})),
+          totalTaxCents:offlineVat,totalNoTaxCents:offlineSubtotal,totalDiscountCents:0
+        };
+        const fiscalIdempotencyKey=business.nui+":"+pos.branch_id+":"+pos.pos_id+":"+claim.couponId;
+        await offlineJournal.markFiscalQueued(checkoutIdempotencyKey);
+        const fiscal=await submitLocalTestCoupon(agentToken,fiscalIdempotencyKey,coupon);
+        if(!/^[A-Z0-9]{16}$/.test(fiscal.nuiKf||"")||!fiscal.qrSvgBase64||!fiscal.citizenQrPayload)
+          throw new Error("POS Agent nuk prodhoi kuponin e nënshkruar dhe QR. Shitja mbetet në radhën lokale.");
+        const issuedAt=fiscal.offlineIssuedAtUtc??new Date().toISOString();
+        const deadline=fiscal.recoveryDeadlineUtc??new Date(Date.parse(issuedAt)+48*60*60*1000).toISOString();
+        const [citizenPayload,citizenSignature]=fiscal.citizenQrPayload.split("|");
+        await offlineJournal.attachFiscalReceipt(checkoutIdempotencyKey,{
+          couponId:claim.couponId,dailyNumber:claim.dailyNumber,fiscalIdempotencyKey,nuiKf:fiscal.nuiKf,
+          posPayloadBase64:fiscal.detailsBase64,posSignatureBase64:fiscal.signatureBase64,
+          citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
+          qrSvgBase64:fiscal.qrSvgBase64,offlineIssuedAtUtc:issuedAt,recoveryDeadlineUtc:deadline,
+          status:fiscal.status==="accepted"?"accepted":"queued",transactionId:fiscal.transactionId??undefined
+        });
+        if(fiscal.status==="accepted"){
+          await offlineJournal.markFiscalAccepted(checkoutIdempotencyKey,{status:"accepted",environment:"ATK TEST",transactionId:fiscal.transactionId||""});
+        }
+        setReceipt({
+          id:"offline:"+checkoutIdempotencyKey,coupon_id:claim.couponId,status:"paid",
+          subtotal:offlineSubtotal/100,vat_total:offlineVat/100,total:(offlineSubtotal+offlineVat)/100,
+          payment_method:payment,created_at:previousOffline?.createdAtUtc??new Date().toISOString(),
+          pos_id:pos.id,operator_id:user!.id,daily_number:claim.dailyNumber,
+          items:snapshotLines.map(line=>({description:line.description,quantity:line.quantityMilli/1000,
+            unit_price:(line.unitPrice4dp??line.unitPriceMinor*100)/10000,line_net:line.lineNetMinor/100,
+            line_vat:line.lineVatMinor/100,line_total:line.lineTotalMinor/100,
+            atk_unit_code:line.atkUnitCode,atk_vat_code:line.atkVatCode})),
+          transaction_id:fiscal.transactionId,nui_kf:fiscal.nuiKf,
+          submission_state:fiscal.status==="accepted"?"accepted":"queued",offline_issued_at:issuedAt,
+          recovery_deadline_at:deadline,qr_svg_base64:fiscal.qrSvgBase64,
+          pos_identifier:pos.unit_number+"-"+business.nui+"-"+String(pos.pos_id).padStart(2,"0"),
+          unit_number:pos.unit_number,unit_code:pos.branch_id,pos_number:pos.pos_id,
+          unit_name:pos.label,business_address:pos.location,operator_name:operatorName.trim(),
+          operator_identifier:operatorIdentifier.trim(),document_type:"SHITJE",is_offline:true
+        });
+        setCart({});setCheckoutKey("");setCheckoutAttempted(false);
+        sessionStorage.removeItem("fiskalo.pendingCheckout."+business.id);
+        setMessage("Kuponi fiskal u nënshkrua dhe u ruajt lokalisht OFFLINE. POS Agent do ta dërgojë automatikisht pas rikthimit të internetit. Afati: "+new Date(deadline).toLocaleString());
+        return;
+      }
+      const {error:operatorError}=await supabase!.rpc("fiskalo_basic_set_operator_identity",{p_business_id:business.id,p_operator_name:operatorName.trim(),p_operator_identifier:operatorIdentifier.trim()});if(operatorError)throw operatorError;
       const {data:saleId,error}=await supabase!.rpc("fiskalo_basic_create_sale",{p_business_id:business.id,p_pos_id:selectedPos,p_payment_method:payment,p_lines:cartLines.map(x=>({product_id:x.product.id,quantity:x.quantity})),p_idempotency_key:checkoutIdempotencyKey});
       if(error)throw error;
       const [{data:sale,error:saleError},{data:lines,error:linesError}]=await Promise.all([
