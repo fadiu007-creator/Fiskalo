@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getLocalAgentQueue } from "@/lib/pos/local-agent";
 
 type Business = { id: string; name: string; nui: string };
-type Pos = { id: string; label: string; location: string };
+type Pos = { id: string; label: string; location: string; branch_id: number; pos_id: number };
 type Incident = {
   id: string; business_id: string; pos_id: string; outage_started_at: string;
   detected_at: string; cause: string; description: string; restored_at: string | null;
   notice_submitted_at: string | null; notice_channel: string | null;
   authority_reference: string | null; evidence_manifest: Array<{storage_path:string;file_name:string;mime_type:string;size_bytes:number;sha256:string}>;
+  monthly_export_submitted_at: string | null; monthly_export_channel: string | null;
+  monthly_export_reference: string | null; monthly_export_manifest: Array<{file_name:string}>;
 };
 const BUCKET = "fiskalo-article44-evidence";
 const ALLOWED = ["application/pdf", "image/jpeg", "image/png", "text/plain"];
@@ -19,6 +22,20 @@ const fmt = (value: string) => new Intl.DateTimeFormat("sq-XK", {
 }).format(new Date(value));
 const eligible = (cause: string) => ["isp_failure", "equipment_change", "force_majeure"].includes(cause);
 const deadline = (started: string) => new Date(new Date(started).getTime() + 48 * 60 * 60 * 1000);
+function localDateKey(value: string | Date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Belgrade", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+}
+function monthlySubmissionDeadline(started: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Belgrade", year: "numeric", month: "2-digit" })
+    .formatToParts(new Date(started));
+  const year = Number(parts.find(p => p.type === "year")?.value);
+  const month = Number(parts.find(p => p.type === "month")?.value);
+  const tenth = new Date(Date.UTC(year, month, 9));
+  const eleventh = new Date(Date.UTC(year, month, 10));
+  const display = new Intl.DateTimeFormat("sq-XK", { dateStyle: "long", timeZone: "UTC" }).format(tenth);
+  const afterDeadlineKey = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(eleventh);
+  return { display, afterDeadlineKey };
+}
 const causeLabel: Record<string,string> = {
   isp_failure: "Pamundësi e ofruesit të internetit",
   equipment_change: "Nevojitet ndërrimi i pajisjes së lidhjes",
@@ -47,6 +64,11 @@ export default function Article44Page() {
   const [authorityReference, setAuthorityReference] = useState("");
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [pendingManifest, setPendingManifest] = useState<Incident["evidence_manifest"]>([]);
+  const [monthlyChannel, setMonthlyChannel] = useState("electronic");
+  const [monthlyReference, setMonthlyReference] = useState("");
+  const [monthlyFiles, setMonthlyFiles] = useState<File[]>([]);
+  const [monthlyManifest, setMonthlyManifest] = useState<Array<{storage_path:string;file_name:string;mime_type:string;size_bytes:number;sha256:string}>>([]);
+  const [exportingIncidentId, setExportingIncidentId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -92,7 +114,7 @@ export default function Article44Page() {
     void (async () => {
       try {
         const [{ data: posRows, error: posError }, { data: incidentRows, error: incidentError }] = await Promise.all([
-          supabase.from("fiskalo_basic_pos").select("id,label,location").eq("business_id", businessId).order("label"),
+          supabase.from("fiskalo_basic_pos").select("id,label,location,branch_id,pos_id").eq("business_id", businessId).order("label"),
           supabase.from("fiskalo_basic_article44_incidents").select("*").eq("business_id", businessId).order("outage_started_at", { ascending: false }).limit(50)
         ]);
         if (posError) throw posError;
@@ -159,6 +181,101 @@ export default function Article44Page() {
     } finally { setBusy(false); }
   }
 
+  async function exportMonthlyUnfiscalized(incident: Incident) {
+    if (!supabase) return;
+    const business = businesses.find(b => b.id === incident.business_id);
+    const pos = positions.find(p => p.id === incident.pos_id);
+    if (!business || !pos) { setMessage("Biznesi ose POS-i i incidentit nuk u gjet."); return; }
+    setExportingIncidentId(incident.id); setMessage("");
+    try {
+      const to = incident.restored_at ?? new Date().toISOString();
+      const reference = "Article44(6)-" + incident.id.slice(0, 8);
+      const { data, error } = await supabase.rpc("fiskalo_basic_article44_unfiscalized_export", {
+        p_business_id: incident.business_id, p_pos_id: incident.pos_id,
+        p_from: incident.outage_started_at, p_to: to,
+        p_authority_request_reference: reference, p_limit: 5000
+      });
+      if (error) throw error;
+      const token = localStorage.getItem("fiskalo.posAgentToken");
+      if (!token) throw new Error("Lidh POS Agent në këtë pajisje. Eksporti duhet të përfshijë edhe radhën lokale të kuponëve.");
+      const queue = await getLocalAgentQueue(token);
+      const prefix = business.nui + ":" + pos.branch_id + ":" + pos.pos_id + ":";
+      const localItems = queue.items.filter(item => {
+        const issued = item.offlineIssuedAtUtc ? Date.parse(item.offlineIssuedAtUtc) : NaN;
+        return item.idempotencyKey.startsWith(prefix) && Number.isFinite(issued) &&
+          issued >= Date.parse(incident.outage_started_at) && issued < Date.parse(to) &&
+          item.status.toLowerCase() !== "accepted";
+      });
+      const localCouponIds = new Set(localItems.map(item => item.idempotencyKey.split(":").at(-1)));
+      const serverDocuments = ((data as {documents?:Array<{coupon_id?:string}>})?.documents ?? [])
+        .filter(doc => !localCouponIds.has(String(doc.coupon_id)));
+      const bundle = {
+        format: "Fiskalo Article 44(6) un-fiscalized coupon export v1",
+        legal_reference: "Administrative Instruction MFPT No. 01/2026, Article 44(6)",
+        generated_at_utc: new Date().toISOString(),
+        business: { name: business.name, nui: business.nui },
+        pos: { id: pos.id, label: pos.label, branch_id: pos.branch_id, pos_number: pos.pos_id },
+        period: { from_utc: incident.outage_started_at, to_utc_exclusive: to },
+        database_export: { ...data, documents: serverDocuments },
+        local_pos_agent_unaccepted_coupons: localItems,
+        totals: {
+          database_unaccepted_documents: serverDocuments.length,
+          local_agent_unaccepted_documents: localItems.length,
+          database_export_truncated: Boolean((data as {truncated?:boolean})?.truncated),
+          local_agent_queue_overdue: queue.overdueCount
+        },
+        notes: [
+          "The export combines server-synchronized fiscal documents and the local POS Agent queue.",
+          "Review the export against every POS before submitting it to ATK.",
+          "Downloading this file does not submit it to ATK."
+        ]
+      };
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = "fiskalo-article44-unfiscalized-" + incident.id.slice(0, 8) + ".json";
+      document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+      setMessage("Eksporti u krijua: " + (serverDocuments.length + localItems.length) + " dokumente të pafiskalizuara. Kontrolloje dhe dorëzoje te ATK.");
+    } catch (e) { setMessage(e instanceof Error ? e.message : "Eksporti i kuponëve dështoi."); }
+    finally { setExportingIncidentId(""); }
+  }
+
+  async function recordMonthlySubmission(incident: Incident) {
+    if (!supabase) return;
+    if (monthlyFiles.length < 2) { setMessage("Ngarko eksportin JSON/CSV dhe dëshminë e dorëzimit te ATK (PDF, JPG, PNG ose TXT)."); return; }
+    const hasExport = monthlyFiles.some(f => f.type === "application/json" || f.type === "text/csv");
+    const hasProof = monthlyFiles.some(f => ["application/pdf","image/jpeg","image/png","text/plain"].includes(f.type));
+    if (!hasExport || !hasProof) { setMessage("Kërkohet një eksport JSON/CSV dhe së paku një dëshmi e dorëzimit."); return; }
+    if (monthlyFiles.some(f => f.size < 1 || f.size > 10 * 1024 * 1024 || ![...ALLOWED,"application/json","text/csv"].includes(f.type))) {
+      setMessage("Çdo skedar duhet të jetë PDF/JPG/PNG/TXT/JSON/CSV dhe maksimumi 10 MB."); return;
+    }
+    setBusy(true); setMessage("");
+    try {
+      let manifest = monthlyManifest;
+      if (!manifest.length) {
+        manifest = [];
+        for (const file of monthlyFiles) {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100) || "evidence";
+          const path = incident.business_id + "/" + incident.id + "/monthly-" + crypto.randomUUID() + "-" + safeName;
+          const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type });
+          if (uploadError) throw uploadError;
+          const hash = hex(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
+          manifest.push({ storage_path:path,file_name:file.name,mime_type:file.type,size_bytes:file.size,sha256:hash });
+        }
+        setMonthlyManifest(manifest);
+      }
+      const { error } = await supabase.rpc("fiskalo_basic_record_article44_monthly_submission", {
+        p_incident_id: incident.id, p_submission_channel: monthlyChannel,
+        p_authority_reference: monthlyReference.trim() || null, p_evidence_manifest: manifest
+      });
+      if (error) throw error;
+      setMonthlyFiles([]); setMonthlyManifest([]); setMonthlyReference("");
+      await loadIncidents(businessId);
+      setMessage("Dorëzimi sipas Nenit 44(6) u regjistrua bashkë me eksportin dhe dëshminë. Fiskalo nuk e dërgon paketën automatikisht te ATK.");
+    } catch (e) { setMessage(e instanceof Error ? e.message : "Nuk u regjistrua dorëzimi mujor."); }
+    finally { setBusy(false); }
+  }
+
   async function restoreIncident(incident: Incident) {
     if (!supabase || !window.confirm("Konfirmo që lidhja e internetit është rivendosur për këtë POS.")) return;
     setBusy(true); setMessage("");
@@ -208,14 +325,19 @@ export default function Article44Page() {
       {incidents.map(incident => {
         const due = deadline(incident.outage_started_at);
         const remaining = due.getTime() - Date.now();
-        const requiresNotice = eligible(incident.cause) && remaining <= 0 && !incident.notice_submitted_at;
+        const effectiveEnd = incident.restored_at ? Date.parse(incident.restored_at) : Date.now();
+        const requiresNotice = eligible(incident.cause) && effectiveEnd >= due.getTime() && !incident.notice_submitted_at;
+        const monthlyDue = monthlySubmissionDeadline(incident.outage_started_at);
+        const monthlyEffectiveEndKey = localDateKey(incident.restored_at ?? new Date());
+        const monthlyRequired = monthlyEffectiveEndKey >= monthlyDue.afterDeadlineKey &&
+          !incident.monthly_export_submitted_at;
         return <article className="article44-card" key={incident.id}>
           <div className="article44-incident-head"><div><span className="article44-kicker">{causeLabel[incident.cause] || incident.cause}</span><h3>{positions.find(p => p.id === incident.pos_id)?.label || "POS"}</h3></div>
             <span className={incident.restored_at ? "article44-status done" : "article44-status open"}>{incident.restored_at ? "Lidhja u rivendos" : "Incident aktiv"}</span></div>
           <p>{incident.description}</p>
           <dl className="article44-details"><div><dt>Fillimi</dt><dd>{fmt(incident.outage_started_at)}</dd></div><div><dt>Afati 48h</dt><dd>{fmt(due.toISOString())}</dd></div>
             <div><dt>Rivendosja</dt><dd>{incident.restored_at ? fmt(incident.restored_at) : "Në pritje"}</dd></div>
-            <div><dt>Njoftimi ATK</dt><dd>{incident.notice_submitted_at ? fmt(incident.notice_submitted_at) + " · " + (incident.notice_channel === "electronic" ? "Elektronik" : "Personalisht") : "Nuk është regjistruar"}</dd></div></dl>
+            <div><dt>Njoftimi ATK</dt><dd>{incident.notice_submitted_at ? fmt(incident.notice_submitted_at) + " · " + (incident.notice_channel === "electronic" ? "Elektronik" : "Personalisht") : "Nuk është regjistruar"}</dd></div><div><dt>Dorëzimi mujor</dt><dd>{incident.monthly_export_submitted_at ? fmt(incident.monthly_export_submitted_at) : "Nuk është regjistruar"}</dd></div></dl>
           {requiresNotice && <div className="article44-notice">
             <strong>Afati 48-orësh ka kaluar.</strong>
             <p>Sipas Nenit 44(5), kur lidhja nuk mund të rikthehet për shkak të pajisjes, ofruesit të internetit ose forcës madhore, tatimpaguesi duhet ta njoftojë ATK-në dhe të paraqesë dëshmi. Dërgoje njoftimin zyrtarisht përpara se ta shënosh këtu.</p>
@@ -225,6 +347,18 @@ export default function Article44Page() {
             {pendingManifest.length > 0 && <p className="article44-muted">Dëshmia është ngarkuar dhe mund të regjistrohet përsëri: {pendingManifest[0].file_name}</p>}
             <button className="article44-primary" disabled={busy || (!evidenceFile && !pendingManifest.length)} onClick={() => void submitNotice(incident)}>{busy ? "Duke ruajtur…" : "Regjistro njoftimin dhe dëshminë"}</button>
           </div>}
+          {monthlyRequired && <div className="article44-notice">
+            <strong>Afati i datës 10 të muajit vijues ka kaluar.</strong>
+            <p>Sipas Nenit 44(6), nëse lidhja nuk është rivendosur deri më 10 të muajit pasues, tatimpaguesi duhet t'ia paraqesë ATK-së të gjithë kuponët e pafiskalizuar. Gjenero paketën e kombinuar nga databaza dhe radha lokale e POS Agent, kontrolloje dhe dorëzoje te ATK.</p>
+            <p className="article44-muted">Afati: {monthlyDue.display}. Eksporti kërkon POS Agent aktiv në këtë pajisje.</p>
+            <button className="article44-primary" disabled={!!exportingIncidentId || busy} onClick={() => void exportMonthlyUnfiscalized(incident)}>{exportingIncidentId === incident.id ? "Duke përgatitur…" : "Eksporto kuponët e pafiskalizuar"}</button>
+            <label>Kanal i dorëzimit<select value={monthlyChannel} onChange={e => setMonthlyChannel(e.target.value)}><option value="electronic">Elektronik</option><option value="in_person">Personalisht në zyrën përkatëse</option></select></label>
+            <label>Referenca e pranimit (nëse ka)<input value={monthlyReference} onChange={e => setMonthlyReference(e.target.value)} maxLength={200}/></label>
+            <label>Eksporti JSON/CSV dhe dëshmia e dorëzimit (PDF/JPG/PNG/TXT)<input type="file" multiple accept=".json,.csv,.pdf,.jpg,.jpeg,.png,.txt" onChange={e => {setMonthlyFiles(Array.from(e.target.files ?? []));setMonthlyManifest([]);}}/></label>
+            {monthlyManifest.length > 0 && <p className="article44-muted">Skedarët janë ngarkuar: {monthlyManifest.length}. Mund ta riprovosh regjistrimin.</p>}
+            <button className="article44-primary" disabled={busy || monthlyFiles.length < 2 && monthlyManifest.length < 2} onClick={() => void recordMonthlySubmission(incident)}>{busy ? "Duke ruajtur…" : "Regjistro dorëzimin dhe dëshmitë"}</button>
+          </div>}
+          {incident.monthly_export_submitted_at && <p className="article44-evidence">Dorëzimi sipas paragrafit 6 u regjistrua. Dëshmi: {incident.monthly_export_manifest.length}. Referenca: {incident.monthly_export_reference || "Nuk është dhënë"}.</p>}
           {incident.notice_submitted_at && <p className="article44-evidence">Dëshmi të arkivuara: {incident.evidence_manifest.length}. Referenca: {incident.authority_reference || "Nuk është dhënë"}.</p>}
           {!incident.restored_at && <button className="article44-secondary" disabled={busy} onClick={() => void restoreIncident(incident)}>Shëno lidhjen si të rivendosur</button>}
         </article>;
