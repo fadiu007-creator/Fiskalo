@@ -442,6 +442,7 @@ app.MapPost(QueueAttestationPath, async (FiscalAttestationRequest request, HttpC
         return Results.Ok(new
         {
             status = item.Status == FiscalQueueStatus.Accepted ? "accepted" : "queued",
+            transactionId = item.AtkTransactionId,
             attestationPayloadBase64 = Convert.ToBase64String(attestationBytes),
             attestationSignatureBase64 = Convert.ToBase64String(attestationSignature),
             publicKeySpkiBase64 = Convert.ToBase64String(publicKeySpki),
