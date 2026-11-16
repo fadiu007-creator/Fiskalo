@@ -295,7 +295,6 @@ export default function Home(){
           p_expected_snapshot:expectedSnapshot,p_created_at:record.createdAtUtc
         });
         if(saleSyncError)throw saleSyncError;
-        await journal.markCloudSynced(record.idempotencyKey,String(saleId),String(receipt.couponId));
         const {error:receiptError}=await supabase.rpc("fiskalo_basic_store_offline_receipt",{
           p_business_id:record.businessId,p_sale_id:saleId,p_coupon_id:receipt.couponId,
           p_idempotency_key:receipt.fiscalIdempotencyKey,p_signed_payload:receipt.posPayloadBase64,
@@ -310,6 +309,7 @@ export default function Home(){
           p_qr_svg_base64:receipt.qrSvgBase64
         });
         if(qrError)throw qrError;
+        await journal.markCloudSynced(record.idempotencyKey,String(saleId),String(receipt.couponId));
         if(!navigator.onLine)break;
       }catch(error){
         const message=error instanceof Error?error.message:"Offline sale synchronization failed.";
