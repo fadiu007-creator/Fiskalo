@@ -66,7 +66,6 @@ async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
   const citizenPayload=bytes("signed-citizen-coupon");
   const citizenSignature=new Uint8Array(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},keyPair.privateKey,citizenPayload));
   const qr=bytes("<svg/>");
-  const certificateDer=Uint8Array.from(atob(TEST_CERTIFICATE_BASE64),c=>c.charCodeAt(0));
   const certificatePem=TEST_CERTIFICATE_PEM;
   const certificateThumbprint=TEST_CERTIFICATE_THUMBPRINT;
   const offlineIssued=status==="queued"?new Date(now.getTime()-offlineAgeMinutes*60_000).toISOString():null;
