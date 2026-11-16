@@ -841,7 +841,21 @@ export default function Home(){
           idempotencyKey,...attestation}
       });
       if(attestationError)throw new Error("Kuponi është ruajtur nga POS Agent, por verifikimi dhe regjistrimi i tij në panel dështoi: "+attestationError.message);
-      if(fiscal.status==="accepted"){
+      if(attestation.status==="accepted"){
+        await offlineJournal.attachFiscalReceipt(checkoutIdempotencyKey,{
+          couponId:Number(sale.coupon_id),dailyNumber:Number(fiscal.dailyNumber),fiscalIdempotencyKey:idempotencyKey,
+          nuiKf:fiscal.nuiKf,posPayloadBase64:fiscal.detailsBase64,posSignatureBase64:fiscal.signatureBase64,
+          citizenPayloadBase64:citizenPayload,citizenSignatureBase64:citizenSignature,
+          qrSvgBase64:fiscal.qrSvgBase64,offlineIssuedAtUtc:fiscal.offlineIssuedAtUtc??null,
+          recoveryDeadlineUtc:fiscal.recoveryDeadlineUtc??null,status:"accepted",
+          transactionId:fiscal.transactionId??undefined
+        });
+        await offlineJournal.markFiscalAccepted(checkoutIdempotencyKey,{
+          status:"accepted",environment:"ATK TEST",transactionId:fiscal.transactionId||""
+        });
+        setReceipt(current=>current?{...current,submission_state:"accepted",transaction_id:fiscal.transactionId}:current);
+      }
+      if(attestation.status==="accepted"){
         setMessage("ATK TEST e pranoi kuponin. Transaction ID: "+fiscal.transactionId);
       }else{
         setMessage("Kuponi u krijua OFFLINE me NUIKF dhe QR të nënshkruar. POS Agent do ta dërgojë automatikisht sapo të rikthehet lidhja. Afati: "+new Date(fiscal.recoveryDeadlineUtc!).toLocaleString());
