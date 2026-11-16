@@ -295,6 +295,9 @@ app.MapPost(OfflineClaimPath, async (OfflineReservationClaimRequest request, Htt
     if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
     var installation = installationStore.Load();
     if (installation is null) return Results.Conflict(new { error = "verified_atk_test_installation_required" });
+    var localBusinessDate = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Belgrade")).ToString("yyyy-MM-dd");
+    if (!string.Equals(request.BusinessDate, localBusinessDate, StringComparison.Ordinal))
+        return Results.Conflict(new { error = "offline_business_date_must_match_kosovo_device_date", expectedBusinessDate = localBusinessDate });
     try
     {
         var claim = await reservationStore.ClaimAsync(request.CheckoutIdempotencyKey, request.BusinessId,
