@@ -441,6 +441,7 @@ app.MapPost(QueueAttestationPath, async (FiscalAttestationRequest request, HttpC
         var publicKeySpki = certificateKey.ExportSubjectPublicKeyInfo();
         return Results.Ok(new
         {
+            status = item.Status == FiscalQueueStatus.Accepted ? "accepted" : "queued",
             attestationPayloadBase64 = Convert.ToBase64String(attestationBytes),
             attestationSignatureBase64 = Convert.ToBase64String(attestationSignature),
             publicKeySpkiBase64 = Convert.ToBase64String(publicKeySpki),
