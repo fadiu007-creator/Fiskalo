@@ -323,14 +323,6 @@ export default function Home(){
     if(user)await loadWorkspace(user.id).catch(()=>undefined);
   },[supabase,business,agentToken,syncAcceptedQueue,user,loadWorkspace]);
 
-  useEffect(()=>{
-    if(!business||!agentToken)return;
-    const sync=()=>{if(navigator.onLine)void syncPendingOfflineSales();};
-    window.addEventListener("online",sync);
-    if(navigator.onLine)sync();
-    return()=>window.removeEventListener("online",sync);
-  },[business,agentToken,syncPendingOfflineSales]);
-
   async function reconcileSaleQueue(sale:SaleRecord){
     if(memberRole!=="owner"){setMessage("Vetëm pronari mund të autorizojë reconciliimin e radhës fiskale.");return;}
     if(!agentToken||!sale.idempotency_key){setMessage("Lidh POS Agent para reconciliimit.");return;}
@@ -347,11 +339,23 @@ export default function Home(){
   useEffect(()=>{
     if(!user||!business||!agentToken)return;
     let running=false;
-    const sync=async()=>{if(running)return;running=true;try{await syncAcceptedQueue();}catch(e){setMessage(e instanceof Error?e.message:"Nuk u sinkronizuan kuponët e pranuar nga ATK.");}finally{running=false;}};
+    const sync=async()=>{
+      if(running||!navigator.onLine)return;
+      running=true;
+      try{await syncPendingOfflineSales();}
+      catch(e){setMessage(e instanceof Error?e.message:"Nuk u sinkronizuan shitjet dhe kuponët offline.");}
+      finally{running=false;}
+    };
     void sync();
+    window.addEventListener("online",sync);
+    window.addEventListener("focus",sync);
     const timer=window.setInterval(()=>void sync(),15000);
-    return()=>window.clearInterval(timer);
-  },[user,business,agentToken,syncAcceptedQueue]);
+    return()=>{
+      window.clearInterval(timer);
+      window.removeEventListener("online",sync);
+      window.removeEventListener("focus",sync);
+    };
+  },[user,business,agentToken,syncPendingOfflineSales]);
 
   useEffect(()=>{
     if(!supabase){setConfigured(false);setLoading(false);return;}
