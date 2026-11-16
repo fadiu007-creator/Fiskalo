@@ -201,7 +201,7 @@ app.MapPost(OfflineProvisionPath, async (OfflineReservationProvisionRequest requ
 {
     if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
     if (!OperatingSystem.IsWindows()) return Results.Problem("Offline reservations require Windows DPAPI.", statusCode: StatusCodes.Status501NotImplemented);
-    if (string.IsNullOrWhiteSpace(request.BusinessId) || string.IsNullOrWhiteSpace(request.PosUuid) ||
+    if (!Guid.TryParse(request.BusinessId, out _) || !Guid.TryParse(request.PosUuid, out _) ||
         string.IsNullOrWhiteSpace(request.SupabaseUrl) || string.IsNullOrWhiteSpace(request.AnonKey) ||
         string.IsNullOrWhiteSpace(request.AccessToken) || request.CouponCount is < 1 or > 500 ||
         request.DaysAhead is < 0 or > 7)
