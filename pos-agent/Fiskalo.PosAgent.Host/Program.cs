@@ -669,28 +669,26 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         var qrSvg = FiscalReceiptQrCode.CreateSvgData(citizenQrPayload);
         var qrSvgBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(qrSvg));
 
-        if (existing?.Status == FiscalQueueStatus.Accepted)
-            return Results.Ok(new { status = "accepted", transactionId = existing.AtkTransactionId,
-                detailsBase64 = existing.PayloadBase64, signatureBase64 = existing.SignatureBase64,
-                nuiKf, dailyNumber = existing.DailyNumber, citizenQrPayload, qrSvgBase64,
-                duplicateRequest = true, environment = "ATK TEST", offline = false });
+        var persisted = await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64,
+            signed.SignatureBase64, cancellationToken: cancellationToken, nuiKf: nuiKf,
+            citizenPayloadBase64: citizenPayload, citizenSignatureBase64: citizenSignature,
+            dailyNumber: request.Coupon.DailyNumber,
+            businessUuid: request.BusinessId, posUuid: request.PosUuid, businessDate: request.BusinessDate,
+            checkoutIdempotencyKey: request.CheckoutIdempotencyKey,
+            couponId: request.Coupon.CouponId, businessNui: installation.Nui,
+            branchId: installation.BranchId, posNumber: installation.PosId,
+            applicationId: installation.ApplicationId, verificationNo: nuiKf,
+            qrSvgBase64: qrSvgBase64, certificateThumbprint: certificate.Thumbprint);
 
-        if (existing is not null && existing.Status != FiscalQueueStatus.Queued)
-            return Results.Conflict(new { status = existing.Status.ToString(), error = "document_requires_reconciliation_or_operator_review", existing.LastError });
+        if (persisted.Status == FiscalQueueStatus.Accepted)
+            return Results.Ok(new { status = "accepted", transactionId = persisted.AtkTransactionId,
+                detailsBase64 = persisted.PayloadBase64, signatureBase64 = persisted.SignatureBase64,
+                nuiKf, dailyNumber = persisted.DailyNumber, citizenQrPayload, qrSvgBase64,
+                duplicateRequest = true, message = persisted.AtkResponseMessage, environment = "ATK TEST", offline = false });
 
-        if (existing is null)
-            await queueStore.EnqueueAsync(request.IdempotencyKey, coupon.Type.ToString(), signed.DetailsBase64,
-                signed.SignatureBase64, cancellationToken: cancellationToken, nuiKf: nuiKf,
-                citizenPayloadBase64: citizenPayload, citizenSignatureBase64: citizenSignature,
-                dailyNumber: request.Coupon.DailyNumber,
-                businessUuid: request.BusinessId, posUuid: request.PosUuid, businessDate: request.BusinessDate,
-                checkoutIdempotencyKey: request.CheckoutIdempotencyKey,
-                couponId: request.Coupon.CouponId, businessNui: installation.Nui,
-                branchId: installation.BranchId, posNumber: installation.PosId,
-                applicationId: installation.ApplicationId, verificationNo: nuiKf,
-                qrSvgBase64, certificateThumbprint: certificate.Thumbprint);
+        if (persisted.Status != FiscalQueueStatus.Queued)
+            return Results.Conflict(new { status = persisted.Status.ToString(), error = "document_requires_reconciliation_or_operator_review", persisted.LastError });
 
-        var persisted = existing ?? (await queueStore.GetAllAsync(cancellationToken)).Single(x => x.IdempotencyKey == request.IdempotencyKey);
         var signedToSubmit = new SignedAtkCoupon(persisted.PayloadBase64, persisted.SignatureBase64, "");
         await queueStore.MarkSubmittingAsync(request.IdempotencyKey, cancellationToken);
         try {
