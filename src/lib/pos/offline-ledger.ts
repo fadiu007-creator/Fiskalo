@@ -183,7 +183,7 @@ export class OfflineCheckoutJournal {
   }
   private assertSameSale(existing: OfflineSaleRecord, candidate: OfflineSaleRecord): OfflineSaleRecord {
     const mutableFields = ["updatedAtUtc", "cloudSyncState", "fiscalState", "serverSaleId",
-      "couponId", "atkTransactionId", "atkEnvironment", "lastError"];
+      "couponId", "atkTransactionId", "atkEnvironment", "lastError", "fiscalReceipt"];
     const stable = Object.fromEntries(Object.entries(existing).filter(([key]) => !mutableFields.includes(key)));
     const candidateStable = Object.fromEntries(Object.entries(candidate).filter(([key]) => !mutableFields.includes(key)));
     if (!equal(stable, candidateStable))
