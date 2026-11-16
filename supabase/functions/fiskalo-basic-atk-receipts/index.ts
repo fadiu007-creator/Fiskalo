@@ -35,7 +35,7 @@ if (!supabaseUrl || !serviceRoleKey) {
     },
     async getPos(businessId, posUuid) {
       const { data, error } = await admin.from("fiskalo_basic_pos")
-        .select("id,business_id,branch_id,pos_id,application_id,certificate_status")
+        .select("id,business_id,branch_id,pos_id,application_id,certificate_status,location")
         .eq("id", posUuid).eq("business_id", businessId).maybeSingle();
       if (error) throw error;
       return data ? {
@@ -45,6 +45,7 @@ if (!supabaseUrl || !serviceRoleKey) {
         posNumber: Number(data.pos_id),
         applicationId: data.application_id as string | number,
         certificateStatus: data.certificate_status,
+        location: data.location,
       } : null;
     },
     async getCertificate(businessId, posUuid) {
@@ -63,7 +64,7 @@ if (!supabaseUrl || !serviceRoleKey) {
     },
     async getSale(businessId, saleId) {
       const { data, error } = await admin.from("fiskalo_basic_sales")
-        .select("id,business_id,pos_id,coupon_id,status,daily_number,created_at,checkout_idempotency_key")
+        .select("id,business_id,pos_id,coupon_id,status,daily_number,created_at,checkout_idempotency_key,operator_name,payment_method,payment_allocations,subtotal,vat_total,total")
         .eq("id", saleId).eq("business_id", businessId).maybeSingle();
       if (error) throw error;
       return data ? {
@@ -75,7 +76,30 @@ if (!supabaseUrl || !serviceRoleKey) {
         dailyNumber: data.daily_number,
         createdAt: data.created_at,
         checkoutIdempotencyKey: data.checkout_idempotency_key,
+        operatorName: data.operator_name,
+        paymentMethod: data.payment_method,
+        paymentAllocations: data.payment_allocations,
+        subtotal: data.subtotal,
+        vatTotal: data.vat_total,
+        total: data.total,
       } : null;
+    },
+    async getSaleItems(saleId) {
+      const { data, error } = await admin.from("fiskalo_basic_sale_items")
+        .select("description,unit_price,quantity,line_total,line_net,line_vat,atk_unit_code,atk_item_category_code,atk_vat_code")
+        .eq("sale_id", saleId);
+      if (error) throw error;
+      return (data ?? []).map(item => ({
+        description: item.description,
+        unitPrice: item.unit_price,
+        quantity: item.quantity,
+        lineTotal: item.line_total,
+        lineNet: item.line_net,
+        lineVat: item.line_vat,
+        unitCode: item.atk_unit_code,
+        categoryCode: item.atk_item_category_code,
+        vatCode: item.atk_vat_code,
+      }));
     },
     async queueReceipt(args) {
       const { data, error } = await admin.rpc("fiskalo_basic_store_offline_receipt_v2", args);
