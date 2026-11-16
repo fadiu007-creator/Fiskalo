@@ -150,7 +150,8 @@ public sealed class FiscalQueueStore
                 SignatureBase64 = signatureBase64,
                 CreatedAtUtc = timestamp,
                 RecoveryDeadlineUtc = (monitoredOutageStart ?? timestamp).Add(RecoveryWindow),
-                OfflineIssuedAtUtc = monitoredOutageStart,
+                OfflineIssuedAtUtc = timestamp,
+                OutageStartedAtUtc = monitoredOutageStart,
                 NextAttemptAtUtc = timestamp,
                 NuiKf = nuiKf,
                 CitizenPayloadBase64 = citizenPayloadBase64,
@@ -278,10 +279,10 @@ public sealed class FiscalQueueStore
             for (var i = 0; i < items.Count; i++)
             {
                 if (items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.Submitting)) continue;
-                if (items[i].OfflineIssuedAtUtc is not null) continue;
+                if (items[i].OutageStartedAtUtc is not null) continue;
                 items[i] = items[i] with
                 {
-                    OfflineIssuedAtUtc = outageStart,
+                    OutageStartedAtUtc = outageStart,
                     RecoveryDeadlineUtc = outageStart.Add(RecoveryWindow)
                 };
             }
@@ -292,8 +293,8 @@ public sealed class FiscalQueueStore
             {
                 Status = FiscalQueueStatus.Queued,
                 NextAttemptAtUtc = timestamp.AddSeconds(delaySeconds),
-                OfflineIssuedAtUtc = item.OfflineIssuedAtUtc ?? outageStart,
-                RecoveryDeadlineUtc = item.OfflineIssuedAtUtc is null ? outageStart.Add(RecoveryWindow) : item.RecoveryDeadlineUtc,
+                OutageStartedAtUtc = item.OutageStartedAtUtc ?? outageStart,
+                RecoveryDeadlineUtc = item.OutageStartedAtUtc is null ? outageStart.Add(RecoveryWindow) : item.RecoveryDeadlineUtc,
                 LastError = Truncate(error, 500)
             };
             items[index] = item;
