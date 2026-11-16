@@ -557,6 +557,14 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         var nuiKf = existing?.NuiKf ?? FiscalReceiptIdentity.CreateNuiKf();
         var coupon = PosCouponBuilder.Build(request.Coupon, nuiKf);
         var signed = AtkCouponSigner.SignPosCoupon(coupon, key);
+        if (!string.IsNullOrWhiteSpace(request.CheckoutIdempotencyKey))
+        {
+            if (!Guid.TryParse(request.CheckoutIdempotencyKey, out _))
+                return Results.BadRequest(new { error = "checkoutIdempotencyKey_must_be_a_UUID" });
+            var documentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signed.DetailsBase64 + "." + signed.SignatureBase64)));
+            await reservationStore.BindDocumentAsync(request.CheckoutIdempotencyKey, request.Coupon.CouponId,
+                request.Coupon.DailyNumber, documentHash, cancellationToken);
+        }
         if (existing is not null && (existing.PayloadBase64 != signed.DetailsBase64 || existing.DocumentType != coupon.Type.ToString()))
             return Results.Conflict(new { error = "idempotency_key_reused_with_different_coupon_content" });
         var signedCitizen = existing is null
@@ -799,7 +807,8 @@ internal sealed record AtkSignCsrRequest(
 
 internal sealed record AtkCouponRequest(
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
-    [property: JsonPropertyName("coupon")] PosCouponInput Coupon);
+    [property: JsonPropertyName("coupon")] PosCouponInput Coupon,
+    [property: JsonPropertyName("checkoutIdempotencyKey")] string? CheckoutIdempotencyKey = null);
 
 internal sealed record OfflineReservationProvisionRequest(
     [property: JsonPropertyName("businessId")] string BusinessId,
