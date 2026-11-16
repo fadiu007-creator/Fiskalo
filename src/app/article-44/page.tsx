@@ -334,6 +334,7 @@ export default function Article44Page() {
       <h1>Neni 44 — Ndërprerja e lidhjes së internetit</h1>
       <p>Regjistro ndërprerjen, afatin 48-orësh, dëshmitë dhe njoftimin që tatimpaguesi duhet t’ia paraqesë ATK-së kur plotësohen kushtet ligjore.</p>
       <p className="article44-warning">Ora e fillimit këtu regjistrohet nga pronari. Fiskalo ende nuk e vërteton automatikisht me orë të nënshkruar nga serveri.</p>
+      <p className="article44-warning">Incidenti dhe eksporti lidhen me një POS. Nëse ndërprerja prek disa POS, regjistro incident dhe krijo eksport për secilin POS nga pajisja/Agent-i përkatës, që të përfshihen të gjitha radhët lokale.</p>
     </section>
     {message && <p className="article44-message" role="status">{message}</p>}
     <section className="article44-card">
