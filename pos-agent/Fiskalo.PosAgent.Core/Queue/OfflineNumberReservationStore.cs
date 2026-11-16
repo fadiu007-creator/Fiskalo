@@ -28,7 +28,7 @@ public sealed class OfflineNumberReservationStore
 
     public async Task ImportAsync(
         string businessId, string posUuid, ulong businessNui, ulong branchId, ulong posId, ulong applicationId,
-        IReadOnlyCollection<ulong> couponIds, string businessDate, long firstDailyNumber, long lastDailyNumber,
+        IReadOnlyCollection<ulong> couponIds, IReadOnlyCollection<OfflineDailyNumberPool> dailyRanges,
         CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(businessId, out _) || !Guid.TryParse(posUuid, out _))
@@ -37,9 +37,10 @@ public sealed class OfflineNumberReservationStore
             throw new ArgumentException("Verified ATK installation identity is required.");
         if (couponIds.Count is < 1 or > 500 || couponIds.Any(x => x == 0) || couponIds.Distinct().Count() != couponIds.Count)
             throw new ArgumentException("Coupon reservation must contain 1 to 500 unique positive IDs.");
-        if (!DateOnly.TryParseExact(businessDate, "yyyy-MM-dd", out _) ||
-            firstDailyNumber <= 0 || lastDailyNumber < firstDailyNumber || lastDailyNumber - firstDailyNumber + 1 > 500)
-            throw new ArgumentException("Daily-number reservation is invalid.");
+        if (dailyRanges.Count is < 1 or > 8 || dailyRanges.Any(p =>
+            !DateOnly.TryParseExact(p.BusinessDate, "yyyy-MM-dd", out _) || p.NextNumber <= 0 ||
+            p.LastNumber < p.NextNumber || p.LastNumber - p.NextNumber + 1 > 500))
+            throw new ArgumentException("Daily-number reservations are invalid.");
 
         await _gate.WaitAsync(cancellationToken);
         try
@@ -52,11 +53,14 @@ public sealed class OfflineNumberReservationStore
                 throw new InvalidOperationException("Offline number reservations are already bound to another business or POS.");
             if (couponIds.Any(id => state.AvailableCouponIds.Contains(id) || state.Claims.Values.Any(c => c.CouponId == id)))
                 throw new InvalidOperationException("A coupon ID was already provisioned or claimed on this POS.");
-            if (state.DailyPools.Any(p => p.BusinessDate == businessDate &&
-                firstDailyNumber <= p.LastNumber && lastDailyNumber >= p.NextNumber))
-                throw new InvalidOperationException("Daily-number reservation overlaps an existing local reservation.");
+            foreach (var range in dailyRanges)
+            {
+                if (state.DailyPools.Any(p => p.BusinessDate == range.BusinessDate &&
+                    range.NextNumber <= p.LastNumber && range.LastNumber >= p.NextNumber))
+                    throw new InvalidOperationException("Daily-number reservation overlaps an existing local reservation.");
+            }
             state.AvailableCouponIds.AddRange(couponIds);
-            state.DailyPools.Add(new OfflineDailyNumberPool(businessDate, firstDailyNumber, lastDailyNumber));
+            state.DailyPools.AddRange(dailyRanges);
             await SaveAsync(state, cancellationToken);
         }
         finally { _gate.Release(); }
@@ -101,8 +105,8 @@ public sealed class OfflineNumberReservationStore
         try
         {
             var state = await LoadAsync(cancellationToken);
-            var daily = state?.DailyPools.ToDictionary(
-                p => p.BusinessDate, p => (int)Math.Max(0, p.LastNumber - p.NextNumber + 1), StringComparer.Ordinal)
+            var daily = state?.DailyPools.GroupBy(p => p.BusinessDate, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.Sum(p => (int)Math.Max(0, p.LastNumber - p.NextNumber + 1)), StringComparer.Ordinal)
                 ?? new Dictionary<string, int>();
             return new OfflineNumberReservationSummary(state?.AvailableCouponIds.Count ?? 0, daily);
         }
