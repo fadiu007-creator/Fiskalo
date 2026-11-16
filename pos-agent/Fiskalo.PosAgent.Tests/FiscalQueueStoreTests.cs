@@ -58,6 +58,7 @@ public sealed class FiscalQueueStoreTests
         };
         var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
             new[] { legacy }, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(fixture.Path)!);
         await File.WriteAllBytesAsync(fixture.Path, fixture.Protector.Protect(bytes));
 
         var migrated = Assert.Single(await fixture.Store.GetAllAsync());
