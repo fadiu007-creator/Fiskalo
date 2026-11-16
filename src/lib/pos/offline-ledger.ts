@@ -149,8 +149,8 @@ export class OfflineCheckoutJournal {
         BigInt(evidence.transactionId) > BigInt("18446744073709551615"))
       throw new Error("A valid accepted ATK TEST transaction response is required.");
     return this.mutate(key, r => {
-      if (r.fiscalState !== "queued" && r.fiscalState !== "accepted")
-        throw new OfflineSaleConflictError("Only a queued fiscal document can be marked accepted.");
+      if (r.fiscalState !== "queued" && r.fiscalState !== "needs_reconciliation" && r.fiscalState !== "accepted")
+        throw new OfflineSaleConflictError("Only a queued or reconciled fiscal document can be marked accepted.");
       if (r.atkTransactionId && r.atkTransactionId !== evidence.transactionId)
         throw new OfflineSaleConflictError("An accepted ATK transaction ID is immutable.");
       return { ...r, fiscalState: "accepted", atkTransactionId: evidence.transactionId,
