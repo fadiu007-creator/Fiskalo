@@ -106,7 +106,8 @@ declare
 begin
   if auth.uid() is null then raise exception 'Authentication required'; end if;
   if p_checkout_idempotency_key is null or p_coupon_id is null or p_coupon_id<=0 or
-     p_daily_number is null or p_daily_number<=0 or p_business_date is null or p_created_at is null then
+     p_daily_number is null or p_daily_number<=0 or p_business_date is null or p_created_at is null or
+     (p_created_at at time zone 'Europe/Belgrade')::date<>p_business_date or p_created_at>now()+interval '5 minutes' then
     raise exception 'Offline checkout identity is incomplete';
   end if;
   if p_payment_method not in ('cash','card','bank_transfer') then raise exception 'Unsupported payment method'; end if;
@@ -185,7 +186,15 @@ begin
     atk_unit_code text,atk_item_category_code text,atk_vat_code text,
     line_net numeric,line_vat numeric,line_total numeric
   );
-  if v_expected_count<>jsonb_array_length(v_normalized_lines) then raise exception 'Offline snapshot and checkout request line counts differ'; end if;
+  if v_expected_count<>jsonb_array_length(v_normalized_lines) or exists(
+    select 1 from jsonb_to_recordset(v_normalized_lines) as q(product_id uuid,quantity numeric)
+    full join jsonb_to_recordset(p_expected_snapshot) as x(
+      product_id uuid,quantity numeric,description text,unit_price numeric,vat_rate numeric,
+      atk_unit_code text,atk_item_category_code text,atk_vat_code text,
+      line_net numeric,line_vat numeric,line_total numeric
+    ) using(product_id)
+    where q.product_id is null or x.product_id is null or q.quantity is distinct from x.quantity
+  ) then raise exception 'Offline snapshot and checkout request line identities differ'; end if;
 
   for v_line in select x.* from jsonb_to_recordset(p_expected_snapshot) as x(
     product_id uuid,quantity numeric,description text,unit_price numeric,vat_rate numeric,
@@ -193,9 +202,88 @@ begin
     line_net numeric,line_vat numeric,line_total numeric
   ) order by x.product_id
   loop
-    if v_line.product_id is null or v_line.quantity<=0 or v_line.unit_price<0 or
-       v_line.vat_rate not in (0,8,18) or v_line.atk_unit_code is null or
-       v_line.atk_item_category_code is null or v_line.atk_vat_code !~ '^[A-Z]$' or
+    if v_line.product_id is null or v_line.quantity is null or v_line.quantity<=0 or v_line.unit_price is null or v_line.unit_price<0 or
+       v_line.vat_rate is null or v_line.vat_rate not in (0,8,18) or v_line.atk_unit_code is null or
+       v_line.atk_item_category_code is null or v_line.atk_vat_code is null or v_line.atk_vat_code !~ '^[A-Z]
+       v_line.line_net<>round(v_line.unit_price*v_line.quantity,2) or
+       v_line.line_vat<>round(v_line.line_net*v_line.vat_rate/100,2) or
+       v_line.line_total<>v_line.line_net+v_line.line_vat then
+      raise exception 'Offline line snapshot has invalid prices, VAT or ATK mapping';
+    end if;
+    if not exists(select 1 from public.fiskalo_basic_products p
+      where p.id=v_line.product_id and p.business_id=p_business_id for update) then
+      raise exception 'Offline sale references a product that does not belong to this business';
+    end if;
+    v_total_net:=v_total_net+v_line.line_net;
+    v_total_vat:=v_total_vat+v_line.line_vat;
+    v_total_gross:=v_total_gross+v_line.line_total;
+  end loop;
+  if v_total_gross<>v_total_net+v_total_vat then raise exception 'Offline sale totals do not reconcile'; end if;
+
+  -- Inventory is reconciled atomically when all products still have sufficient
+  -- stock. Otherwise the fiscal sale is still preserved with an explicit stock
+  -- reconciliation flag; no partial stock deduction is made.
+  if exists(
+    select 1 from jsonb_to_recordset(v_normalized_lines) as q(product_id uuid,quantity numeric)
+    join public.fiskalo_basic_products p on p.id=q.product_id and p.business_id=p_business_id
+    where p.stock<q.quantity
+  ) then v_stock_ok:=false; end if;
+
+  insert into public.fiskalo_basic_sales(
+    id,business_id,pos_id,coupon_id,operator_id,status,subtotal,vat_total,total,payment_method,
+    created_at,daily_number,checkout_idempotency_key,checkout_request_lines,
+    operator_name,operator_identifier,stock_reconciliation_required
+  ) values(
+    v_sale_id,p_business_id,p_pos_id,p_coupon_id,p_operator_id,'paid',
+    v_total_net,v_total_vat,v_total_gross,p_payment_method,p_created_at,p_daily_number,
+    p_checkout_idempotency_key,v_normalized_lines,trim(p_operator_name),trim(p_operator_identifier),not v_stock_ok
+  );
+
+  insert into public.fiskalo_basic_sale_items(
+    sale_id,product_id,description,quantity,unit_price,vat_rate,
+    atk_unit_code,atk_item_category_code,atk_vat_code,line_net,line_vat,line_total
+  )
+  select v_sale_id,x.product_id,x.description,x.quantity,x.unit_price,x.vat_rate,
+    x.atk_unit_code,x.atk_item_category_code,x.atk_vat_code,x.line_net,x.line_vat,x.line_total
+  from jsonb_to_recordset(p_expected_snapshot) as x(
+    product_id uuid,quantity numeric,description text,unit_price numeric,vat_rate numeric,
+    atk_unit_code text,atk_item_category_code text,atk_vat_code text,
+    line_net numeric,line_vat numeric,line_total numeric
+  );
+
+  if v_stock_ok then
+    update public.fiskalo_basic_products p set stock=p.stock-q.quantity
+    from jsonb_to_recordset(v_normalized_lines) as q(product_id uuid,quantity numeric)
+    where p.id=q.product_id and p.business_id=p_business_id;
+  end if;
+
+  update public.fiskalo_basic_coupon_reservations set
+    state='consumed',consumed_idempotency_key=p_checkout_idempotency_key,consumed_at=coalesce(consumed_at,now())
+  where id=v_reservation.id and state='reserved';
+  insert into public.fiskalo_basic_daily_number_consumptions(
+    business_id,pos_id,business_date,daily_number,checkout_idempotency_key
+  ) values(p_business_id,p_pos_id,p_business_date,p_daily_number,p_checkout_idempotency_key)
+  on conflict (business_id,checkout_idempotency_key) do nothing;
+  return v_sale_id;
+end;
+$$;
+revoke all on function fiskalo_private.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamptz) from public,anon,authenticated;
+grant execute on function fiskalo_private.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamptz) to authenticated;
+
+create or replace function public.fiskalo_basic_sync_offline_sale(
+  p_business_id uuid,p_pos_id uuid,p_payment_method text,p_lines jsonb,
+  p_checkout_idempotency_key uuid,p_coupon_id bigint,p_daily_number bigint,p_business_date date,
+  p_operator_id uuid,p_operator_name text,p_operator_identifier text,p_expected_snapshot jsonb,p_created_at timestamptz
+) returns uuid language sql security invoker set search_path=pg_catalog,public,pg_temp as $$
+  select fiskalo_private.fiskalo_basic_sync_offline_sale(
+    p_business_id,p_pos_id,p_payment_method,p_lines,p_checkout_idempotency_key,p_coupon_id,
+    p_daily_number,p_business_date,p_operator_id,p_operator_name,p_operator_identifier,p_expected_snapshot,p_created_at
+  )
+$$;
+revoke all on function public.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamptz) from public,anon;
+grant execute on function public.fiskalo_basic_sync_offline_sale(uuid,uuid,text,jsonb,uuid,bigint,bigint,date,uuid,text,text,jsonb,timestamptz) to authenticated;
+ or
+       v_line.line_net is null or v_line.line_vat is null or v_line.line_total is null or
        v_line.line_net<>round(v_line.unit_price*v_line.quantity,2) or
        v_line.line_vat<>round(v_line.line_net*v_line.vat_rate/100,2) or
        v_line.line_total<>v_line.line_net+v_line.line_vat then
