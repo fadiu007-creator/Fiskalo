@@ -651,6 +651,10 @@ export default function Home(){
       const agent=await getLocalAgentStatus(agentToken);
       if(!agent.paired||!agent.testCertificateInstalled||!agent.testInstallationVerified)throw new Error("POS Agent nuk është i çiftuar ose certifikata TEST nuk është verifikuar. Shitja nuk u regjistrua.");
       if(!navigator.onLine){
+        const {data:{session:offlineSession},error:offlineSessionError}=await supabase!.auth.getSession();
+        if(offlineSessionError||!offlineSession?.access_token||
+           (offlineSession.expires_at&&offlineSession.expires_at*1000<=Date.now()))
+          throw new Error("Sesioni i arkëtarit ka skaduar. Lidhu me internetin dhe hyr përsëri para shitjes offline.");
         const claim=await claimLocalOfflineNumbers(agentToken,{
           checkoutIdempotencyKey,businessId:business.id,posUuid:pos.id,businessDate
         });
