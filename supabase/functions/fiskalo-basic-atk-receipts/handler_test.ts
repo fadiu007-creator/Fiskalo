@@ -150,12 +150,12 @@ Deno.test("registers an ATK certificate only with a valid local POS proof-of-pos
   };
   const payloadBytes=new TextEncoder().encode(JSON.stringify(attestation));
   const signature=new Uint8Array(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},privateKey,payloadBytes));
-  let registered:Record<string,unknown>|null=null;
+  const registered:{value:Record<string,unknown>|null}={value:null};
   const deps:AtkReceiptDependencies={
     authenticate:async token=>token==="valid-token"?{id:"owner-user"}:null,
     isMember:async()=>true,
     isOwner:async()=>true,
-    registerCertificate:async args=>{registered=args;return "registered-certificate-id";},
+    registerCertificate:async args=>{registered.value=args;return "registered-certificate-id";},
     getBusiness:async()=>({nui:"123456789",name:"Test Business"}),
     getPos:async()=>({id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"verified",location:"Ferizaj",verifiedBusinessName:"Test Business"}),
     getCertificate:async()=>null,
@@ -174,7 +174,7 @@ Deno.test("registers an ATK certificate only with a valid local POS proof-of-pos
   }));
   const result=await response.json() as {ok?:boolean;certificateThumbprint?:string};
   assert(response.status===200&&result.ok===true,"valid POS certificate proof should register");
-  assert(registered?.p_spki_sha256!==undefined,"registered certificate must persist the derived SPKI fingerprint");
+  assert(registered.value!==null&&"p_spki_sha256" in registered.value,"registered certificate must persist the derived SPKI fingerprint");
 });
 
 Deno.test("rejects a forged certificate proof-of-possession",async()=>{
