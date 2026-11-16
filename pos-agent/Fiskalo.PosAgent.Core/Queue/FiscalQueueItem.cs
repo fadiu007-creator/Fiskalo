@@ -41,5 +41,6 @@ public sealed record FiscalQueueItem
     public string? VerificationNo { get; init; }
     public string? QrSvgBase64 { get; init; }
     public string? CertificateThumbprint { get; init; }
+    public string? CouponSnapshotSha256 { get; init; }
     public string? AtkResponseMessage { get; init; }
 }
