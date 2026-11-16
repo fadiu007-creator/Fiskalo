@@ -359,10 +359,11 @@ export default function Home(){
 
   useEffect(()=>{
     if(!supabase){setConfigured(false);setLoading(false);return;}
-    supabase.auth.getUser().then(async({data,error})=>{
+    supabase.auth.getSession().then(async({data,error})=>{
       if(error){setMessage(error.message);setLoading(false);return;}
-      setUser(data.user);
-      if(data.user){try{await loadWorkspace(data.user.id)}catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira.")}}
+      const currentUser=data.session?.user??null;
+      setUser(currentUser);
+      if(currentUser){try{await loadWorkspace(currentUser.id)}catch(e){setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira.")}}
       setLoading(false);
     });
     const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{setUser(session?.user??null);if(session?.user){void loadWorkspace(session.user.id).catch(e=>setMessage(e instanceof Error?e.message:"Nuk u ngarkua hapësira."));}else{setBusiness(null);setMemberRole(null);setWorkers([]);setWorkersError("");setProducts([]);setPositions([]);setSelectedPos("");}});
