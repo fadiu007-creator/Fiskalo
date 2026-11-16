@@ -177,7 +177,7 @@ async function computeSaleSnapshotSha256(
   const itemRows = saleItems.map(item => [
     item.description.trim(), fixed(item.unitPrice, 4), item.unitCode.trim(),
     fixed(item.quantity, 3), String(cents(item.lineTotal)), item.vatCode, item.categoryCode.trim(),
-  ].join("\\u001f")).sort();
+  ].join("\u001f")).sort();
   const rawPayments = sale.paymentAllocations?.length
     ? sale.paymentAllocations
     : [{ method: sale.paymentMethod, amount_cents: totalCents }];
@@ -205,9 +205,9 @@ async function computeSaleSnapshotSha256(
     verificationNo.trim(), "1", pos.location.trim(), sale.operatorName.trim(),
     String(totalCents), String(totalTaxCents), String(totalNoTaxCents), "0", "0",
     String(itemRows.length), ...itemRows, String(payments.length),
-    ...payments.map(payment=>[String(payment.type),String(payment.amount)].join("\\u001f")),
+    ...payments.map(payment=>[String(payment.type),String(payment.amount)].join("\u001f")),
     String(taxGroups.length),
-    ...taxGroups.map(group=>[group.taxRate,String(group.base),String(group.tax)].join("\\u001f")),
+    ...taxGroups.map(group=>[group.taxRate,String(group.base),String(group.tax)].join("\u001f")),
   ];
   const canonical = fields.map(canonicalField).join("|");
   return sha256(new TextEncoder().encode(canonical));
