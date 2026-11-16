@@ -20,7 +20,7 @@ type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
 
 function FiscalLogo(){
-  return <div role="img" aria-label="Stema zyrtare e Republikës së Kosovës dhe MFPT" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:2,margin:"0 auto",height:"8mm",width:"20mm"}}>
+  return <div role="img" aria-label="Stema zyrtare e Republikës së Kosovës dhe RKS MF" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:2,margin:"0 auto",height:"8mm",width:"20mm"}}>
     <Image
       src="/rks-coat-of-arms.svg"
       alt="Stema e Republikës së Kosovës"
@@ -1025,8 +1025,9 @@ export default function Home(){
         </div>
         <div style={{textAlign:"center",paddingTop:8}}>
           <FiscalLogo/>
-          <div style={{fontWeight:700,marginTop:5}}>e-kuponi</div>
-          <div style={{fontSize:10,marginTop:7,fontWeight:800}}>ATK TEST — DOKUMENT TESTUES</div>
+          <div style={{fontWeight:700,marginTop:5}}>e-Kuponi</div>
+          <div style={{fontSize:10,marginTop:4,fontWeight:800}}>TEST I LIRË</div>
+          <div style={{fontSize:10,marginTop:4,fontWeight:800}}>ATK TEST — DOKUMENT TESTUES</div>
           <div style={{fontSize:10,marginTop:3}}>Nuk është kupon fiskal i vlefshëm për shitje reale dhe nuk dëshmon certifikim të Fiskalo nga ATK.</div>
         </div>
       </div>
