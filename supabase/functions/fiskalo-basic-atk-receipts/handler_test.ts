@@ -195,8 +195,8 @@ Deno.test("rejects a forged certificate proof-of-possession",async()=>{
   const deps:AtkReceiptDependencies={
     authenticate:async()=>({id:"owner-user"}),isMember:async()=>true,isOwner:async()=>true,
     registerCertificate:async()=>"should-not-register",
-    getBusiness:async()=>({nui:"123456789"}),
-    getPos:async()=>({id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"verified",location:"Ferizaj"}),
+    getBusiness:async()=>({nui:"123456789",name:"Test Business"}),
+    getPos:async()=>({id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"verified",location:"Ferizaj",verifiedBusinessName:"Test Business"}),
     getCertificate:async()=>null,getSale:async()=>null,getSaleItems:async()=>[],
     queueReceipt:async()=>"doc",recordReceipt:async()=>"doc"
   };
