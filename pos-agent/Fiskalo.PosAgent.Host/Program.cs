@@ -10,6 +10,7 @@ using Fiskalo.PosAgent.Core.Atk;
 using Fiskalo.PosAgent.Core.Queue;
 using Fiskalo.PosAgent.Core.Security;
 using Atk;
+using Fiskalo.PosAgent.Host;
 using Fiskalo.PosAgent.Host.Printing;
 
 const string AgentVersion = "0.1.0";
@@ -61,6 +62,7 @@ else Console.WriteLine("Existing protected pairing restored; use the previously 
 Console.WriteLine("Allowed browser origins: " + string.Join(", ", allowedOrigins));
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHostedService<FiscalQueueBackgroundWorker>();
 builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 17843));
 var app = builder.Build();
 
