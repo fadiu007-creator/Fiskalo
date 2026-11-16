@@ -619,7 +619,15 @@ export default function Home(){
   async function savePosUnitNumber(posUuid:string){const value=(unitNumberEdits[posUuid]??positions.find(p=>p.id===posUuid)?.unit_number??"").trim();if(!/^[0-9]{7}$/.test(value)){setMessage("Numri i njësisë ARBK duhet të ketë 7 shifra.");return;}setBusy(true);setMessage("");try{const {error}=await supabase!.from("fiskalo_basic_pos").update({unit_number:value}).eq("id",posUuid);if(error)throw error;await loadWorkspace(user!.id);setUnitNumberEdits(current=>({...current,[posUuid]:value}));setMessage("Numri i njësisë ARBK u ruajt.");}catch(e){setMessage(e instanceof Error?e.message:"Numri i njësisë nuk u ruajt.");}finally{setBusy(false);}}
   function changeCart(product:Product,delta:number){if(checkoutAttempted){setMessage("Kjo shitje ka nisur. Mos e ndrysho shportën derisa të përfundojë fiskalizimi ose reconciliimi.");return;}setCheckoutKey(crypto.randomUUID());setCart(current=>{const next={...current};const qty=(next[product.id]?.quantity??0)+delta;if(qty<=0)delete next[product.id];else next[product.id]={product,quantity:qty};return next;});}
   const cartLines=Object.values(cart);
-  const total=cartLines.reduce((sum,line)=>sum+line.product.price*line.quantity*(1+line.product.vat_rate/100),0);
+  const total=cartLines.reduce((sum,line)=>{
+    const net=Math.round(line.product.price*line.quantity*100)/100;
+    const vat=Math.round(net*line.product.vat_rate)/100;
+    return sum+net+vat;
+  },0);
+  const totalCents=Math.round(total*100);
+  const paymentResult=buildPaymentAllocations(totalCents,additionalPayments);
+  const paymentMethod=paymentResult.allocations.length>1?"mixed":paymentResult.allocations[0]?.method??"cash";
+  const paymentAllocations=paymentResult.allocations.map(allocation=>({method:allocation.method,amount_cents:allocation.amountCents}));
   const categoryOptions=useMemo(()=>Array.from(new Set(products.map(product=>product.atk_item_category_code).filter(Boolean))).sort((a,b)=>a.localeCompare(b)),[products]);
   const filteredProducts=useMemo(()=>{
     const query=productSearch.trim().toLocaleLowerCase("sq");
