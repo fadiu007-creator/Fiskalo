@@ -25,6 +25,11 @@ public sealed class OfflineNumberReservationStoreTests
             Assert.Equal(first,repeated);
             Assert.Equal((ulong)9001,first.CouponId);
             Assert.Equal(41,first.DailyNumber);
+            var hash=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("signed-coupon")));
+            await fixture.Store.BindDocumentAsync("checkout-a",first.CouponId,first.DailyNumber,hash);
+            await fixture.Store.BindDocumentAsync("checkout-a",first.CouponId,first.DailyNumber,hash);
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>fixture.Store.BindDocumentAsync(
+                "checkout-a",first.CouponId,first.DailyNumber,new string('A',64)));
 
             var restarted=new OfflineNumberReservationStore(fixture.Path,fixture.Protector);
             var second=await restarted.ClaimAsync("checkout-b",
