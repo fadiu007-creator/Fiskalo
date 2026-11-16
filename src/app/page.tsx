@@ -225,6 +225,18 @@ export default function Home(){
         });
         if(qrError)throw qrError;
       }
+      const localStorageForOffline=new IndexedDbOfflineSaleStorage();
+      const localJournal=new OfflineCheckoutJournal(localStorageForOffline);
+      const localRecords=await localStorageForOffline.list();
+      const localOffline=localRecords.find(record=>record.fiscalReceipt?.fiscalIdempotencyKey===item.idempotencyKey);
+      if(localOffline?.fiscalReceipt){
+        await localJournal.attachFiscalReceipt(localOffline.idempotencyKey,{
+          ...localOffline.fiscalReceipt,status:"accepted",transactionId:item.atkTransactionId
+        });
+        await localJournal.markFiscalAccepted(localOffline.idempotencyKey,{
+          status:"accepted",environment:"ATK TEST",transactionId:item.atkTransactionId
+        });
+      }
       if(sale.checkout_idempotency_key===checkoutKey){
         setCart({});setCheckoutKey("");setCheckoutAttempted(false);
         localStorage.removeItem("fiskalo.pendingCheckout."+business.id);
