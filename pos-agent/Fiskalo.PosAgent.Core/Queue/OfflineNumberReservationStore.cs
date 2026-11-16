@@ -81,9 +81,14 @@ public sealed class OfflineNumberReservationStore
             if (state.BusinessId != businessId || state.PosUuid != posUuid || state.BusinessNui != businessNui ||
                 state.BranchId != branchId || state.PosId != posId || state.ApplicationId != applicationId)
                 throw new InvalidOperationException("Offline reservations do not belong to the selected business and POS.");
-            if (state.Claims.TryGetValue(checkoutIdempotencyKey, out var existing)) return existing;
             var localDate = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow,
                 TimeZoneInfo.FindSystemTimeZoneById("Europe/Belgrade")).ToString("yyyy-MM-dd");
+            if (state.Claims.TryGetValue(checkoutIdempotencyKey, out var existing))
+            {
+                if (!string.Equals(existing.BusinessDate, businessDate, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Checkout idempotency key is already bound to a different Kosovo business date.");
+                return existing;
+            }
             if (!string.Equals(businessDate, localDate, StringComparison.Ordinal))
                 throw new InvalidOperationException("A new offline checkout must use the current Kosovo business date.");
             if (state.AvailableCouponIds.Count == 0)
