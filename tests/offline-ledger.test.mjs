@@ -76,3 +76,28 @@ test("acceptance requires a positive uint64 ATK TEST transaction ID", async () =
     status: "accepted", environment: "ATK TEST", transactionId: "0",
   }), /valid accepted ATK TEST/);
 });
+
+test("persists one immutable signed offline receipt beside the sale snapshot", async () => {
+  const storage = new MemoryStorage();
+  const journal = new OfflineCheckoutJournal(storage), key = sale().idempotencyKey;
+  await journal.recordSale(sale({
+    fiscalIdentity: {
+      businessNui: 123456789, branchId: 1, posNumber: 2, applicationId: 3,
+      location: "Ferizaj", operatorName: "Operator", operatorIdentifier: "ID-1",
+      posLabel: "Arka 1", unitNumber: "1234567", businessDate: "2026-11-15",
+    },
+  }));
+  const receipt = {
+    couponId: 9001, dailyNumber: 12, fiscalIdempotencyKey: "123456789:1:2:9001",
+    nuiKf: "0123456789ABCDEF", posPayloadBase64: "cG9z", posSignatureBase64: "c2ln",
+    citizenPayloadBase64: "Y2l0aXplbg==", citizenSignatureBase64: "c2ln",
+    qrSvgBase64: "PHN2Zz48L3N2Zz4=", offlineIssuedAtUtc: "2026-11-15T20:00:00.000Z",
+    recoveryDeadlineUtc: "2026-11-17T20:00:00.000Z", status: "queued",
+  };
+  await journal.markFiscalQueued(key);
+  await journal.attachFiscalReceipt(key, receipt);
+  const saved = await storage.get(key);
+  assert.equal(saved.fiscalReceipt.couponId, 9001);
+  assert.equal(saved.fiscalIdentity.businessDate, "2026-11-15");
+  await assert.rejects(journal.attachFiscalReceipt(key, { ...receipt, couponId: 9002 }), /cannot be rebound/);
+});
