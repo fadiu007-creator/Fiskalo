@@ -402,6 +402,9 @@ app.MapPost(QueueAttestationPath, async (FiscalAttestationRequest request, HttpC
         if (certificateKey is null || !SamePublicKey(localKey, certificateKey) ||
             !string.Equals(certificate.Thumbprint, item.CertificateThumbprint, StringComparison.OrdinalIgnoreCase))
             return Results.Conflict(new { error = "certificate_key_mismatch" });
+        if (item.CreatedAtUtc.UtcDateTime < certificate.NotBefore.ToUniversalTime() ||
+            item.CreatedAtUtc.UtcDateTime > certificate.NotAfter.ToUniversalTime())
+            return Results.Conflict(new { error = "signing_certificate_was_not_valid_at_document_creation" });
 
         var payloadBytes = Convert.FromBase64String(item.PayloadBase64);
         var signatureBytes = Convert.FromBase64String(item.SignatureBase64);
