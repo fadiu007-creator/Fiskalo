@@ -134,7 +134,9 @@ Deno.test("verifies device, coupon and sale snapshot signatures before recording
 Deno.test("rejects a forged or tampered local Agent attestation",async()=>{
   const fixture=await setup("accepted");
   const body=fixture.body as Record<string,unknown>;
-  body.attestationPayloadBase64=b64(bytes("forged payload"));
+  const originalBytes=Uint8Array.from(atob(String(body.attestationPayloadBase64)),c=>c.charCodeAt(0));
+  const originalPayload=JSON.parse(new TextDecoder().decode(originalBytes)) as Record<string,unknown>;
+  body.attestationPayloadBase64=b64(bytes(JSON.stringify({...originalPayload,tampered:true})));
   const response=await fixture.handler(fixture.request());
   assert(response.status===403,"tampered attestation must fail cryptographic verification");
   assert(fixture.recorded()===null,"forged response must never reach the database writer");
