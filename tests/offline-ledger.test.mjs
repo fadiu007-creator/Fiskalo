@@ -5,7 +5,13 @@ class MemoryStorage {
   records = new Map();
   async get(key) { return this.records.get(key); }
   async insert(record) { if (this.records.has(record.idempotencyKey)) throw new Error("duplicate"); this.records.set(record.idempotencyKey, record); }
-  async put(record) { this.records.set(record.idempotencyKey, record); }
+  async update(key, updater) {
+    const current = this.records.get(key);
+    if (!current) throw new Error("Offline sale was not found.");
+    const next = updater(current);
+    this.records.set(key, next);
+    return next;
+  }
   async list() { return [...this.records.values()]; }
 }
 const sale = (overrides = {}) => ({
@@ -42,6 +48,19 @@ test("cloud synchronization and ATK acceptance are independent", async () => {
   assert.equal((await journal.listPendingCloudSync()).length, 0);
   assert.equal((await storage.get(key)).couponId, "9007199254740993");
   await assert.rejects(journal.markCloudSynced(key, "server-sale-1", "18446744073709551616"), /uint64 coupon ID/);
+});
+test("concurrent cloud and fiscal transitions preserve both journal states", async () => {
+  const storage = new MemoryStorage();
+  const journal = new OfflineCheckoutJournal(storage), key = sale().idempotencyKey;
+  await journal.recordSale(sale());
+  await Promise.all([
+    journal.markCloudSynced(key, "server-sale-2", "9007199254740993"),
+    journal.markFiscalQueued(key),
+  ]);
+  const saved = await storage.get(key);
+  assert.equal(saved.cloudSyncState, "synced");
+  assert.equal(saved.fiscalState, "queued");
+  assert.equal(saved.couponId, "9007199254740993");
 });
 test("uncertain ATK outcome is locked against blind retry", async () => {
   const journal = new OfflineCheckoutJournal(new MemoryStorage()), key = sale().idempotencyKey;
