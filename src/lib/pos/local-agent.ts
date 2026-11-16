@@ -92,7 +92,7 @@ export async function claimLocalOfflineNumbers(token:string,input:{
 }
 
 export type LocalFiscalAttestation={
-  status:"queued"|"accepted";attestationPayloadBase64:string;attestationSignatureBase64:string;
+  status:"queued"|"accepted";transactionId?:string|null;attestationPayloadBase64:string;attestationSignatureBase64:string;
   publicKeySpkiBase64:string;certificateThumbprint:string;
 };
 export async function getLocalFiscalAttestation(token:string,input:{
