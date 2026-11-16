@@ -74,15 +74,23 @@ Existing:
 Still required for true full-offline operation:
 - Checkout now writes an immutable IndexedDB snapshot before its first network-dependent operation. It preserves the same checkout idempotency key after network failure and can restore the most recent pending snapshot after a browser restart.
 - When cloud checkout succeeds, the local journal records the server sale/coupon linkage. Fiscal queue state is tracked separately and is updated from the local agent's ATK submission outcome.
-- **Still not full offline fiscal checkout:** the current POS flow still needs a cloud-created sale/coupon ID and database-assigned daily number before it can construct the signed ATK coupon. When internet is unavailable, Fiskalo preserves the checkout intent locally but does not yet issue a signed fiscal receipt. The UI must not present this as a completed or ATK-fiscalized sale.
-- The browser bridge calls `http://127.0.0.1:17843`; this is a device-local signing bridge, not a Cloudflare endpoint. It must be treated as an explicit local-runtime integration, not replaced with a cloud API.
-- Durable local daily coupon-number allocation/reservation under ATK's exact numbering rules.
-- Device-side, ATK-approved daily coupon-number and coupon-ID reservation that is collision-safe against cloud-issued numbers.
-- Link and persist a signed offline document to its local sale before reporting fiscal completion.
-- Reconnection workflow to upload the original sale and signed document idempotently; current browser journal only restores the checkout for an operator retry and does not yet auto-create the cloud sale.
-- Android/iOS secure keystore/runtime; current agent targets Windows.
-- Explicit handling/tests for IndexedDB eviction/quota, clock manipulation, concurrent tabs, and device loss.
-- Official ATK TEST verification and formal certification for offline workflow.
+Implemented on `feature/atk-offline-local-first`:
+- Owner-authorized POS Agent provisioning calls the Supabase reservation RPCs directly over HTTPS using the current user's short-lived access token. The Agent validates its installed ATK TEST certificate/key binding before provisioning.
+- CouponIds are allocated from the same global PostgreSQL sequence as online checkout. Daily-number ranges are reserved against the same per-POS/per-Kosovo-date counter for today through seven days ahead.
+- The Windows Agent stores reserved IDs, daily ranges and idempotent checkout claims in an atomic DPAPI-protected local file. Claimed values are never returned to the available pool, including after process restart.
+- The Agent pairing bearer token is now persisted under Windows DPAPI, so restarting the Agent does not invalidate the browser's paired session.
+- The PWA caches the authorized business/POS/product workspace and pending checkout draft for offline reload recovery. When the browser reports no network, checkout bypasses cloud sale creation, claims pre-provisioned identifiers, builds the original POS/CitizenCoupon, signs both locally, creates the signed QR and stores the fiscal document in the encrypted Agent queue.
+- The Agent's existing connectivity monitor and delivery worker automatically retry definitely-not-sent documents. Ambiguous submissions remain locked for reconciliation; the same signed payload is retained.
+- On reconnection, the PWA calls `fiskalo_basic_sync_offline_sale` to create the cloud sale using the original reserved CouponId, daily number, original timestamp, operator and immutable line snapshot. The RPC validates reservation ownership and one-time use, and flags inventory conflicts without rewriting the signed receipt.
+- Signed offline receipt and QR material are stored in the fiscal-document ledger after the sale is synchronized.
+
+Remaining release blockers:
+- The reservation-numbering workflow and exact offline QR/receipt behavior still require validation against the current ATK technical specification and official ATK TEST acceptance. No ATK approval is implied by this implementation.
+- ATK response persistence still needs a trusted server-verification/attestation path; the current browser-to-Supabase accepted-response path must not be treated as cryptographic proof of ATK acceptance.
+- Test the complete disconnected sale, Windows restart, ATK reconnection, automatic submission and cloud reconciliation sequence against ATK TEST, including the official 48-hour recovery procedure.
+- Windows is the only implemented secure local runtime. Android/iOS require separate secure-keystore agents.
+- Add operational tests for storage quota/exhaustion, clock manipulation, simultaneous tabs, device replacement, certificate revocation and local queue tampering.
+- Formal ATK software-provider certification and production authorization remain separate release gates.
 
 ## Acceptance test matrix
 
