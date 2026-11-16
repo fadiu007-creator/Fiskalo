@@ -33,7 +33,8 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 
 - Migration 0018: CouponId and daily-number reservation tables/RPCs.
 - Migration 0019: seven-day daily-number provisioning, daily-number trigger compatibility, daily-number consumption ledger and offline sale synchronization RPC.
-- Migration 0020: server-only ATK certificate registry and server-only offline queued/accepted receipt persistence RPCs.
+- Existing Supabase migrations: server-only Basic POS certificate registry and trusted queue/accepted receipt RPCs.
+- Migration 0020: hardens the existing server-only queue/accepted writers with active-certificate binding and keeps signed receipts synchronizable after the 48-hour escalation deadline.
 - Windows POS Agent: DPAPI-protected private key, certificate, reservation store and fiscal queue; local ATK TEST signing and automatic delivery.
 - PWA: cached business/POS/product workspace, IndexedDB sale journal, local-first checkout and reconnect synchronization.
 - Supabase Edge Function `fiskalo-basic-atk-receipts`: verifies local Agent attestations and signature/snapshot bindings before database persistence.
@@ -45,7 +46,7 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - The cached operator identity and paired local Agent are required to issue locally during a network outage. Cloud authorization and data refresh resume when connectivity returns.
 - The local Agent retries only when transport evidence proves the request was not delivered. An ambiguous ATK result remains locked for reconciliation.
 - The 48-hour recovery clock is tied to the first observed ATK connectivity interruption. Overdue signed documents are retained and surfaced; they are not discarded or silently resubmitted.
-- The certificate registry verifies local proof of possession and binds the certificate public key to the POS. The exact ATK certificate-chain trust anchor and renewal/revocation procedure still require confirmation against ATK's current technical specification and TEST guidance.
+- The existing certificate registry stores the ATK certificate and SPKI fingerprint; the Edge Function verifies local proof of possession and binds the certificate public key to the POS. The exact ATK certificate-chain trust anchor and renewal/revocation procedure still require confirmation against ATK's current technical specification and TEST guidance.
 
 ## Remaining acceptance and certification work
 
