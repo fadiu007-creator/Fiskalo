@@ -1,7 +1,9 @@
 import { isValidAtkVatClassification } from "../atk/product-tax.ts";
 import { isAtkUnitCode } from "../atk/product-units.ts";
+import { isPaymentMethod, type PaymentMethod } from "../atk/payment-allocation.ts";
 
-export type OfflinePaymentMethod = "cash" | "card" | "bank_transfer";
+export type OfflinePaymentMethod = PaymentMethod | "mixed";
+export type OfflinePaymentAllocation = { method: PaymentMethod; amountCents: number };
 export type OfflineSaleLine = {
   productId: string; description: string; quantityMilli: number; unitPriceMinor: number; unitPrice4dp?:number;
   vatRateBasisPoints: number; atkUnitCode: string; atkCategoryCode: string; atkVatCode: string;
@@ -19,7 +21,7 @@ export type OfflineFiscalReceipt = {
 };
 export type OfflineSaleRecord = {
   idempotencyKey: string; businessId: string; posId: string; operatorId: string;
-  createdAtUtc: string; updatedAtUtc: string; paymentMethod: OfflinePaymentMethod; currency: "EUR";
+  createdAtUtc: string; updatedAtUtc: string; paymentMethod: OfflinePaymentMethod; paymentAllocations: OfflinePaymentAllocation[]; currency: "EUR";
   subtotalMinor: number; vatTotalMinor: number; totalMinor: number; lines: OfflineSaleLine[];
   cloudSyncState: "pending" | "synced" | "conflict";
   fiscalState: "not_prepared" | "queued" | "accepted" | "rejected" | "needs_reconciliation";
@@ -56,8 +58,22 @@ export function validateNewOfflineSale(input: NewOfflineSale): void {
     throw new Error("Offline sale identity is incomplete.");
   if (!Number.isFinite(Date.parse(input.createdAtUtc)) || !input.createdAtUtc.endsWith("Z"))
     throw new Error("Offline sale timestamp must be a UTC ISO timestamp.");
-  if (!["cash", "card", "bank_transfer"].includes(input.paymentMethod))
+  if (![...["mixed"], "cash", "card", "bank_transfer", "voucher", "cheque", "crypto"].includes(input.paymentMethod))
     throw new Error("Unsupported offline payment method.");
+  if (!Array.isArray(input.paymentAllocations) || input.paymentAllocations.length < 1 || input.paymentAllocations.length > 6)
+    throw new Error("Offline sale requires one to six payment allocations.");
+  const paymentMethods = new Set<string>();
+  let allocatedMinor = 0;
+  for (const allocation of input.paymentAllocations) {
+    if (!isPaymentMethod(allocation.method) || paymentMethods.has(allocation.method) || !minor(allocation.amountCents))
+      throw new Error("Offline payment allocation method or amount is invalid.");
+    paymentMethods.add(allocation.method);
+    allocatedMinor += allocation.amountCents;
+  }
+  if (allocatedMinor !== input.totalMinor ||
+      (input.paymentAllocations.length > 1 && input.paymentMethod !== "mixed") ||
+      (input.paymentAllocations.length === 1 && input.paymentMethod !== input.paymentAllocations[0].method))
+    throw new Error("Offline payment allocations do not reconcile with the sale total or payment method.");
   if (input.currency !== "EUR" || !Array.isArray(input.lines) || input.lines.length === 0)
     throw new Error("Offline sale requires EUR currency and at least one line.");
   if (![input.subtotalMinor, input.vatTotalMinor, input.totalMinor].every(minor) ||
@@ -199,7 +215,7 @@ export class OfflineCheckoutJournal {
   }
 }
 const DB_NAME = "fiskalo-pos-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "sales";
 export class IndexedDbOfflineSaleStorage implements OfflineSaleStorage {
   private database?: Promise<IDBDatabase>;
@@ -208,9 +224,27 @@ export class IndexedDbOfflineSaleStorage implements OfflineSaleStorage {
   private open(): Promise<IDBDatabase> {
     if (!this.database) this.database = new Promise((resolve, reject) => {
       const request = this.factory.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains(STORE))
-          request.result.createObjectStore(STORE, { keyPath: "idempotencyKey" });
+      request.onupgradeneeded = (event) => {
+        const db = request.result;
+        const tx = request.transaction;
+        const store = db.objectStoreNames.contains(STORE)
+          ? tx!.objectStore(STORE)
+          : db.createObjectStore(STORE, { keyPath: "idempotencyKey" });
+        if ((event as IDBVersionChangeEvent).oldVersion < 2) {
+          const cursorRequest = store.openCursor();
+          cursorRequest.onsuccess = () => {
+            const cursor = cursorRequest.result;
+            if (!cursor) return;
+            const record = cursor.value as OfflineSaleRecord;
+            if (!Array.isArray(record.paymentAllocations) || record.paymentAllocations.length === 0) {
+              const legacyMethod = isPaymentMethod(record.paymentMethod) ? record.paymentMethod : "cash";
+              record.paymentAllocations = [{ method: legacyMethod, amountCents: record.totalMinor }];
+              if (record.paymentMethod === "mixed") record.paymentMethod = legacyMethod;
+              cursor.update(record);
+            }
+            cursor.continue();
+          };
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error ?? new Error("Unable to open offline POS storage."));
