@@ -242,8 +242,10 @@ app.MapPost(OfflineProvisionPath, async (OfflineReservationProvisionRequest requ
         {
             var rows = businessLookup.RootElement;
             if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() != 1 ||
-                !rows[0].TryGetProperty("nui", out var nuiValue) ||
-                !ulong.TryParse(nuiValue.GetString(), out var registeredNui) || registeredNui != installation.Nui)
+                !rows[0].TryGetProperty("nui", out var nuiValue))
+                return Results.Conflict(new { error = "selected_business_does_not_match_local_atk_installation" });
+            var registeredNuiText = nuiValue.ValueKind == JsonValueKind.String ? nuiValue.GetString() : nuiValue.GetRawText();
+            if (!ulong.TryParse(registeredNuiText, out var registeredNui) || registeredNui != installation.Nui)
                 return Results.Conflict(new { error = "selected_business_does_not_match_local_atk_installation" });
         }
         using (var posLookup = await CallGet("fiskalo_basic_pos?id=eq." + Uri.EscapeDataString(request.PosUuid) +
@@ -254,8 +256,8 @@ app.MapPost(OfflineProvisionPath, async (OfflineReservationProvisionRequest requ
             if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() != 1)
                 return Results.Conflict(new { error = "selected_pos_not_found_for_business" });
             var row = rows[0];
-            var appId = row.TryGetProperty("application_id", out var appValue) && appValue.ValueKind == JsonValueKind.String
-                ? appValue.GetString() : null;
+            var appId = row.TryGetProperty("application_id", out var appValue)
+                ? (appValue.ValueKind == JsonValueKind.String ? appValue.GetString() : appValue.GetRawText()) : null;
             if (row.GetProperty("branch_id").GetUInt64() != installation.BranchId ||
                 row.GetProperty("pos_id").GetUInt64() != installation.PosId ||
                 !ulong.TryParse(appId, out var registeredApplicationId) || registeredApplicationId != installation.ApplicationId ||
