@@ -11,6 +11,7 @@ create table if not exists public.fiskalo_basic_daily_number_consumptions (
   unique (business_id,checkout_idempotency_key)
 );
 alter table public.fiskalo_basic_daily_number_consumptions enable row level security;
+drop policy if exists fiskalo_basic_daily_number_consumptions_read on public.fiskalo_basic_daily_number_consumptions;
 create policy fiskalo_basic_daily_number_consumptions_read
   on public.fiskalo_basic_daily_number_consumptions for select to authenticated
   using (exists(select 1 from public.fiskalo_basic_members m
