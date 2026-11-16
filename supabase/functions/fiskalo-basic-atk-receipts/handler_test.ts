@@ -141,7 +141,7 @@ Deno.test("registers an ATK certificate only with a valid local POS proof-of-pos
   const privateKeyDer=Uint8Array.from(atob("MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaNMiMIyKgBVhC7OBr8FiFqvXCSa5ElI/YFZZz7baWxihRANCAARi7/tb1VSsaniJPDyhYi97FFwaDZvwtQAj+3xMNR5okJJ1Rhb+Lsg0UrwnZbokY/wv0pV9xV3Xg+2hrjRCv5xj"),c=>c.charCodeAt(0));
   const privateKey=await crypto.subtle.importKey("pkcs8",privateKeyDer,{name:"ECDSA",namedCurve:"P-256"},false,["sign"]);
   const certificateBase64="MIIBwzCCAWmgAwIBAgIUIcIQ5twWcVrbBEX/92eppci5vxQwCgYIKoZIzj0EAwIwNzELMAkGA1UEBhMCVVMxETAPBgNVBAoMCFRlc3QgUE9TMRUwEwYDVQQDDAxGaXNrYWxvIFRlc3QwHhcNMjYxMTE2MTIwNzI5WhcNMzYxMTEzMTIwNzI5WjA3MQswCQYDVQQGEwJVUzERMA8GA1UECgwIVGVzdCBQT1MxFTATBgNVBAMMDEZpc2thbG8gVGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGLv+1vVVKxqeIk8PKFiL3sUXBoNm/C1ACP7fEw1HmiQknVGFv4uyDRSvCdluiRj/C/SlX3FXdeD7aGuNEK/nGOjUzBRMB0GA1UdDgQWBBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAfBgNVHSMEGDAWgBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIGFPyaeP97gPTfOKXvyljm3Uf+SWR/IOFHTe78MfO4IbAiEApl3hnkk5JVaD7BqNd674fywChHxiykLWHLeHn6KCOa0=";
-  const certificatePem="-----BEGIN CERTIFICATE-----\n"+certificateBase64+"\\n-----END CERTIFICATE-----";
+  const certificatePem="-----BEGIN CERTIFICATE-----\n"+certificateBase64+"\n-----END CERTIFICATE-----";
   const attestation={
     version:1,businessId,posUuid,businessNui:123456789,branchId:1,posNumber:2,applicationId:3,
     certificatePem,certificateThumbprint:"4925AC41860A1BA9DF67762705029C5D88E353B5",
