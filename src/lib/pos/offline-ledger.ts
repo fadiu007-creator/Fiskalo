@@ -1,5 +1,6 @@
 import { isValidAtkVatClassification } from "../atk/product-tax.ts";
 import { isAtkUnitCode } from "../atk/product-units.ts";
+import { isAtkItemCategoryCode } from "../atk/product-categories.ts";
 import { isPaymentMethod, type PaymentMethod } from "../atk/payment-allocation.ts";
 
 export type OfflinePaymentMethod = PaymentMethod | "mixed";
@@ -82,7 +83,7 @@ export function validateNewOfflineSale(input: NewOfflineSale): void {
   let net = 0, vat = 0, gross = 0;
   for (const line of input.lines) {
     if (!nonEmpty(line.productId) || !nonEmpty(line.description) ||
-        !nonEmpty(line.atkCategoryCode) || line.atkCategoryCode.length > 128 ||
+        !isAtkItemCategoryCode(line.atkCategoryCode) || line.atkCategoryCode.length > 128 ||
         /[\u0000-\u001f]/.test(line.atkCategoryCode))
       throw new Error("Every offline sale line requires a product snapshot and ATK category code.");
     if (!isAtkUnitCode(line.atkUnitCode))
