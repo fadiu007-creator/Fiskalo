@@ -11,6 +11,7 @@ export type AtkReceiptPos = {
 export type AtkReceiptCertificate = {
   applicationId: number;
   spkiSha256: string;
+  certificatePem: string;
   status: string;
   revokedAt: string | null;
 };
@@ -111,6 +112,14 @@ function toHex(bytes: Uint8Array): string {
 async function sha256(bytes: Uint8Array): Promise<string> {
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
 }
+async function sha1(bytes: Uint8Array): Promise<string> {
+  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-1", bytes)));
+}
+function certificateDer(pem: string): Uint8Array {
+  const match = /-----BEGIN CERTIFICATE-----([\\s\\S]+?)-----END CERTIFICATE-----/.exec(pem);
+  if (!match) throw new AtkReceiptRequestError(409, "Registered ATK certificate PEM is invalid.");
+  return decodeBase64(match[1].replace(/\\s/g, ""), "Registered ATK certificate");
+}
 function numeric(value: string | number | null | undefined): number {
   if (typeof value === "number") return value;
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
@@ -204,6 +213,11 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
       const attestationSignature = decodeBase64(attestationSignatureBase64, "Attestation signature");
       const spki = decodeBase64(publicKeySpkiBase64, "Certificate public key");
       const attestation = parseAttestation(attestationBytes);
+      const registeredCertificateDer = certificateDer(certificate.certificatePem);
+      const registeredThumbprint = (await sha1(registeredCertificateDer)).toUpperCase();
+      if (registeredThumbprint !== attestation.certificateThumbprint.replace(/:/g, "").toUpperCase()) {
+        return json(403, { error: "Attested certificate thumbprint does not match the registered ATK certificate." }, headers);
+      }
       if ((await sha256(spki)) !== certificate.spkiSha256.toLowerCase()) {
         return json(403, { error: "Attestation public key does not match the active ATK certificate." }, headers);
       }
