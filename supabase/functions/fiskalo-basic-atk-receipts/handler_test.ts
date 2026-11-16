@@ -1,3 +1,20 @@
+Deno.test("matches the POS Agent canonical coupon snapshot hash fixture",async()=>{
+  const pos:AtkReceiptPos={id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"certificate_issued",location:"Ferizaj"};
+  const sale:AtkReceiptSale={
+    id:saleId,businessId,posId:posUuid,couponId:9001,status:"paid",dailyNumber:12,
+    createdAt:new Date(1799999999*1000).toISOString(),checkoutIdempotencyKey:null,
+    operatorName:"Operator",paymentMethod:"cash",paymentAllocations:null,
+    subtotal:"4.00",vatTotal:"0.72",total:"4.72",
+  };
+  const items:AtkReceiptSaleItem[]=[
+    {description:"Bread",unitPrice:"1.0000",quantity:"2.000",lineTotal:"2.36",lineNet:"2.00",lineVat:"0.36",unitCode:"C62",categoryCode:"P",vatCode:"A"},
+    {description:"Milk",unitPrice:"2.0000",quantity:"1.000",lineTotal:"2.36",lineNet:"2.00",lineVat:"0.36",unitCode:"C62",categoryCode:"P",vatCode:"A"},
+  ];
+  const hash=await computeSaleSnapshotSha256(123456789,pos,sale,items,"0123456789ABCDEF",12);
+  assert(hash==="501626cc9856ab9e0ec49b7eb871198414881decb73e471ceaf58934d253553a",
+    "Edge Function canonical hash must match the Windows POS Agent implementation");
+});
+
 import {
   computeSaleSnapshotSha256, createAtkReceiptHandler,
   type AtkReceiptDependencies, type AtkReceiptPos, type AtkReceiptSale, type AtkReceiptSaleItem,
