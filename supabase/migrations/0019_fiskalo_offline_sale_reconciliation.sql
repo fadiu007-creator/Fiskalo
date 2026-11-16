@@ -220,7 +220,11 @@ begin
        coalesce(trim(v_line.description),'')='' or char_length(v_line.description)>256 or
        coalesce(trim(v_line.atk_unit_code),'')='' or char_length(v_line.atk_unit_code)>16 or
        coalesce(trim(v_line.atk_item_category_code),'')='' or char_length(v_line.atk_item_category_code)>32 or
-       v_line.atk_vat_code is null or v_line.atk_vat_code !~ '^[A-Z]
+       v_line.atk_vat_code is null or v_line.atk_vat_code !~ '^[A-Z]$' or
+       v_line.line_net is null or v_line.line_vat is null or v_line.line_total is null or
+       v_line.line_net<>round(v_line.unit_price*v_line.quantity,2) or
+       v_line.line_vat<>round(v_line.line_net*v_line.vat_rate/100,2) or
+       v_line.line_total<>v_line.line_net+v_line.line_vat then
       raise exception 'Offline line snapshot has invalid prices, VAT or ATK mapping';
     end if;
     select * into v_product from public.fiskalo_basic_products p
