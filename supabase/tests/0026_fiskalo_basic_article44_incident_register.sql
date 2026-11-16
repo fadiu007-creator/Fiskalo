@@ -27,6 +27,7 @@ begin
   if fn is null or not has_function_privilege('authenticated',fn,'EXECUTE') or has_function_privilege('anon',fn,'EXECUTE') then
     raise exception 'Article 44 notice RPC privileges are incorrect';
   end if;
+  fn:=to_regprocedure('fiskalo_private.fiskalo_basic_record_article44_notice(uuid,text,text,jsonb)');
   select pg_get_functiondef(fn) into def;
   if position('48 hours' in def)=0 or position('storage.objects' in def)=0 then
     raise exception 'Notice recording must enforce the 48-hour rule and evidence storage';
