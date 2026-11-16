@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient, getSupabasePublicConfig } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
-import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
+import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, submitLocalTestCoupon, getLocalAgentQueue, getLocalFiscalAttestation, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { OfflineCheckoutJournal, IndexedDbOfflineSaleStorage } from "@/lib/pos/offline-ledger";
@@ -208,23 +208,14 @@ export default function Home(){
       if(!sale)continue;
       const pos=positions.find(p=>p.id===sale.pos_id);
       if(!pos||String(pos.branch_id)!==parts[1]||String(pos.pos_id)!==parts[2])continue;
-      const {error}=await supabase.rpc("fiskalo_basic_record_atk_receipt",{
-        p_business_id:business.id,p_sale_id:sale.id,p_coupon_id:sale.coupon_id,
-        p_idempotency_key:item.idempotencyKey,p_signed_payload:item.detailsBase64,
-        p_signature:item.signatureBase64,p_atk_transaction_id:item.atkTransactionId,
-        p_atk_response:{status:"accepted",transactionId:item.atkTransactionId,environment:"ATK TEST"},
-        p_nui_kf:item.nuiKf,p_citizen_payload:item.citizenPayloadBase64,
-        p_citizen_signature:item.citizenSignatureBase64,p_daily_number:item.dailyNumber??sale.daily_number,
-        p_offline_issued_at:item.offlineIssuedAtUtc
+      const attestation=await getLocalFiscalAttestation(agentToken,{
+        idempotencyKey:item.idempotencyKey,businessId:business.id,posUuid:sale.pos_id
+      });
+      const {error}=await supabase.functions.invoke("fiskalo-basic-atk-receipts",{
+        body:{action:"accepted",businessId:business.id,posUuid:sale.pos_id,saleId:sale.id,
+          couponId:sale.coupon_id,idempotencyKey:item.idempotencyKey,...attestation}
       });
       if(error)throw error;
-      if(item.qrSvgBase64){
-        const {error:qrError}=await supabase.rpc("fiskalo_basic_set_receipt_qr",{
-          p_business_id:business.id,p_sale_id:sale.id,p_coupon_id:sale.coupon_id,
-          p_idempotency_key:item.idempotencyKey,p_qr_svg_base64:item.qrSvgBase64
-        });
-        if(qrError)throw qrError;
-      }
       const localStorageForOffline=new IndexedDbOfflineSaleStorage();
       const localJournal=new OfflineCheckoutJournal(localStorageForOffline);
       const localRecords=await localStorageForOffline.list();
@@ -310,20 +301,19 @@ export default function Home(){
           p_expected_snapshot:expectedSnapshot,p_created_at:record.createdAtUtc
         });
         if(saleSyncError)throw saleSyncError;
-        const {error:receiptError}=await supabase.rpc("fiskalo_basic_store_offline_receipt",{
-          p_business_id:record.businessId,p_sale_id:saleId,p_coupon_id:receipt.couponId,
-          p_idempotency_key:receipt.fiscalIdempotencyKey,p_signed_payload:receipt.posPayloadBase64,
-          p_signature:receipt.posSignatureBase64,p_nui_kf:receipt.nuiKf,
-          p_citizen_payload:receipt.citizenPayloadBase64,p_citizen_signature:receipt.citizenSignatureBase64,
-          p_daily_number:receipt.dailyNumber,p_offline_issued_at:receipt.offlineIssuedAtUtc
+        const localQueue=await getLocalAgentQueue(agentToken);
+        const queueItem=localQueue.items.find(item=>item.idempotencyKey===receipt.fiscalIdempotencyKey);
+        if(!queueItem||!["queued","accepted"].includes(queueItem.status.toLowerCase()))
+          throw new Error("POS Agent has no safely queued or ATK-accepted copy of this signed offline coupon.");
+        const action=queueItem.status.toLowerCase()==="accepted"?"accepted":"queue";
+        const attestation=await getLocalFiscalAttestation(agentToken,{
+          idempotencyKey:receipt.fiscalIdempotencyKey,businessId:record.businessId,posUuid:record.posId
         });
-        if(receiptError)throw receiptError;
-        const {error:qrError}=await supabase.rpc("fiskalo_basic_set_receipt_qr",{
-          p_business_id:record.businessId,p_sale_id:saleId,p_coupon_id:receipt.couponId,
-          p_idempotency_key:receipt.fiscalIdempotencyKey,
-          p_qr_svg_base64:receipt.qrSvgBase64
+        const {error:attestationError}=await supabase.functions.invoke("fiskalo-basic-atk-receipts",{
+          body:{action,businessId:record.businessId,posUuid:record.posId,saleId,
+            couponId:receipt.couponId,idempotencyKey:receipt.fiscalIdempotencyKey,...attestation}
         });
-        if(qrError)throw qrError;
+        if(attestationError)throw attestationError;
         await journal.markCloudSynced(record.idempotencyKey,String(saleId),String(receipt.couponId));
         if(!navigator.onLine)break;
       }catch(error){
