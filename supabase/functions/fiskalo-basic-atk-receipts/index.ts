@@ -1,0 +1,93 @@
+// deno-lint-ignore no-import-prefix -- Supabase Edge Functions pin and resolve npm modules at runtime.
+import { createClient } from "npm:@supabase/supabase-js@2.114.0";
+import { createAtkReceiptHandler, type AtkReceiptDependencies } from "./handler.ts";
+
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+if (!supabaseUrl || !serviceRoleKey) {
+  Deno.serve(() => new Response(
+    JSON.stringify({ error: "Supabase Edge Function secrets are not configured." }),
+    { status: 503, headers: { "Content-Type": "application/json; charset=utf-8" } },
+  ));
+} else {
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const dependencies: AtkReceiptDependencies = {
+    async authenticate(token) {
+      const { data, error } = await admin.auth.getUser(token);
+      if (error || !data.user) return null;
+      return { id: data.user.id };
+    },
+    async isMember(businessId, userId) {
+      const { data, error } = await admin.from("fiskalo_basic_members")
+        .select("user_id").eq("business_id", businessId).eq("user_id", userId).maybeSingle();
+      if (error) throw error;
+      return Boolean(data);
+    },
+    async getBusiness(businessId) {
+      const { data, error } = await admin.from("fiskalo_basic_businesses")
+        .select("nui").eq("id", businessId).maybeSingle();
+      if (error) throw error;
+      return data ? { nui: data.nui as string | number } : null;
+    },
+    async getPos(businessId, posUuid) {
+      const { data, error } = await admin.from("fiskalo_basic_pos")
+        .select("id,business_id,branch_id,pos_id,application_id,certificate_status")
+        .eq("id", posUuid).eq("business_id", businessId).maybeSingle();
+      if (error) throw error;
+      return data ? {
+        id: data.id,
+        businessId: data.business_id,
+        branchId: Number(data.branch_id),
+        posNumber: Number(data.pos_id),
+        applicationId: data.application_id as string | number,
+        certificateStatus: data.certificate_status,
+      } : null;
+    },
+    async getCertificate(businessId, posUuid) {
+      const { data, error } = await admin.from("fiskalo_basic_pos_certificates")
+        .select("application_id,spki_sha256,status,revoked_at")
+        .eq("business_id", businessId).eq("pos_id", posUuid)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw error;
+      return data ? {
+        applicationId: Number(data.application_id),
+        spkiSha256: data.spki_sha256,
+        status: data.status,
+        revokedAt: data.revoked_at,
+      } : null;
+    },
+    async getSale(businessId, saleId) {
+      const { data, error } = await admin.from("fiskalo_basic_sales")
+        .select("id,business_id,pos_id,coupon_id,status,daily_number,created_at")
+        .eq("id", saleId).eq("business_id", businessId).maybeSingle();
+      if (error) throw error;
+      return data ? {
+        id: data.id,
+        businessId: data.business_id,
+        posId: data.pos_id,
+        couponId: data.coupon_id,
+        status: data.status,
+        dailyNumber: data.daily_number,
+        createdAt: data.created_at,
+      } : null;
+    },
+    async queueReceipt(args) {
+      const { data, error } = await admin.rpc("fiskalo_basic_store_offline_receipt_v2", args);
+      if (error) throw error;
+      if (typeof data !== "string" || !data) throw new Error("Offline fiscal document RPC returned no document ID.");
+      return data;
+    },
+    async recordReceipt(args) {
+      const { data, error } = await admin.rpc("fiskalo_basic_server_record_atk_receipt_v2", args);
+      if (error) throw error;
+      if (typeof data !== "string" || !data) throw new Error("ATK acceptance RPC returned no document ID.");
+      return data;
+    },
+  };
+
+  Deno.serve(createAtkReceiptHandler(dependencies));
+}
