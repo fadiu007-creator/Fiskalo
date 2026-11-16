@@ -433,7 +433,8 @@ public sealed class FiscalQueueStore
             if (changed) await SaveAsync(items, cancellationToken);
 
             // Persist healthy reachability even when no outage is active. This anchors
-            // the next 48-hour clock if the agent restarts before detecting a failure.
+            // the local operational overdue timer if the Agent restarts before detecting
+            // an ATK endpoint failure; it is not a server-verified legal outage timestamp.
             await SaveConnectivityStateAsync(new ConnectivityState(timestamp, null), cancellationToken);
             return state.OutageStartedAtUtc;
         }
