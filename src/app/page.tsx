@@ -88,21 +88,42 @@ export default function Home(){
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
   const loadWorkspace=useCallback(async(uid:string)=>{
     if(!supabase)return;
-    const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name,operator_identifier").eq("user_id",uid).limit(1).maybeSingle();
-    if(memberError)throw memberError;
-    if(!member){setBusiness(null);setMemberRole(null);setWorkers([]);setWorkersError("");setOperatorName("");setOperatorIdentifier("");setProducts([]);setPositions([]);setSelectedPos("");return;}
-    setMemberRole(member.role as MemberRole);
-    if(member.role==="cashier")setTab("pos");
-    const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui,vat_number").eq("id",member.business_id).single();
-    if(bizError)throw bizError;
-    setBusiness(biz);setVatNumber(biz.vat_number??"");setOperatorName(member.operator_name??"");setOperatorIdentifier(member.operator_identifier??"");
-    const [{data:prods,error:productError},{data:poses,error:posError}]=await Promise.all([
-      supabase.from("fiskalo_basic_products").select("*").eq("business_id",biz.id).eq("active",true).order("name"),
-      supabase.from("fiskalo_basic_pos").select("*").eq("business_id",biz.id).order("created_at")
-    ]);
-    if(productError)throw productError;if(posError)throw posError;
-    setProducts(prods??[]);setPositions(poses??[]);
-    setSelectedPos(current=>poses?.some(p=>p.id===current)?current:(poses?.[0]?.id??""));
+    const cacheKey="fiskalo.offline.workspace."+uid;
+    try{
+      const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name,operator_identifier").eq("user_id",uid).limit(1).maybeSingle();
+      if(memberError)throw memberError;
+      if(!member){
+        setBusiness(null);setMemberRole(null);setWorkers([]);setWorkersError("");setOperatorName("");setOperatorIdentifier("");setProducts([]);setPositions([]);setSelectedPos("");
+        try{localStorage.removeItem(cacheKey);}catch{}
+        return;
+      }
+      const role=member.role as MemberRole;
+      const {data:biz,error:bizError}=await supabase.from("fiskalo_basic_businesses").select("id,name,nui,vat_number").eq("id",member.business_id).single();
+      if(bizError)throw bizError;
+      const [{data:prods,error:productError},{data:poses,error:posError}]=await Promise.all([
+        supabase.from("fiskalo_basic_products").select("*").eq("business_id",biz.id).eq("active",true).order("name"),
+        supabase.from("fiskalo_basic_pos").select("*").eq("business_id",biz.id).order("created_at")
+      ]);
+      if(productError)throw productError;if(posError)throw posError;
+      const workspace={business:biz,memberRole:role,operatorName:member.operator_name??"",
+        operatorIdentifier:member.operator_identifier??"",products:prods??[],positions:poses??[],cachedAt:new Date().toISOString()};
+      try{localStorage.setItem(cacheKey,JSON.stringify(workspace));}catch{}
+      setMemberRole(role);
+      if(role==="cashier")setTab("pos");
+      setBusiness(biz);setVatNumber(biz.vat_number??"");setOperatorName(member.operator_name??"");setOperatorIdentifier(member.operator_identifier??"");
+      setProducts(prods??[]);setPositions(poses??[]);
+      setSelectedPos(current=>poses?.some(p=>p.id===current)?current:(poses?.[0]?.id??""));
+    }catch(error){
+      if(navigator.onLine)throw error;
+      let cached: {business:Business;memberRole:MemberRole;operatorName:string;operatorIdentifier:string;products:Product[];positions:Pos[]}|null=null;
+      try{const raw=localStorage.getItem(cacheKey);if(raw)cached=JSON.parse(raw);}catch{}
+      if(!cached?.business||!Array.isArray(cached.products)||!Array.isArray(cached.positions))throw error;
+      setBusiness(cached.business);setMemberRole(cached.memberRole);setVatNumber(cached.business.vat_number??"");
+      setOperatorName(cached.operatorName);setOperatorIdentifier(cached.operatorIdentifier);
+      setProducts(cached.products);setPositions(cached.positions);
+      setSelectedPos(current=>cached!.positions.some(p=>p.id===current)?current:(cached!.positions[0]?.id??""));
+      setMessage("Pa internet: po përdoret fotografia e fundit e biznesit, produkteve dhe POS-it. Rezervat lokale dhe certifikata duhet të jenë aktive.");
+    }
   },[supabase]);
 
   const loadWorkers=useCallback(async()=>{
