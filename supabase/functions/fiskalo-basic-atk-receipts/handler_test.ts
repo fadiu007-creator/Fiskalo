@@ -26,6 +26,17 @@ const saleId="3a9b0d6d-62f0-4e3e-9b24-7bb0e0a1c033";
 function assert(condition:unknown,message:string):asserts condition{if(!condition)throw new Error(message);}
 function b64(value:Uint8Array){let raw="";for(const b of value)raw+=String.fromCharCode(b);return btoa(raw);}
 function bytes(value:string){return new TextEncoder().encode(value);}
+const TEST_PRIVATE_KEY_DER=Uint8Array.from(atob("MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaNMiMIyKgBVhC7OBr8FiFqvXCSa5ElI/YFZZz7baWxihRANCAARi7/tb1VSsaniJPDyhYi97FFwaDZvwtQAj+3xMNR5okJJ1Rhb+Lsg0UrwnZbokY/wv0pV9xV3Xg+2hrjRCv5xj"),c=>c.charCodeAt(0));
+const TEST_CERTIFICATE_BASE64="MIIBwzCCAWmgAwIBAgIUIcIQ5twWcVrbBEX/92eppci5vxQwCgYIKoZIzj0EAwIwNzELMAkGA1UEBhMCVVMxETAPBgNVBAoMCFRlc3QgUE9TMRUwEwYDVQQDDAxGaXNrYWxvIFRlc3QwHhcNMjYxMTE2MTIwNzI5WhcNMzYxMTEzMTIwNzI5WjA3MQswCQYDVQQGEwJVUzERMA8GA1UECgwIVGVzdCBQT1MxFTATBgNVBAMMDEZpc2thbG8gVGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGLv+1vVVKxqeIk8PKFiL3sUXBoNm/C1ACP7fEw1HmiQknVGFv4uyDRSvCdluiRj/C/SlX3FXdeD7aGuNEK/nGOjUzBRMB0GA1UdDgQWBBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAfBgNVHSMEGDAWgBSmf40rxOL5LkLH6SRaKmQ7cXS/NjAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIGFPyaeP97gPTfOKXvyljm3Uf+SWR/IOFHTe78MfO4IbAiEApl3hnkk5JVaD7BqNd674fywChHxiykLWHLeHn6KCOa0=";
+const TEST_CERTIFICATE_PEM="-----BEGIN CERTIFICATE-----\\n"+TEST_CERTIFICATE_BASE64+"\\n-----END CERTIFICATE-----";
+const TEST_SPKI_BASE64="MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYu/7W9VUrGp4iTw8oWIvexRcGg2b8LUAI/t8TDUeaJCSdUYW/i7INFK8J2W6JGP8L9KVfcVd14Ptoa40Qr+cYw==";
+const TEST_SPKI=Uint8Array.from(atob(TEST_SPKI_BASE64),c=>c.charCodeAt(0));
+const TEST_CERTIFICATE_THUMBPRINT="4925AC41860A1BA9DF67762705029C5D88E353B5";
+async function testKeyPair(){
+  const privateKey=await crypto.subtle.importKey("pkcs8",TEST_PRIVATE_KEY_DER,{name:"ECDSA",namedCurve:"P-256"},false,["sign"]);
+  const publicKey=await crypto.subtle.importKey("spki",TEST_SPKI,{name:"ECDSA",namedCurve:"P-256"},false,["verify"]);
+  return {privateKey,publicKey};
+}
 async function hash(value:Uint8Array,algorithm:"SHA-256"|"SHA-1"="SHA-256"){
   const input=new Uint8Array(value.byteLength);input.set(value);
   return Array.from(new Uint8Array(await crypto.subtle.digest(algorithm,input.buffer)),b=>b.toString(16).padStart(2,"0")).join("");
@@ -35,8 +46,8 @@ function dateOf(timestamp:string){
   const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));return `${values.year}-${values.month}-${values.day}`;
 }
 async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
-  const keyPair=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},true,["sign","verify"]);
-  const spki=new Uint8Array(await crypto.subtle.exportKey("spki",keyPair.publicKey));
+  const keyPair=await testKeyPair();
+  const spki=TEST_SPKI;
   const now=new Date();
   const createdAt=now.toISOString();
   const saleItems:AtkReceiptSaleItem[]=[
@@ -145,8 +156,8 @@ Deno.test("registers an ATK certificate only with a valid local POS proof-of-pos
   const certificatePem="-----BEGIN CERTIFICATE-----\n"+certificateBase64+"\n-----END CERTIFICATE-----";
   const attestation={
     version:1,businessId,posUuid,businessNui:123456789,branchId:1,posNumber:2,applicationId:3,
-    certificatePem,certificateThumbprint:"4925AC41860A1BA9DF67762705029C5D88E353B5",
-    spkiBase64:"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYu/7W9VUrGp4iTw8oWIvexRcGg2b8LUAI/t8TDUeaJCSdUYW/i7INFK8J2W6JGP8L9KVfcVd14Ptoa40Qr+cYw==",
+    certificatePem,certificateThumbprint:TEST_CERTIFICATE_THUMBPRINT,
+    spkiBase64:TEST_SPKI_BASE64,
     issuedAtUtc:new Date().toISOString(),
   };
   const payloadBytes=new TextEncoder().encode(JSON.stringify(attestation));
