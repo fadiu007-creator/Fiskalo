@@ -36,7 +36,7 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - Migration 0019: daily-number trigger compatibility, daily-number consumption ledger and offline sale synchronization RPC. Migrations 0022-0023: atomic CouponId/daily-range capacity reservation with an invoker-only public wrapper. Migration 0024: owner-only daily-number reservations from today through seven days ahead in Kosovo time.
 - Existing Supabase migrations: server-only Basic POS certificate registry and trusted queue/accepted receipt RPCs.
 - Migration 0020: hardens the existing server-only queue/accepted writers with active-certificate binding and keeps signed receipts synchronizable after the 48-hour escalation deadline.
-- Migrations 0025–0031: remove public execution from trigger-only helpers; add Article 44 incident/evidence tracking and the tenth-of-following-month un-fiscalized export; add split-tender online/offline checkout; and harden deadline/idempotency boundaries.
+- Migrations 0025–0032: remove public execution from trigger-only helpers; add Article 44 incident/evidence tracking and the tenth-of-following-month un-fiscalized export; add split-tender online/offline checkout; and harden deadline, evidence and idempotency boundaries.
 - Windows POS Agent: DPAPI-protected private key, certificate, reservation store and fiscal queue; local ATK TEST signing and automatic delivery.
 - PWA: cached business/POS/product workspace, IndexedDB sale journal, local-first checkout and reconnect synchronization.
 - Supabase Edge Function `fiskalo-basic-atk-receipts`: verifies local Agent attestations and signature/snapshot bindings before database persistence.
