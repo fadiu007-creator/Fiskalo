@@ -6,7 +6,8 @@ import { createClient, getSupabasePublicConfig } from "@/lib/supabase/client";
 import BusinessOperations from "@/components/business-operations";
 import { pairLocalAgent, getLocalAgentStatus, verifyLocalTestPos, issueLocalTestCertificate, getLocalAtkCertificateAttestation, submitLocalTestCoupon, getLocalAgentQueue, getLocalFiscalAttestation, reconcileLocalAgentQueue, provisionLocalOfflineNumbers, getLocalOfflineReservationSummary, claimLocalOfflineNumbers, type AgentStatus, type AtkVerification } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
-import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
+import { ATK_MEASUREMENT_UNITS, ATK_MEASUREMENT_UNIT_SOURCE, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
+import { ATK_ITEM_CATEGORY_OPTIONS, ATK_ITEM_CATEGORY_SOURCE, getAtkItemCategoryLabel, isAtkItemCategoryCode } from "@/lib/atk/product-categories";
 import { OfflineCheckoutJournal, IndexedDbOfflineSaleStorage } from "@/lib/pos/offline-ledger";
 import { buildPaymentAllocations, formatPaymentAllocations, isPaymentMethod, toAtkPaymentType, paymentMethodLabel, type AdditionalPaymentMethod, type PaymentMethod } from "@/lib/atk/payment-allocation";
 
