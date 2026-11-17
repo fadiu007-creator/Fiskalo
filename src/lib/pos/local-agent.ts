@@ -1,0 +1,106 @@
+const AGENT = "http://127.0.0.1:17843";
+async function call<T>(path:string,token?:string,body?:unknown):Promise<T>{
+  const response=await fetch(AGENT+path,{method:body===undefined?"GET":"POST",headers:{...(body===undefined?{}:{"Content-Type":"application/json"}),...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body),cache:"no-store"});
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(typeof payload.detail==="string"?payload.detail:typeof payload.message==="string"?payload.message:typeof payload.error==="string"?payload.error:"POS Agent request failed ("+response.status+").");
+  return payload as T;
+}
+export type AgentStatus={service:string;version:string;paired:boolean;fiscalizationEnabled:boolean;capabilities:string[];windowsKeyStoreAvailable:boolean;testCertificateInstalled:boolean;testInstallationVerified:boolean};
+export type AtkVerification={businessName:string;verificationCode:string;environment:string;productionEnabled:boolean};
+export type AtkCertificate={certificateStatus:string;subject:string;thumbprint:string;environment:string;privateKeyExported:boolean;productionEnabled:boolean};
+export async function pairLocalAgent(pairingCode:string){return call<{sessionToken:string;agentVersion:string}>("/api/v1/pair",undefined,{pairingCode});}
+export async function getLocalAgentStatus(token:string){return call<AgentStatus>("/api/v1/status",token);}
+export async function verifyLocalTestPos(token:string,input:{nui:number;fiscalizationNumber:string;posId:number;branchId:number;applicationId:number}){return call<AtkVerification>("/api/v1/atk/test/verify",token,input);}
+export async function issueLocalTestCertificate(token:string,input:{businessName:string;businessNui:number;branchId:number;verificationCode:string;posId:number;applicationId:number}){return call<AtkCertificate>("/api/v1/atk/test/sign-csr",token,input);}
+export async function getLocalAtkCertificateAttestation(token:string,input:{businessId:string;posUuid:string}){
+  return call<{attestationPayloadBase64:string;attestationSignatureBase64:string}>(
+    "/api/v1/atk/test/certificate-attestation",token,input);
+}
+
+export type AtkCouponSubmitResult={
+  status:"accepted"|"queued_offline";
+  transactionId:string|null;
+  detailsBase64:string;
+  signatureBase64:string;
+  nuiKf:string;
+  dailyNumber:number;
+  citizenQrPayload:string;
+  qrSvgBase64:string;
+  offline:boolean;
+  recoveryDeadlineUtc?:string;
+  offlineIssuedAtUtc?:string|null;
+  retryScheduled?:boolean;
+  duplicateRequest?:boolean;
+  environment:"ATK TEST";
+  productionEnabled?:false;
+  message?:string;
+};
+export type LocalFiscalQueueItem={
+  idempotencyKey:string;
+  documentType:string;
+  createdAtUtc:string;
+  recoveryDeadlineUtc:string;
+  nextAttemptAtUtc:string;
+  status:string;
+  attemptCount:number;
+  lastError:string|null;
+  atkTransactionId:string|null;
+  nuiKf:string|null;
+  legacyNuiKf:string|null;
+  dailyNumber:number|null;
+  offlineIssuedAtUtc:string|null;
+  citizenPayloadBase64:string|null;
+  citizenSignatureBase64:string|null;
+  citizenQrPayload:string|null;
+  qrSvgBase64:string|null;
+  detailsBase64:string|null;
+  signatureBase64:string|null;
+  recoveryDeadlineExceeded:boolean;
+};
+export async function submitLocalTestCoupon(token:string,idempotencyKey:string,coupon:unknown,metadata?:{
+  businessId:string;posUuid:string;businessDate:string;checkoutIdempotencyKey?:string;
+}){
+  return call<AtkCouponSubmitResult>("/api/v1/atk/test/coupon",token,{
+    idempotencyKey,coupon,businessId:metadata?.businessId,posUuid:metadata?.posUuid,
+    businessDate:metadata?.businessDate,checkoutIdempotencyKey:metadata?.checkoutIdempotencyKey
+  });
+}
+export async function getLocalAgentQueue(token:string){
+  return call<{count:number;overdueCount:number;items:LocalFiscalQueueItem[]}>("/api/v1/queue",token);
+}
+export type LocalQueueReconcileInput={decision:"not_found_confirmed";confirmedNoAtkRecord:true};
+export type LocalQueueReconcileResult={
+  idempotencyKey:string;status:string;transactionId:string|null;lastError:string|null;
+  manualResubmissionPermitted:boolean;automaticRetryEnabled:boolean;
+};
+export async function reconcileLocalAgentQueue(token:string,idempotencyKey:string,input:LocalQueueReconcileInput){
+  return call<LocalQueueReconcileResult>("/api/v1/queue/reconcile",token,{idempotencyKey,...input});
+}
+
+export type OfflineReservationSummary={availableCouponIds:number;availableDailyNumbers:Record<string,number>};
+export async function getLocalOfflineReservationSummary(token:string){
+  return call<OfflineReservationSummary>("/api/v1/offline/reservations",token);
+}
+export async function provisionLocalOfflineNumbers(token:string,input:{
+  businessId:string;posUuid:string;supabaseUrl:string;anonKey:string;accessToken:string;
+  couponCount:number;daysAhead:number;
+}){
+  return call<{provisionedCouponIds:number;provisionedDailyDates:number;availableCouponIds:number;availableDailyNumbers:Record<string,number>}>(
+    "/api/v1/offline/reservations/provision",token,input);
+}
+export async function claimLocalOfflineNumbers(token:string,input:{
+  checkoutIdempotencyKey:string;businessId:string;posUuid:string;businessDate:string;
+}){
+  return call<{couponId:number;dailyNumber:number;businessDate:string}>(
+    "/api/v1/offline/reservations/claim",token,input);
+}
+
+export type LocalFiscalAttestation={
+  status:"queued"|"accepted";transactionId?:string|null;attestationPayloadBase64:string;attestationSignatureBase64:string;
+  publicKeySpkiBase64:string;certificateThumbprint:string;
+};
+export async function getLocalFiscalAttestation(token:string,input:{
+  idempotencyKey:string;businessId:string;posUuid:string;
+}){
+  return call<LocalFiscalAttestation>("/api/v1/queue/attestation",token,input);
+}
