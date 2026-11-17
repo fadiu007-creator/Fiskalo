@@ -29,6 +29,8 @@ begin
       and new.offline_issued_at is not null
       and (
         old.submission_state is distinct from 'queued'
+        or old.business_id is distinct from new.business_id
+        or old.sale_id is distinct from new.sale_id
         or old.offline_issued_at is distinct from new.offline_issued_at
         or old.outage_heartbeat_evidence_id is distinct from new.outage_heartbeat_evidence_id
         or old.offline_time_evidence is distinct from new.offline_time_evidence
@@ -92,7 +94,7 @@ drop trigger if exists fiskalo_basic_bind_offline_heartbeat_evidence
   on public.fiskalo_basic_fiscal_documents;
 
 create trigger fiskalo_basic_bind_offline_heartbeat_evidence
-before insert or update of submission_state, offline_issued_at, recovery_deadline_at, outage_heartbeat_evidence_id, offline_time_evidence
+before insert or update of business_id, sale_id, submission_state, offline_issued_at, recovery_deadline_at, outage_heartbeat_evidence_id, offline_time_evidence
 on public.fiskalo_basic_fiscal_documents
 for each row
 execute function fiskalo_private.fiskalo_basic_bind_offline_heartbeat_evidence();
