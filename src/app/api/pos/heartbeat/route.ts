@@ -188,7 +188,7 @@ export async function handleHeartbeat(
     return Response.json({
       version: 1, businessId: body.businessId, posUuid: body.posUuid, nonce: body.nonce,
       issuedAtUnixMs, serverTimeUtc: new Date(issuedAtUnixMs).toISOString(),
-      previousHeartbeatAtUtc, gapSeconds, gapDetected: gapSeconds !== null && gapSeconds > 60,
+      previousHeartbeatAtUtc, gapSeconds, gapDetected: gapSeconds !== null && gapSeconds > 90,
       signatureBase64, environment: "ATK TEST", productionEnabled: false,
     }, {
       headers: { "Cache-Control": "no-store, no-cache, must-revalidate", Pragma: "no-cache" },
