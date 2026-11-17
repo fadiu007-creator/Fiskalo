@@ -261,7 +261,32 @@ export default function Home(){
         if(sessionError)throw sessionError;
         const accessToken=sessionData.session?.access_token;
         if(!accessToken)return;
-        const heartbeat=await requestServerSignedPosHeartbeat(business.id,selectedPos,accessToken);
+        let agentChallengeNonce:string|undefined;
+        if(agentSessionToken){
+          try{
+            const challenge=await requestPosHeartbeatChallenge(agentSessionToken,business.id,selectedPos);
+            agentChallengeNonce=challenge.nonce;
+          }catch{
+            setAgentStatus("unavailable");
+          }
+        }
+        const heartbeat=await requestServerSignedPosHeartbeat(
+          business.id,selectedPos,accessToken,agentChallengeNonce
+        );
+        if(agentSessionToken&&agentChallengeNonce){
+          try{
+            await persistVerifiedPosHeartbeat(agentSessionToken,{
+              businessId:business.id,
+              posUuid:selectedPos,
+              nonce:heartbeat.nonce,
+              issuedAtUnixMs:heartbeat.issuedAtUnixMs,
+              signatureBase64:heartbeat.signatureBase64,
+            });
+            setAgentStatus("paired");
+          }catch{
+            setAgentStatus("unavailable");
+          }
+        }
         if(!active)return;
 
         if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
@@ -298,7 +323,7 @@ export default function Home(){
       window.removeEventListener("offline",onOffline);
       window.removeEventListener("online",onOnline);
     };
-  },[business,selectedPos,supabase,user]);
+  },[agentSessionToken,business,selectedPos,supabase,user]);
 
   useEffect(()=>{
     if(!business||!supabase||!user)return;
