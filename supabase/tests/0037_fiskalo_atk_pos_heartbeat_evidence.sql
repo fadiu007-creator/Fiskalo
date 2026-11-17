@@ -12,11 +12,21 @@ begin
   end if;
 
   if not has_table_privilege('service_role', 'public.fiskalo_atk_pos_heartbeat_evidence', 'SELECT')
-     or has_table_privilege('service_role', 'public.fiskalo_atk_pos_heartbeat_evidence', 'INSERT')
+     or not has_table_privilege('service_role', 'public.fiskalo_atk_pos_heartbeat_evidence', 'INSERT')
      or has_table_privilege('service_role', 'public.fiskalo_atk_pos_heartbeat_evidence', 'UPDATE')
      or has_table_privilege('service_role', 'public.fiskalo_atk_pos_heartbeat_evidence', 'DELETE')
      or has_table_privilege('service_role', 'public.fiskalo_atk_pos_heartbeat_evidence', 'TRUNCATE') then
     raise exception 'Heartbeat evidence must be readable but append-only through the trusted RPC';
+  end if;
+
+  if exists (
+    select 1 from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'fiskalo_record_atk_pos_heartbeat'
+      and p.prosecdef
+  ) then
+    raise exception 'Heartbeat RPC must remain SECURITY INVOKER';
   end if;
 
   if has_function_privilege(
