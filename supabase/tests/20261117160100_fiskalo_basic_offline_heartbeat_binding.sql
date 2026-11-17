@@ -20,7 +20,8 @@ begin
   );
   if position('h.previous_heartbeat_at <= new.offline_issued_at' in v_function_definition)=0
      or position('h.server_time_utc >= new.offline_issued_at' in v_function_definition)=0
-     or position('new.offline_issued_at >= h.server_time_utc - interval ''48 hours''' in v_function_definition)=0 then
+     or position('new.offline_issued_at >= h.server_time_utc - interval ''48 hours''' in v_function_definition)=0
+     or position('new.recovery_deadline_at := v_outage_started_at + interval ''48 hours''' in v_function_definition)=0 then
     raise exception 'Offline issue time must be bounded by the server-measured outage interval and recovery window';
   end if;
 
@@ -33,7 +34,8 @@ begin
 
   if v_trigger_definition is null
      or position('outage_heartbeat_evidence_id' in v_trigger_definition)=0
-     or position('offline_time_evidence' in v_trigger_definition)=0 then
+     or position('offline_time_evidence' in v_trigger_definition)=0
+     or position('recovery_deadline_at' in v_trigger_definition)=0 then
     raise exception 'Evidence reference changes must invoke the heartbeat binding trigger';
   end if;
 
