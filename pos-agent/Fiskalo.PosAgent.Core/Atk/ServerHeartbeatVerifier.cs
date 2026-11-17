@@ -45,6 +45,7 @@ public sealed class ServerHeartbeatVerifier
 
         return string.Join("\n",
             "fiskalo-atk-heartbeat-v1",
+            "ATK TEST",
             businessGuid.ToString("D").ToLowerInvariant(),
             posGuid.ToString("D").ToLowerInvariant(),
             nonce,
