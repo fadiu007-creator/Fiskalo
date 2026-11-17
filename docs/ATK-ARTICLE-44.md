@@ -46,7 +46,7 @@ Configure the matching private key as a Cloudflare Worker secret:
 npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo
 ```
 
-The public key is pinned in the server/browser code. A missing or mismatched private key fails closed; the endpoint never accepts a browser timestamp as trusted time. Keep the PKCS#8 private key out of Git and out of all `NEXT_PUBLIC_` variables.
+The public key is pinned in the server/browser code. Its SHA-256 SPKI fingerprint is `f2d0ca6c8f7aa480d9bbbaf766212f2043c296b791bccc16a41f69f9c1a0ff87`. A missing or mismatched private key fails closed; the endpoint never accepts a browser timestamp as trusted time. Keep the PKCS#8 private key out of Git and out of all `NEXT_PUBLIC_` variables.
 
 ## Database implementation
 
