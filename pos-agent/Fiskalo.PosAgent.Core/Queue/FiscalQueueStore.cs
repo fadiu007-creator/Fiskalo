@@ -407,7 +407,7 @@ public sealed class FiscalQueueStore
         try
         {
             var state = await LoadConnectivityStateAsync(cancellationToken);
-            if (state.LastTrustedServerTimeUtc is { } previous && timestamp < previous)
+            if (state.LastTrustedServerTimeUtc is { } previous && timestamp <= previous)
                 throw new InvalidOperationException("A replayed or out-of-order server heartbeat was rejected.");
             await SaveConnectivityStateAsync(state with { LastTrustedServerTimeUtc = timestamp }, cancellationToken);
             return timestamp;
