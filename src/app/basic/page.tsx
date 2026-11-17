@@ -9,7 +9,7 @@ import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, g
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
 import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, reserveCloudCorrection, submitCloudCorrection, queueCloudCorrection, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
-import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline } from "@/lib/pos/browser-outbox";
+import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline, requestServerSignedPosHeartbeat } from "@/lib/pos/browser-outbox";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { normalizeUniqueFiscalizationCode } from "@/lib/atk/unique-fiscalization-code";
@@ -192,16 +192,71 @@ export default function Home(){
 
 
   useEffect(()=>{
-    if(!business||!selectedPos)return;
-    const recordOutage=()=>{
-      void getOrStartPosConnectivityOutage(business.id,selectedPos).catch(error=>
-        setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
+    if(!business||!selectedPos||!supabase||!user)return;
+    let active=true;
+    let running=false;
+    let timer:ReturnType<typeof setInterval>|null=null;
+
+    const recordOutage=async(trustedStart?:string|null)=>{
+      if(!active)return;
+      await getOrStartPosConnectivityOutage(
+        business.id,
+        selectedPos,
+        new Date().toISOString(),
+        trustedStart,
       );
     };
-    window.addEventListener("offline",recordOutage);
-    if(!navigator.onLine)recordOutage();
-    return()=>window.removeEventListener("offline",recordOutage);
-  },[business,selectedPos]);
+
+    const refreshHeartbeat=async()=>{
+      if(!active||running)return;
+      running=true;
+      try{
+        if(!navigator.onLine){
+          await recordOutage();
+          return;
+        }
+        const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+        if(sessionError)throw sessionError;
+        const accessToken=sessionData.session?.access_token;
+        if(!accessToken)return;
+        const heartbeat=await requestServerSignedPosHeartbeat(business.id,selectedPos,accessToken);
+        if(!active)return;
+
+        if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
+          await recordOutage(heartbeat.previousHeartbeatAtUtc);
+        }else{
+          const pending=(await listFiscalOutboxItems(business.id)).some(item=>
+            item.posRecordId===selectedPos&&
+            (item.state==="queued"||item.state==="needs_reconciliation")
+          );
+          if(!pending)await clearPosConnectivityOutage(business.id,selectedPos);
+        }
+      }catch(error){
+        // A transport failure starts a local-only observation. Authentication,
+        // key mismatch and server-evidence failures must not fabricate a trusted time.
+        if(error instanceof TypeError&&navigator.onLine){
+          await recordOutage().catch(()=>undefined);
+        }
+      }finally{
+        running=false;
+      }
+    };
+
+    const onOffline=()=>{void recordOutage().catch(error=>
+      setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
+    );};
+    const onOnline=()=>{void refreshHeartbeat();};
+    window.addEventListener("offline",onOffline);
+    window.addEventListener("online",onOnline);
+    void refreshHeartbeat();
+    timer=setInterval(()=>{void refreshHeartbeat();},60_000);
+    return()=>{
+      active=false;
+      if(timer)clearInterval(timer);
+      window.removeEventListener("offline",onOffline);
+      window.removeEventListener("online",onOnline);
+    };
+  },[business,selectedPos,supabase,user]);
 
   useEffect(()=>{
     if(!business||!supabase||!user)return;
