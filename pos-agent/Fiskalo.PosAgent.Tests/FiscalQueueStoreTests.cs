@@ -734,6 +734,28 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task TrustedHeartbeatJournalRejectsASecondPosIdentity()
+    {
+        using var fixture = new QueueFixture();
+        var first = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        await fixture.Store.RecordTrustedHeartbeatAsync(
+            "22222222-2222-4222-8222-222222222222",
+            "33333333-3333-4333-8333-333333333333",
+            first);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync(
+                "22222222-2222-4222-8222-222222222222",
+                "44444444-4444-4444-8444-444444444444",
+                first.AddMinutes(1)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync(
+                "55555555-5555-4555-8555-555555555555",
+                "33333333-3333-4333-8333-333333333333",
+                first.AddMinutes(1)));
+    }
+
+    [Fact]
     public async Task AtkProbeQueueDeadlineUsesLastTrustedServerTimeWhenAvailable()
     {
         using var fixture = new QueueFixture();
