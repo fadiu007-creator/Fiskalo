@@ -22,8 +22,8 @@ begin
   if has_function_privilege('authenticated',helper_oid,'EXECUTE') then
     raise exception 'Authenticated clients must not execute the correction finalizer';
   end if;
-  if not has_function_privilege('service_role',helper_oid,'EXECUTE') then
-    raise exception 'Trusted service role must execute the correction finalizer';
+  if has_function_privilege('service_role',helper_oid,'EXECUTE') then
+    raise exception 'The private correction helper must remain owner-only';
   end if;
   if not has_function_privilege('service_role',
     'public.fiskalo_basic_record_atk_correction(uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb)',
