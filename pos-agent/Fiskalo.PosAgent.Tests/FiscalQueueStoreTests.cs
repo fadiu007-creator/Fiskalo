@@ -13,6 +13,24 @@ namespace Fiskalo.PosAgent.Tests;
 public sealed class FiscalQueueStoreTests
 {
     [Fact]
+    public async Task TrustedHeartbeatIsEncryptedPersistentAndStrictlyMonotonic()
+    {
+        using var fixture = new QueueFixture();
+        var first = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        var later = first.AddMinutes(1);
+
+        Assert.Equal(first, await fixture.Store.RecordTrustedHeartbeatAsync(first));
+        Assert.Equal(first, await fixture.Store.GetLastTrustedServerTimeAsync());
+        Assert.Throws<InvalidOperationException>(() => fixture.Store.RecordTrustedHeartbeatAsync(first).GetAwaiter().GetResult());
+        Assert.Equal(later, await fixture.Store.RecordTrustedHeartbeatAsync(later));
+
+        var reopened = new FiscalQueueStore(fixture.Path, fixture.Protector);
+        Assert.Equal(later, await reopened.GetLastTrustedServerTimeAsync());
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            reopened.RecordTrustedHeartbeatAsync(DateTimeOffset.UnixEpoch));
+    }
+
+    [Fact]
     public async Task Enqueue_IsIdempotent_AndRejectsDifferentContentForSameKey()
     {
         using var fixture = new QueueFixture();
