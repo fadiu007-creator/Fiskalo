@@ -12,6 +12,7 @@ import { printWithAgent, readPrinterSettings } from "@/lib/printing/thermal-prin
 import { readAtkVerificationNo } from "@/lib/printing/escpos";
 import { ensureATKTestPosReady } from "@/lib/atk/ensure-test-pos-ready";
 import { deleteOfflinePosDraft, listOfflinePosDrafts, saveOfflinePosDraft, type OfflinePosDraft } from "@/lib/pos/offline-drafts";
+import { clearPosConnectivityOutage, getOrStartPosConnectivityOutage, requestServerSignedPosHeartbeat } from "@/lib/pos/browser-outbox";
 import { ArrowRight, FileText, Plus, RefreshCw, Search, Settings2, ShoppingCart } from "lucide-react";
 
 type Product = { id: string; name: string; sku: string | null; pos_category: string; image_url: string | null; unit_price: number; vat_rate: number; stock_quantity: number; track_stock: boolean; item_type: string; is_active: boolean; atk_unit_code: string | null; atk_tax_code: string | null; atk_item_category_code: string | null };
@@ -94,6 +95,117 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
   }, [organizationId, supabase]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const workerUrl = process.env.NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL;
+    if (!workerUrl || !organizationId) return;
+
+    let cancelled = false;
+    let running = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let activePosId: string | null = null;
+
+    const resolvePosId = async (): Promise<string | null> => {
+      if (activePosId) return activePosId;
+
+      const { data: fullPos, error: fullPosError } = await supabase
+        .from("fiskalo_atk_pos_installations")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("environment", "test")
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (fullPosError) throw fullPosError;
+      if (fullPos?.id) {
+        activePosId = String(fullPos.id);
+        return activePosId;
+      }
+
+      const { data: basicPos, error: basicPosError } = await supabase
+        .from("fiskalo_basic_pos")
+        .select("id")
+        .eq("business_id", organizationId)
+        .limit(1)
+        .maybeSingle();
+      if (basicPosError) throw basicPosError;
+      activePosId = basicPos?.id ? String(basicPos.id) : null;
+      return activePosId;
+    };
+
+    const markOffline = async () => {
+      const posId = await resolvePosId();
+      if (!posId || cancelled) return;
+      await getOrStartPosConnectivityOutage(
+        organizationId,
+        posId,
+        new Date().toISOString(),
+      );
+    };
+
+    const refreshHeartbeat = async () => {
+      if (cancelled || running) return;
+      running = true;
+      try {
+        const posId = await resolvePosId();
+        if (!posId || cancelled) return;
+        if (!navigator.onLine) {
+          await markOffline();
+          return;
+        }
+
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) return;
+
+        const heartbeat = await requestServerSignedPosHeartbeat(
+          workerUrl,
+          accessToken,
+          organizationId,
+          posId,
+        );
+        if (cancelled) return;
+
+        if (heartbeat.gapDetected && heartbeat.previousHeartbeatAtUtc) {
+          await getOrStartPosConnectivityOutage(
+            organizationId,
+            posId,
+            new Date().toISOString(),
+            heartbeat.previousHeartbeatAtUtc,
+          );
+        } else {
+          await clearPosConnectivityOutage(organizationId, posId);
+        }
+      } catch (heartbeatError) {
+        // Only transport failure or explicit offline status starts an outage.
+        // Authentication, key, and configuration failures remain visible in logs
+        // and must never be converted into fabricated outage evidence.
+        if (heartbeatError instanceof TypeError && navigator.onLine) {
+          try { await markOffline(); } catch { /* preserve previously encrypted evidence */ }
+        }
+      } finally {
+        running = false;
+      }
+    };
+
+    const handleOffline = () => { void markOffline().catch(() => undefined); };
+    const handleOnline = () => { void refreshHeartbeat(); };
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    void refreshHeartbeat();
+    timer = setInterval(() => { void refreshHeartbeat(); }, 60_000);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [basicMode, organizationId, supabase]);
+
+
 
   useEffect(() => {
     let active = true;
