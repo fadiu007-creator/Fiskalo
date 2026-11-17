@@ -19,7 +19,7 @@ public sealed class FiscalQueueStore
     private readonly IFiscalQueueProtector _protector;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private sealed record ConnectivityState(DateTimeOffset? LastSuccessfulProbeAtUtc, DateTimeOffset? OutageStartedAtUtc, DateTimeOffset? LastTrustedServerTimeUtc = null);
+    private sealed record ConnectivityState(DateTimeOffset? LastSuccessfulProbeAtUtc, DateTimeOffset? OutageStartedAtUtc, DateTimeOffset? LastTrustedServerTimeUtc = null, DateTimeOffset? TrustedInternetOutageStartedAtUtc = null);
 
     public FiscalQueueStore(string path, IFiscalQueueProtector protector)
     {
@@ -414,18 +414,34 @@ public sealed class FiscalQueueStore
             if (state.LastTrustedServerTimeUtc is { } previous && timestamp <= previous)
                 throw new InvalidOperationException("A replayed or out-of-order server heartbeat was rejected.");
 
-            var outageStart = state.OutageStartedAtUtc;
+            var trustedInternetOutage = state.TrustedInternetOutageStartedAtUtc;
             if (state.LastTrustedServerTimeUtc is { } lastTrusted &&
                 timestamp - lastTrusted > TimeSpan.FromSeconds(90))
             {
-                // Prefer the last signed server time over the Windows wall clock.
-                outageStart = lastTrusted;
+                // This is a server-measured heartbeat gap, separate from an ATK endpoint probe failure.
+                if (trustedInternetOutage is null || lastTrusted < trustedInternetOutage)
+                    trustedInternetOutage = lastTrusted;
+
+                var items = await LoadAsync(cancellationToken);
+                var changed = false;
+                for (var i = 0; i < items.Count; i++)
+                {
+                    if (items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation or FiscalQueueStatus.Submitting))
+                        continue;
+                    items[i] = items[i] with
+                    {
+                        OutageStartedAtUtc = trustedInternetOutage,
+                        RecoveryDeadlineUtc = trustedInternetOutage.Value.AddHours(48)
+                    };
+                    changed = true;
+                }
+                if (changed) await SaveAsync(items, cancellationToken);
             }
 
             await SaveConnectivityStateAsync(state with
             {
                 LastTrustedServerTimeUtc = timestamp,
-                OutageStartedAtUtc = outageStart
+                TrustedInternetOutageStartedAtUtc = trustedInternetOutage
             }, cancellationToken);
             return timestamp;
         }
@@ -454,7 +470,7 @@ public sealed class FiscalQueueStore
             // Use the last persisted healthy probe, including across agent restarts.
             // The caller's timestamp is only a conservative fallback when no healthy
             // probe has ever been persisted on this installation.
-            var outageStart = state.LastTrustedServerTimeUtc ?? state.LastSuccessfulProbeAtUtc ?? timestamp;
+            var outageStart = state.LastSuccessfulProbeAtUtc ?? timestamp;
             await SaveConnectivityStateAsync(state with { OutageStartedAtUtc = outageStart }, cancellationToken);
             return outageStart;
         }
@@ -495,7 +511,12 @@ public sealed class FiscalQueueStore
             // Persist healthy reachability even when no outage is active. This anchors
             // the local operational overdue timer if the Agent restarts before detecting
             // an ATK endpoint failure; it is not a server-verified legal outage timestamp.
-            await SaveConnectivityStateAsync(new ConnectivityState(timestamp, null, state.LastTrustedServerTimeUtc), cancellationToken);
+            var hasUnresolvedFiscalItems = items.Any(item => item.Status is FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation or FiscalQueueStatus.Submitting);
+            await SaveConnectivityStateAsync(new ConnectivityState(
+                timestamp,
+                null,
+                state.LastTrustedServerTimeUtc,
+                hasUnresolvedFiscalItems ? state.TrustedInternetOutageStartedAtUtc : null), cancellationToken);
             return state.OutageStartedAtUtc;
         }
         finally { _gate.Release(); }
@@ -504,7 +525,11 @@ public sealed class FiscalQueueStore
     public async Task<DateTimeOffset?> GetConnectivityOutageStartedAtUtcAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
-        try { return (await LoadConnectivityStateAsync(cancellationToken)).OutageStartedAtUtc; }
+        try
+        {
+            var state = await LoadConnectivityStateAsync(cancellationToken);
+            return state.TrustedInternetOutageStartedAtUtc ?? state.OutageStartedAtUtc;
+        }
         finally { _gate.Release(); }
     }
 
@@ -612,7 +637,7 @@ public sealed class FiscalQueueStore
 
     private async Task<ConnectivityState> LoadConnectivityStateAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_connectivityPath)) return new ConnectivityState(null, null, null);
+        if (!File.Exists(_connectivityPath)) return new ConnectivityState(null, null, null, null);
         var encrypted = await File.ReadAllBytesAsync(_connectivityPath, cancellationToken);
         byte[]? plaintext = null;
         try
@@ -629,7 +654,7 @@ public sealed class FiscalQueueStore
             }
 
             var legacyOutage = JsonSerializer.Deserialize<DateTimeOffset>(plaintext, JsonOptions);
-            return new ConnectivityState(null, legacyOutage, null);
+            return new ConnectivityState(null, legacyOutage, null, null);
         }
         finally
         {
