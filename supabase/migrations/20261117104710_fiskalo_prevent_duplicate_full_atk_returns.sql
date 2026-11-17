@@ -127,7 +127,7 @@ grant execute on function public.fiskalo_basic_record_atk_correction(
 
 revoke all on function fiskalo_private.fiskalo_basic_record_atk_correction(
   uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb
-) from public,anon,authenticated;
-grant execute on function fiskalo_private.fiskalo_basic_record_atk_correction(
-  uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb
-) to service_role;
+) from public,anon,authenticated,service_role;
+-- The private SECURITY DEFINER helper remains executable only by its owner.
+-- The trusted SECURITY DEFINER server finalizer invokes the public wrapper as
+-- its owner; granting service_role direct access to this helper is unnecessary.
