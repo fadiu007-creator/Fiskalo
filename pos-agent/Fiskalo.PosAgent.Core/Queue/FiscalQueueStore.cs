@@ -141,7 +141,7 @@ public sealed class FiscalQueueStore
             if (nuiKf is not null && items.Any(x => string.Equals(x.NuiKf, nuiKf, StringComparison.Ordinal)))
                 throw new InvalidOperationException("NUIKF collision detected in the local fiscal queue. Generate a new identifier.");
             var connectivityState = await LoadConnectivityStateAsync(cancellationToken);
-            var monitoredOutageStart = connectivityState.OutageStartedAtUtc;
+            var monitoredOutageStart = connectivityState.TrustedInternetOutageStartedAtUtc ?? connectivityState.OutageStartedAtUtc;
             var item = new FiscalQueueItem
             {
                 IdempotencyKey = idempotencyKey,
@@ -276,8 +276,8 @@ public sealed class FiscalQueueStore
             var connectivityState = await LoadConnectivityStateAsync(cancellationToken);
             // OfflineIssuedAtUtc is the coupon's timestamp, not an outage anchor.
             // If no persisted healthy probe exists, use the first confirmed failure time.
-            var outageStart = connectivityState.OutageStartedAtUtc ??
-                connectivityState.LastSuccessfulProbeAtUtc ?? timestamp;
+            var outageStart = connectivityState.TrustedInternetOutageStartedAtUtc ??
+                connectivityState.OutageStartedAtUtc ?? connectivityState.LastSuccessfulProbeAtUtc ?? timestamp;
             for (var i = 0; i < items.Count; i++)
             {
                 if (items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.Submitting)) continue;
