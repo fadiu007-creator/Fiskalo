@@ -22,6 +22,10 @@ declare
   v_gap_seconds integer;
   v_should_validate boolean := false;
 begin
+  if tg_op = 'UPDATE' and old.offline_issued_at is not null and new.offline_issued_at is null then
+    raise exception 'Offline issue time cannot be cleared after fiscalization';
+  end if;
+
   if tg_op = 'INSERT' then
     v_should_validate := new.offline_issued_at is not null;
   else
