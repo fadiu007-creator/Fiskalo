@@ -14,6 +14,7 @@ The Basic MVP is the smaller product edition, not a POS-only demo. The Full appl
 - POS checkout, stock deduction, sales history and fiscal status.
 - Split tender across cash, card, bank transfer, voucher, cheque and cryptocurrency. Payment allocations use integer cents and must reconcile to the full sale total.
 - Online ATK TEST Sale submission through the paired local POS Agent.
+- Owner-only full cancellation and full return workflows for previously accepted Basic sales in ATK TEST, including original-coupon references, server-reserved correction identifiers, signed correction/CitizenCoupon payloads, trusted server finalization and correction receipt history.
 - Local-first offline checkout: immutable sale snapshot persisted to IndexedDB before network-dependent operations; when offline capacity has been reserved, the Windows Agent signs and queues the coupon locally.
 - POS-specific protected signing keys and certificates, DPAPI protection, encrypted durable fiscal queue, CouponId/daily-number reservations and signed CitizenCoupon QR generation.
 - Automatic background delivery when ATK connectivity returns, safe retries only when transport proves the request was not delivered, and reconciliation lock for ambiguous outcomes.
@@ -23,7 +24,7 @@ The Basic MVP is the smaller product edition, not a POS-only demo. The Full appl
 
 ## Explicitly deferred or incomplete
 
-- Cancellation and return user workflows, including partial returns, refund calculations and accepted ATK correction/return scenarios.
+- Partial returns, partial-quantity allocation and proportional refund calculations. Basic currently supports only full cancellation or full return; the actual ATK TEST acceptance path still requires taxpayer/POS test evidence.
 - Item/order discounts and markups. Do not infer discount treatment from the current coupon schema until the exact ATK 2026 rules and sample calculations have been reconciled.
 - Advanced inventory valuation, supplier payment reconciliation, advanced cash/shift reconciliation and internal X/Z reports.
 - Subscription plans, billing and product limits.
@@ -45,7 +46,7 @@ Baseline: ATK's current specific technical/functional requirements (29 May 2026)
 | Article 34: separate protected certificate/private key per POS | POS Agent DPAPI key protection and certificate/public-key binding; TEST onboarding flow exists. | ATK production certificate and certified solution identity are not issued. |
 | Article 35(8)-(12): provider/software registration, developer NUI and unique SEF code | The software cannot invent ATK-issued provider/developer identifiers. | Blocked until ATK completes provider/software registration and issues the required values. |
 | Article 39: QR on every fiscal coupon, including offline coupons, with unique NUIKF | Agent signs CitizenCoupon, generates QR before delivery and persists it with NUIKF in the encrypted queue. | Scan with the official ATK verifier in real online and offline TEST scenarios; confirm the exact QR payload is accepted. |
-| Article 43: corrective coupon references original coupon | Protobuf correction factory and durable correction journal exist in source. | User-facing cancellation/return flows, refund calculations, signed submission and end-to-end ATK TEST acceptance remain incomplete. |
+| Article 43: corrective coupon references original coupon | Basic exposes owner-only full cancellation and full return for an ATK-accepted sale. The workflow reserves unique correction identifiers server-side, signs the correction and CitizenCoupon, references the original CouponId/Transaction ID, finalizes through the trusted server route and retains the correction receipt/journal. | Partial returns and proportional refund allocation are not implemented. ATK TEST end-to-end acceptance, physical receipt verification and production certification remain external release gates. |
 | Article 44(5)-(6): notice after specified 48-hour internet interruption and submit un-fiscalized coupons by the tenth of the following month | Owner incident register, private evidence, deadline logic, combined server/local queue export and filing evidence record are implemented. | Owner-entered outage time is not independently server-signed. Fiskalo does not send the notice/export to ATK automatically; taxpayer must use the official channel and record the actual filing. |
 
 ## Receipt and signature implementation
