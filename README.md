@@ -8,6 +8,11 @@ This repository's current `main` application is the **Basic MVP**. It remains se
 
 The Full application UI is not yet integrated into `main`. A substantial Full/Basic release-candidate branch exists, but it cannot be merged blindly because it removes or replaces the current Windows POS Agent and offline implementation. The Full UI must be reconciled with the current Basic implementation before a selectable Full/Basic launcher can be considered complete.
 
+Current route map:
+- `/` — **Basic Agent**: the local Windows POS Agent runtime with DPAPI-protected signing key and local fiscal queue.
+- `/basic` — **Basic Cloud**: the browser-based signing runtime using the Cloudflare ATK TEST gateway. It is a second Basic implementation, not the Full edition.
+- The Full application UI is still absent from `main`; navigation between these two Basic routes does not complete the Full/Basic release selector.
+
 ## Implemented in source
 
 - Owner and cashier access, business and POS setup.
