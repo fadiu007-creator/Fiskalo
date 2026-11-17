@@ -734,14 +734,14 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
-    public async Task AtkProbeOutageRemainsSeparateFromServerHeartbeatEvidence()
+    public async Task AtkProbeQueueDeadlineUsesLastTrustedServerTimeWhenAvailable()
     {
         using var fixture = new QueueFixture();
         var trusted = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
         await fixture.Store.RecordTrustedHeartbeatAsync(trusted);
 
         var localClock = trusted.AddHours(12);
-        Assert.Equal(localClock, await fixture.Store.MarkConnectivityUnavailableAsync(localClock));
+        Assert.Equal(trusted, await fixture.Store.MarkConnectivityUnavailableAsync(localClock));
         Assert.Equal(trusted, await fixture.Store.GetLastTrustedServerTimeAsync());
     }
 
