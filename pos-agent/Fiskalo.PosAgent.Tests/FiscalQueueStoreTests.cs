@@ -13,7 +13,7 @@ namespace Fiskalo.PosAgent.Tests;
 public sealed class FiscalQueueStoreTests
 {
     [Fact]
-    public async Task TrustedHeartbeatIsEncryptedPersistentAndStrictlyMonotonic()
+    public async Task TrustedHeartbeatIsEncryptedPersistentAndRejectsOlderServerTime()
     {
         using var fixture = new QueueFixture();
         var first = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
@@ -21,7 +21,7 @@ public sealed class FiscalQueueStoreTests
 
         Assert.Equal(first, await fixture.Store.RecordTrustedHeartbeatAsync(first));
         Assert.Equal(first, await fixture.Store.GetLastTrustedServerTimeAsync());
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.RecordTrustedHeartbeatAsync(first));
+        Assert.Equal(first, await fixture.Store.RecordTrustedHeartbeatAsync(first));\n        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.RecordTrustedHeartbeatAsync(first.AddTicks(-1)));
         Assert.Equal(later, await fixture.Store.RecordTrustedHeartbeatAsync(later));
 
         var reopened = new FiscalQueueStore(fixture.Path, fixture.Protector);
