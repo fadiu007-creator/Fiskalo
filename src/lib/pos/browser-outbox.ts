@@ -50,6 +50,7 @@ export type PosConnectivityOutage = {
   businessId: string;
   posRecordId: string;
   startedAt: string;
+  timeEvidence?: "server_signed" | "local_untrusted";
 };
 
 function openDb(): Promise<IDBDatabase> {
@@ -459,14 +460,17 @@ export async function getOrStartPosConnectivityOutage(
         existing = raw as PosConnectivityOutage;
       }
     }
-    const startedAt = resolvePosOutageStart(
-      existing && existing.businessId === businessId && existing.posRecordId === posRecordId
-        ? existing.startedAt : null,
-      trustedStart && Number.isFinite(Date.parse(trustedStart))
-        ? trustedStart
-        : detectedAt,
-    );
-    const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt };
+    const existingStart = existing && existing.businessId === businessId && existing.posRecordId === posRecordId
+      ? existing.startedAt : null;
+    const hasTrustedStart = Boolean(trustedStart && Number.isFinite(Date.parse(trustedStart)));
+    let startedAt = resolvePosOutageStart(existingStart, hasTrustedStart ? trustedStart! : detectedAt);
+    if (hasTrustedStart && existingStart && Date.parse(trustedStart!) < Date.parse(existingStart)) {
+      startedAt = trustedStart!;
+    }
+    const timeEvidence = hasTrustedStart
+      ? "server_signed" as const
+      : existing?.timeEvidence ?? "local_untrusted" as const;
+    const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt, timeEvidence };
     if (existing && existing.startedAt === startedAt && isEncryptedRecord(raw)) return existing;
     const encrypted = await encryptBrowserFiscalData(OUTAGE_ENCRYPTION_SCOPE, result);
     if (raw) {
