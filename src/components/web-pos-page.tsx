@@ -98,7 +98,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
 
   useEffect(() => {
     const workerUrl = process.env.NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL;
-    if (!workerUrl || !organizationId) return;
+    if (!organizationId) return;
 
     let cancelled = false;
     let running = false;
@@ -107,6 +107,12 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
 
     const resolvePosId = async (): Promise<string | null> => {
       if (activePosId) return activePosId;
+      const storageKey = "fiskalo-pos-heartbeat:" + organizationId;
+      const cachedPosId = window.localStorage.getItem(storageKey);
+      if (!navigator.onLine && cachedPosId && /^[0-9a-f-]{36}$/i.test(cachedPosId)) {
+        activePosId = cachedPosId;
+        return activePosId;
+      }
 
       const { data: fullPos, error: fullPosError } = await supabase
         .from("fiskalo_atk_pos_installations")
@@ -120,6 +126,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
       if (fullPosError) throw fullPosError;
       if (fullPos?.id) {
         activePosId = String(fullPos.id);
+        window.localStorage.setItem(storageKey, activePosId);
         return activePosId;
       }
 
@@ -131,6 +138,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
         .maybeSingle();
       if (basicPosError) throw basicPosError;
       activePosId = basicPos?.id ? String(basicPos.id) : null;
+      if (activePosId) window.localStorage.setItem(storageKey, activePosId);
       return activePosId;
     };
 
@@ -154,6 +162,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
           await markOffline();
           return;
         }
+        if (!workerUrl) return;
 
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
