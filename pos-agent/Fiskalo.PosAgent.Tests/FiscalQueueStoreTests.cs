@@ -774,7 +774,9 @@ public sealed class FiscalQueueStoreTests
         var firstHeartbeat = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
         await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat);
         var issuedAt = firstHeartbeat.AddMinutes(5);
-        await fixture.Store.EnqueueAsync("heartbeat-gap-queue", "Sale", "cG9z", "c2ln", issuedAt, offlineIssuedAtUtc: issuedAt, businessUuid: "22222222-2222-4222-8222-222222222222", posUuid: "33333333-3333-4333-8333-333333333333");
+        await fixture.Store.EnqueueAsync("heartbeat-gap-queue", "Sale", "cG9z", "c2ln", issuedAt, businessUuid: "22222222-2222-4222-8222-222222222222", posUuid: "33333333-3333-4333-8333-333333333333");
+        await fixture.Store.MarkSubmittingAsync("heartbeat-gap-queue");
+        await fixture.Store.RequeueDefinitelyNotSentAsync("heartbeat-gap-queue", "network unavailable", issuedAt);
 
         var restoredHeartbeat = firstHeartbeat.AddMinutes(10);
         await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", restoredHeartbeat);
@@ -792,14 +794,15 @@ public sealed class FiscalQueueStoreTests
         using var fixture = new QueueFixture();
         var firstHeartbeat = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
         await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat);
-        await fixture.Store.EnqueueAsync("heartbeat-normal-queue", "Sale", "cG9z", "c2ln", firstHeartbeat.AddSeconds(30), offlineIssuedAtUtc: firstHeartbeat.AddSeconds(30), businessUuid: "22222222-2222-4222-8222-222222222222", posUuid: "33333333-3333-4333-8333-333333333333");
+        await fixture.Store.EnqueueAsync("heartbeat-normal-queue", "Sale", "cG9z", "c2ln", firstHeartbeat.AddSeconds(30), businessUuid: "22222222-2222-4222-8222-222222222222", posUuid: "33333333-3333-4333-8333-333333333333");
+        await fixture.Store.MarkSubmittingAsync("heartbeat-normal-queue");
+        await fixture.Store.RequeueDefinitelyNotSentAsync("heartbeat-normal-queue", "ATK endpoint unavailable", firstHeartbeat.AddSeconds(30));
 
         await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat.AddSeconds(60));
 
         var item = Assert.Single(await fixture.Store.GetAllAsync());
-        Assert.Null(item.OutageStartedAtUtc);
+        Assert.Equal(firstHeartbeat.AddSeconds(30), item.OutageStartedAtUtc);
         Assert.Equal(firstHeartbeat.AddSeconds(30).AddHours(48), item.RecoveryDeadlineUtc);
-        Assert.Null(await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
     }
 
     [Fact]
