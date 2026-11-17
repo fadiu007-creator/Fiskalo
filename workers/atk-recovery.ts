@@ -3,6 +3,7 @@ type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   ATK_HEARTBEAT_PRIVATE_KEY_PEM?: string;
+  ATK_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64?: string;
   FISKALO_ALLOWED_ORIGINS?: string;
 };
 
@@ -146,6 +147,8 @@ async function verifyPayload(certificatePem: string, payload: string, signature:
 }
 
 
+const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8JZgYcM2G4QYtWc1vHnh7FXjWAaPyJcUh/VAR8qAThZnZ1UAvmN5OK8DgNkeLfWVBSHEGlM1KCykjp66dNIeZA==";
+
 const HEARTBEAT_ALLOWED_ORIGINS = new Set([
   "https://fiskalo.shqiptare.workers.dev",
   "https://fiskalo.pages.dev",
@@ -247,11 +250,26 @@ async function issueSignedHeartbeat(request: Request, env: Env): Promise<Respons
       "pkcs8",
       pemPkcs8Bytes(env.ATK_HEARTBEAT_PRIVATE_KEY_PEM),
       { name: "ECDSA", namedCurve: "P-256" },
-      false,
+      true,
       ["sign"],
     );
+    const privateJwk = await crypto.subtle.exportKey("jwk", signingKey);
+    if (!privateJwk.x || !privateJwk.y) throw new Error("Heartbeat key does not expose a P-256 public point.");
+    const publicKey = await crypto.subtle.importKey(
+      "jwk",
+      { kty: "EC", crv: "P-256", x: privateJwk.x, y: privateJwk.y, ext: true, key_ops: ["verify"] },
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["verify"],
+    );
+    const publicSpki = new Uint8Array(await crypto.subtle.exportKey("spki", publicKey));
+    let publicBinary = "";
+    for (const byte of publicSpki) publicBinary += String.fromCharCode(byte);
+    const actualPublicKey = btoa(publicBinary);
+    const expectedPublicKey = env.ATK_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 ?? PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64;
+    if (actualPublicKey !== expectedPublicKey) throw new Error("Heartbeat private key does not match the pinned public key.");
   } catch {
-    return Response.json({ error: "heartbeat_signing_key_invalid" }, { status: 503 });
+    return Response.json({ error: "heartbeat_signing_key_invalid_or_mismatched" }, { status: 503 });
   }
   const signature = new Uint8Array(await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
