@@ -546,7 +546,7 @@ export default function Home(){
       const receipt:SaleRecord={
         ...sale,coupon_id:correctionCouponId,created_at:issuedAtUtc,daily_number:dailyNumber,
         transaction_id:transactionId,nui_kf:nuiKf,verification_no:nuiKf,
-        submission_state:queuedOffline?"queued":"accepted",offline_issued_at:queuedOffline?new Date().toISOString():null,
+        submission_state:queuedOffline?"queued":"accepted",offline_issued_at:queuedOffline?issuedAtUtc:null,
         recovery_deadline_at:queuedOffline?recoveryDeadlineUtc:null,qr_svg_base64:qrToPrint,
         document_type:label,correction_type:label,reference_coupon_id:originalCouponId,reference_transaction_id:originalTransactionId,
         correction_state:queuedOffline?"queued":"accepted",correction_transaction_id:transactionId,
