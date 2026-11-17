@@ -724,7 +724,7 @@ public sealed class FiscalQueueStoreTests
         Assert.Equal(restored, await fixture.Store.GetLastTrustedServerTimeAsync());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.RecordTrustedHeartbeatAsync(restored));
+            fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", restored));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", DateTimeOffset.UnixEpoch));
 
@@ -738,7 +738,7 @@ public sealed class FiscalQueueStoreTests
     {
         using var fixture = new QueueFixture();
         var trusted = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
-        await fixture.Store.RecordTrustedHeartbeatAsync(trusted);
+        await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", trusted);
 
         var localClock = trusted.AddHours(12);
         Assert.Equal(trusted, await fixture.Store.MarkConnectivityUnavailableAsync(localClock));
@@ -769,7 +769,7 @@ public sealed class FiscalQueueStoreTests
     {
         using var fixture = new QueueFixture();
         var firstHeartbeat = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
-        await fixture.Store.RecordTrustedHeartbeatAsync(firstHeartbeat);
+        await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat);
         await fixture.Store.EnqueueAsync("heartbeat-normal-queue", "Sale", "cG9z", "c2ln", firstHeartbeat.AddSeconds(30));
 
         await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat.AddSeconds(60));
