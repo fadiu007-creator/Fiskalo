@@ -63,6 +63,7 @@ declare
   v_first record;
   v_second record;
   v_count integer;
+  v_nonce text;
 begin
   select * into v_first from public.fiskalo_record_atk_pos_heartbeat(
     '22222222-2222-4222-8222-222222222222'::uuid,
@@ -125,6 +126,13 @@ begin
   where business_id='22222222-2222-4222-8222-222222222222'
     and pos_id='33333333-3333-4333-8333-333333333333';
   if v_count <> 2 then raise exception 'Rejected heartbeat attempts must not append evidence'; end if;
+  select nonce into v_nonce from public.fiskalo_atk_pos_heartbeat_evidence
+  where business_id='22222222-2222-4222-8222-222222222222'
+    and pos_id='33333333-3333-4333-8333-333333333333'
+    and nonce_sha256=repeat('b',64);
+  if v_nonce is distinct from repeat('B',43) then
+    raise exception 'The original challenge nonce must be retained for independent signature verification';
+  end if;
 end
 $$;
 rollback;
