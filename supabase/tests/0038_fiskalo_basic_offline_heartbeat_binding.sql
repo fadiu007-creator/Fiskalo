@@ -1,4 +1,19 @@
 do $$
+declare
+  v_definition text;
+begin
+  v_definition := pg_catalog.pg_get_functiondef(
+    'fiskalo_private.fiskalo_basic_bind_offline_heartbeat_evidence()'::regprocedure
+  );
+  if position('h.previous_heartbeat_at <= new.offline_issued_at' in v_definition) = 0
+     or position('h.server_time_utc >= new.offline_issued_at' in v_definition) = 0
+     or position('new.offline_issued_at >= h.server_time_utc - interval ''48 hours''' in v_definition) = 0 then
+    raise exception 'Offline issue time must be bounded by the server-measured outage interval and 48-hour recovery window';
+  end if;
+end
+$$;
+
+do $$
 begin
   if not exists (
     select 1 from information_schema.columns
