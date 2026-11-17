@@ -467,9 +467,9 @@ public sealed class FiscalQueueStore
             var state = await LoadConnectivityStateAsync(cancellationToken);
             if (state.OutageStartedAtUtc.HasValue) return state.OutageStartedAtUtc.Value;
 
-            // Use the last persisted healthy probe, including across agent restarts.
-            // The caller's timestamp is only a conservative fallback when no healthy
-            // probe has ever been persisted on this installation.
+            // Prefer the last server-verified heartbeat as the queue deadline anchor.
+            // The local probe and caller clock are fallbacks only; Article 44 Internet
+            // outage evidence is tracked separately in TrustedInternetOutageStartedAtUtc.
             var outageStart = state.LastTrustedServerTimeUtc ?? state.LastSuccessfulProbeAtUtc ?? timestamp;
             await SaveConnectivityStateAsync(state with { OutageStartedAtUtc = outageStart }, cancellationToken);
             return outageStart;
