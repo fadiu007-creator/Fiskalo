@@ -19,6 +19,16 @@ This branch replaces the Fiskalo web checkout's localhost dependency with a same
 
 ## Cloudflare configuration
 
+Before enabling the automatic deployment workflow, configure these GitHub Actions repository secrets:
+
+- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
+- `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `ATK_HEARTBEAT_PRIVATE_KEY_PEM` (the matching PKCS#8 private key)
+- `FISKALO_ALLOWED_ORIGINS` (the exact comma-separated HTTPS origins serving Fiskalo)
+- `NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL` (the deployed recovery Worker HTTPS origin)
+
+The deploy workflow fails before deployment if these required values are absent. The public Worker URL and allowed origins are configuration, not credentials, but the workflow reads them from Actions secrets to keep environment setup centralized.
+
 The main Fiskalo application needs `SUPABASE_SERVICE_ROLE_KEY` configured as a Cloudflare Worker secret. It must never use a `NEXT_PUBLIC_` name.
 
 The recovery Worker is separate from the Next.js app Worker. Deploy it from the repository root:
