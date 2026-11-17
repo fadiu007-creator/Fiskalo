@@ -41,7 +41,7 @@ begin
      )
      or not has_function_privilege(
        'service_role',
-       'public.fiskalo_record_atk_pos_heartbeat(uuid,uuid,uuid,timestamptz,text,text)',
+       'public.fiskalo_record_atk_pos_heartbeat(uuid,uuid,uuid,timestamptz,text,text,text)',
        'EXECUTE'
      ) then
     raise exception 'Only service_role may append signed heartbeat evidence';
