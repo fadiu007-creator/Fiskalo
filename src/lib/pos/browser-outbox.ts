@@ -58,13 +58,16 @@ function openDb(): Promise<IDBDatabase> {
     throw new Error("This browser does not support a durable offline fiscal outbox.");
   }
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 3);
+    const request = indexedDB.open(DB_NAME, 4);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE_NAME)) {
         request.result.createObjectStore(STORE_NAME, { keyPath: "idempotencyKey" });
       }
       if (!request.result.objectStoreNames.contains(OUTAGE_STORE_NAME)) {
         request.result.createObjectStore(OUTAGE_STORE_NAME, { keyPath: "id" });
+      }
+      if (!request.result.objectStoreNames.contains(HEARTBEAT_STORE_NAME)) {
+        request.result.createObjectStore(HEARTBEAT_STORE_NAME, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
