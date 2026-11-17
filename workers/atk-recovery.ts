@@ -161,7 +161,7 @@ function heartbeatMessage(businessId: string, posUuid: string, nonce: string, is
     posUuid.toLowerCase(),
     nonce,
     String(issuedAtUnixMs),
-  ].join("\\n");
+  ].join("\n");
 }
 
 function pemPkcs8Bytes(pem: string): ArrayBuffer {
