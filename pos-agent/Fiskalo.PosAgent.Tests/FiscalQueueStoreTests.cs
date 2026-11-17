@@ -708,6 +708,43 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task TrustedHeartbeatPersistsAndAnchorsOutageUsingServerTime()
+    {
+        using var fixture = new QueueFixture();
+        var first = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        var second = first.AddMinutes(1);
+        var restored = second.AddMinutes(5);
+
+        Assert.Equal(first, await fixture.Store.RecordTrustedHeartbeatAsync(first));
+        Assert.Equal(second, await fixture.Store.RecordTrustedHeartbeatAsync(second));
+        Assert.Null(await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+
+        Assert.Equal(restored, await fixture.Store.RecordTrustedHeartbeatAsync(restored));
+        Assert.Equal(second, await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+        Assert.Equal(restored, await fixture.Store.GetLastTrustedServerTimeAsync());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync(restored));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync(DateTimeOffset.UnixEpoch));
+
+        var reopened = new FiscalQueueStore(fixture.Path, fixture.Protector);
+        Assert.Equal(restored, await reopened.GetLastTrustedServerTimeAsync());
+        Assert.Equal(second, await reopened.GetConnectivityOutageStartedAtUtcAsync());
+    }
+
+    [Fact]
+    public async Task ConnectivityUnavailablePrefersLastTrustedServerHeartbeatOverWindowsClock()
+    {
+        using var fixture = new QueueFixture();
+        var trusted = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        await fixture.Store.RecordTrustedHeartbeatAsync(trusted);
+
+        var localClock = trusted.AddHours(12);
+        Assert.Equal(trusted, await fixture.Store.MarkConnectivityUnavailableAsync(localClock));
+    }
+
+    [Fact]
     public async Task DeliveryService_StillAutomaticallySubmitsAfterFortyEightHourRecoveryDeadline()
     {
         using var fixture = new QueueFixture();
