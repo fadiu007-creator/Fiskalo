@@ -94,7 +94,8 @@ while IFS= read -r migration; do
     0033_fiskalo_basic_complete_atk_item_categories.sql)
       run_test "0033_fiskalo_basic_complete_atk_item_categories.sql"
       ;;
-    20261117110216_fiskalo_prevent_duplicate_full_atk_returns.sql)
+    20261117113500_fiskalo_server_atk_corrections.sql)
+      run_test "20261117113500_fiskalo_server_atk_corrections.sql"
       run_test "20261117110216_fiskalo_prevent_duplicate_full_atk_returns.sql"
       ;;
   esac
