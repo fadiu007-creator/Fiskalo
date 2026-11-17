@@ -19,7 +19,7 @@ public sealed class FiscalQueueStore
     private readonly IFiscalQueueProtector _protector;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private sealed record ConnectivityState(DateTimeOffset? LastSuccessfulProbeAtUtc, DateTimeOffset? OutageStartedAtUtc);
+    private sealed record ConnectivityState(DateTimeOffset? LastSuccessfulProbeAtUtc, DateTimeOffset? OutageStartedAtUtc, DateTimeOffset? LastTrustedServerTimeUtc = null);
 
     public FiscalQueueStore(string path, IFiscalQueueProtector protector)
     {
@@ -395,6 +395,36 @@ public sealed class FiscalQueueStore
             };
         }, cancellationToken);
 
+    /// <summary>Persists a strictly monotonic timestamp after a server signature and one-time challenge are verified.</summary>
+    public async Task<DateTimeOffset> RecordTrustedHeartbeatAsync(
+        DateTimeOffset serverTimeUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var timestamp = serverTimeUtc.ToUniversalTime();
+        if (timestamp <= DateTimeOffset.UnixEpoch)
+            throw new ArgumentOutOfRangeException(nameof(serverTimeUtc));
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await LoadConnectivityStateAsync(cancellationToken);
+            if (state.LastTrustedServerTimeUtc is { } previous && timestamp <= previous)
+                throw new InvalidOperationException("A replayed or out-of-order server heartbeat was rejected.");
+            await SaveConnectivityStateAsync(state with { LastTrustedServerTimeUtc = timestamp }, cancellationToken);
+            return timestamp;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<DateTimeOffset?> GetLastTrustedServerTimeAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            return (await LoadConnectivityStateAsync(cancellationToken)).LastTrustedServerTimeUtc;
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<DateTimeOffset> MarkConnectivityUnavailableAsync(
         DateTimeOffset? now = null,
         CancellationToken cancellationToken = default)
@@ -567,7 +597,7 @@ public sealed class FiscalQueueStore
 
     private async Task<ConnectivityState> LoadConnectivityStateAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_connectivityPath)) return new ConnectivityState(null, null);
+        if (!File.Exists(_connectivityPath)) return new ConnectivityState(null, null, null);
         var encrypted = await File.ReadAllBytesAsync(_connectivityPath, cancellationToken);
         byte[]? plaintext = null;
         try
@@ -584,7 +614,7 @@ public sealed class FiscalQueueStore
             }
 
             var legacyOutage = JsonSerializer.Deserialize<DateTimeOffset>(plaintext, JsonOptions);
-            return new ConnectivityState(null, legacyOutage);
+            return new ConnectivityState(null, legacyOutage, null);
         }
         finally
         {
