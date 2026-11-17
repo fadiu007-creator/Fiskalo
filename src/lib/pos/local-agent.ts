@@ -1,3 +1,4 @@
+import { decryptBrowserFiscalData, encryptBrowserFiscalData } from "@/lib/atk/browser-key-vault";
 const AGENT = "http://127.0.0.1:17843";
 async function call<T>(path:string,token?:string,body?:unknown):Promise<T>{
   const response=await fetch(AGENT+path,{method:body===undefined?"GET":"POST",headers:{...(body===undefined?{}:{"Content-Type":"application/json"}),...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body),cache:"no-store"});
@@ -95,22 +96,35 @@ export async function refreshVerifiedPosHeartbeat(
 export type AtkVerification={businessName:string;verificationCode:string;environment:string;productionEnabled:boolean};
 export type AtkCertificate={certificateStatus:string;subject:string;thumbprint:string;environment:string;privateKeyExported:boolean;productionEnabled:boolean};
 const AGENT_SESSION_KEY = "fiskalo.pos-agent.session.v1";
+const AGENT_SESSION_ENCRYPTION_SCOPE = "pos-agent-session-token";
 
-export function getAgentToken(): string | null {
-  try { return window.sessionStorage.getItem(AGENT_SESSION_KEY); }
-  catch { return null; }
+export async function getAgentToken(): Promise<string | null> {
+  try {
+    const raw = window.localStorage.getItem(AGENT_SESSION_KEY);
+    if (!raw) return null;
+    const encrypted = JSON.parse(raw);
+    const token = await decryptBrowserFiscalData<string>(AGENT_SESSION_ENCRYPTION_SCOPE, encrypted);
+    return typeof token === "string" && token.length >= 32 ? token : null;
+  } catch {
+    clearAgentToken();
+    return null;
+  }
 }
 
 export function clearAgentToken(): void {
-  try { window.sessionStorage.removeItem(AGENT_SESSION_KEY); }
-  catch { /* session storage is optional */ }
+  try { window.localStorage.removeItem(AGENT_SESSION_KEY); }
+  catch { /* encrypted local cache is optional */ }
 }
 
 export async function pairLocalAgent(pairingCode:string){
   const paired = await call<{sessionToken:string;agentVersion:string}>("/api/v1/pair",undefined,{pairingCode});
   if (!paired.sessionToken) throw new Error("POS Agent did not return a pairing session.");
-  try { window.sessionStorage.setItem(AGENT_SESSION_KEY, paired.sessionToken); }
-  catch { throw new Error("This browser cannot securely retain the POS Agent session. Enable session storage and pair again."); }
+  try {
+    const encrypted = await encryptBrowserFiscalData(AGENT_SESSION_ENCRYPTION_SCOPE, paired.sessionToken);
+    window.localStorage.setItem(AGENT_SESSION_KEY, JSON.stringify(encrypted));
+  } catch {
+    throw new Error("Could not protect the POS Agent session in the browser key vault.");
+  }
   return paired;
 }
 export async function getLocalAgentStatus(token:string){return call<AgentStatus>("/api/v1/status",token);}
