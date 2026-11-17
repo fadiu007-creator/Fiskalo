@@ -30,11 +30,23 @@ The export is scoped to one POS and requires that POS's paired Agent on the devi
 
 ## Important limitations
 
-- The incident start time is currently entered by the owner. It is not yet independently established by a server-signed connectivity heartbeat.
+- The POS now records a server-signed heartbeat for the authenticated business/POS. When a later heartbeat arrives after a gap, the server evidence ledger records the previous and current server timestamps and the measured gap. New cloud-synchronized offline documents are linked to an evidence interval that bounds their local issue timestamp. This proves that the document timestamp falls inside a server-measured heartbeat gap; it does not independently prove that the ISP was unavailable or the exact device issue second. The taxpayer must still retain provider/repair/force-majeure evidence required by Article 44.
 - Local Agent timestamps and server records are separate evidence sources; the export preserves both.
 - Fiskalo does not automatically email, upload or submit the notice/export to ATK. No official public Article 44 notice endpoint has been verified.
 - A generated export or a stored notification reference is not proof that ATK accepted the documents.
 - Actual ATK TEST acceptance, physical POS tests and legal/provider certification remain separate release gates.
+
+## Server-signed heartbeat evidence
+
+The Cloudflare-hosted `/api/pos/heartbeat` endpoint requires a valid Supabase access token and membership in the business, checks the POS belongs to that business, and signs a fresh server timestamp with a pinned P-256 key. The browser verifies the signature before storing the heartbeat in encrypted IndexedDB. The service-role-only database RPC stores the nonce hash, actor, POS identity, signature, server timestamp and gap in an append-only table. The database trigger links new offline fiscal documents to the matching gap interval and rejects issue timestamps outside that interval or the 48-hour window.
+
+Configure the matching private key as a Cloudflare Worker secret:
+
+```bash
+npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo
+```
+
+The public key is pinned in the server/browser code. A missing or mismatched private key fails closed; the endpoint never accepts a browser timestamp as trusted time. Keep the PKCS#8 private key out of Git and out of all `NEXT_PUBLIC_` variables.
 
 ## Database implementation
 
