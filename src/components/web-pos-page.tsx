@@ -9,6 +9,8 @@ import { paymentMethodLabel } from "@/lib/atk/payment-allocation";
 import { FiscalQrCode } from "@/components/fiscal-qr-code";
 import { ThermalPrinterSettings } from "@/components/thermal-printer-settings";
 import { printWithAgent, readPrinterSettings } from "@/lib/printing/thermal-printer-client";
+import { getAgentToken } from "@/lib/printing/thermal-printer-client";
+import { refreshVerifiedPosHeartbeat } from "@/lib/pos/local-agent";
 import { readAtkVerificationNo } from "@/lib/printing/escpos";
 import { ensureATKTestPosReady } from "@/lib/atk/ensure-test-pos-ready";
 import { deleteOfflinePosDraft, listOfflinePosDrafts, saveOfflinePosDraft, type OfflinePosDraft } from "@/lib/pos/offline-drafts";
@@ -176,6 +178,20 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
           organizationId,
           posId,
         );
+        const agentToken = getAgentToken();
+        if (agentToken) {
+          try {
+            await refreshVerifiedPosHeartbeat(
+              agentToken,
+              accessToken,
+              workerUrl,
+              organizationId,
+              posId,
+            );
+          } catch {
+            // Browser evidence remains available if the optional Windows Agent is offline.
+          }
+        }
         if (cancelled) return;
 
         if (heartbeat.gapDetected && heartbeat.previousHeartbeatAtUtc) {
