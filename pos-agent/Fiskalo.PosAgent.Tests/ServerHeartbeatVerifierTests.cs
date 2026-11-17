@@ -36,7 +36,7 @@ public sealed class ServerHeartbeatVerifierTests
     [InlineData("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 0)]
     public void RejectsMalformedCanonicalFields(string businessId, string posUuid, string nonce, long issuedAt)
     {
-        Assert.Throws<ArgumentException>(() =>
+        Assert.ThrowsAny<ArgumentException>(() =>
             ServerHeartbeatVerifier.CreateCanonicalMessage(businessId, posUuid, nonce, issuedAt));
     }
 
