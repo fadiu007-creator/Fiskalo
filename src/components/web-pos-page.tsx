@@ -151,9 +151,18 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
         if (sessionError) throw sessionError;
         const accessToken = sessionData.session?.access_token;
         if (!accessToken) return;
-        await requestServerSignedPosHeartbeat(workerUrl, accessToken, organizationId, posId);
+        const heartbeat = await requestServerSignedPosHeartbeat(workerUrl, accessToken, organizationId, posId);
         window.localStorage.setItem(cachedPosKey, posId);
-        await clearPosConnectivityOutage(organizationId, posId);
+        if (heartbeat.gapDetected && heartbeat.previousHeartbeatAtUtc) {
+          await getOrStartPosConnectivityOutage(
+            organizationId,
+            posId,
+            new Date().toISOString(),
+            heartbeat.previousHeartbeatAtUtc,
+          );
+        } else {
+          await clearPosConnectivityOutage(organizationId, posId);
+        }
       } catch (error) {
         // Only a browser-level transport failure is evidence of lost connectivity.
         // Authorization/configuration errors must not manufacture an outage.
