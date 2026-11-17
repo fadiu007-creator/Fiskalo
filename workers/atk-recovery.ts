@@ -2,6 +2,7 @@ import QRCode from "qrcode";
 type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  ATK_HEARTBEAT_PRIVATE_KEY_PEM?: string;
 };
 
 type Json = Record<string, unknown>;
@@ -143,7 +144,122 @@ async function verifyPayload(certificatePem: string, payload: string, signature:
   );
 }
 
-function encodeBase64(bytes: Uint8Array) {
+
+const HEARTBEAT_ALLOWED_ORIGINS = new Set([
+  "https://fiskalo.shqiptare.workers.dev",
+  "https://fiskalo.pages.dev",
+]);
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function heartbeatMessage(businessId: string, posUuid: string, nonce: string, issuedAtUnixMs: number) {
+  return [
+    "fiskalo-atk-heartbeat-v1",
+    businessId.toLowerCase(),
+    posUuid.toLowerCase(),
+    nonce,
+    String(issuedAtUnixMs),
+  ].join("\\n");
+}
+
+function pemPkcs8Bytes(pem: string): ArrayBuffer {
+  const body = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\\s/g, "");
+  const binary = atob(body);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+async function issueSignedHeartbeat(request: Request, env: Env): Promise<Response> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.ATK_HEARTBEAT_PRIVATE_KEY_PEM) {
+    return Response.json({ error: "heartbeat_not_configured" }, { status: 503 });
+  }
+  const authorization = request.headers.get("Authorization") ?? "";
+  if (!authorization.startsWith("Bearer ") || authorization.length > 8192) {
+    return Response.json({ error: "authentication_required" }, { status: 401 });
+  }
+  const userResponse = await fetch(env.SUPABASE_URL.replace(/\\/$/, "") + "/auth/v1/user", {
+    headers: {
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: authorization,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  if (!userResponse.ok) return Response.json({ error: "invalid_session" }, { status: 401 });
+  const user = await userResponse.json() as { id?: unknown };
+  if (!isUuid(user.id)) return Response.json({ error: "invalid_session" }, { status: 401 });
+
+  let input: unknown;
+  try { input = await request.json(); }
+  catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
+  if (!input || typeof input !== "object") return Response.json({ error: "invalid_heartbeat" }, { status: 400 });
+  const body = input as Record<string, unknown>;
+  const businessId = body.businessId;
+  const posUuid = body.posUuid;
+  const nonce = body.nonce;
+  if (!isUuid(businessId) || !isUuid(posUuid) ||
+      typeof nonce !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(nonce)) {
+    return Response.json({ error: "invalid_heartbeat" }, { status: 400 });
+  }
+
+  const [positions, memberships] = await Promise.all([
+    dbGet<{ id: string; business_id: string }>(env, "fiskalo_basic_pos", postgrestQuery({
+      select: "id,business_id",
+      id: "eq." + posUuid,
+      business_id: "eq." + businessId,
+      limit: "1",
+    })),
+    dbGet<{ business_id: string; user_id: string }>(env, "fiskalo_basic_members", postgrestQuery({
+      select: "business_id,user_id",
+      business_id: "eq." + businessId,
+      user_id: "eq." + user.id,
+      limit: "1",
+    })),
+  ]);
+  if (!positions.length || !memberships.length) {
+    return Response.json({ error: "pos_access_denied" }, { status: 403 });
+  }
+
+  const issuedAtUnixMs = Date.now();
+  const message = heartbeatMessage(businessId, posUuid, nonce, issuedAtUnixMs);
+  let signingKey: CryptoKey;
+  try {
+    signingKey = await crypto.subtle.importKey(
+      "pkcs8",
+      pemPkcs8Bytes(env.ATK_HEARTBEAT_PRIVATE_KEY_PEM),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+  } catch {
+    return Response.json({ error: "heartbeat_signing_key_invalid" }, { status: 503 });
+  }
+  const signature = new Uint8Array(await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    signingKey,
+    new TextEncoder().encode(message),
+  ));
+  let binary = "";
+  for (const byte of signature) binary += String.fromCharCode(byte);
+  return Response.json({
+    version: 1,
+    businessId,
+    posUuid,
+    nonce,
+    issuedAtUnixMs,
+    signatureBase64: btoa(binary),
+    environment: "ATK TEST",
+    productionEnabled: false,
+  }, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+    },
+  });
+}
+\nfunction encodeBase64(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
@@ -506,7 +622,28 @@ export default {
     ctx.waitUntil(runRecovery(env));
   },
   async fetch(request: Request, env: Env) {
-    if (request.method !== "GET" || new URL(request.url).pathname !== "/health") {
+    const url = new URL(request.url);
+    const origin = request.headers.get("Origin") ?? "";
+    const corsHeaders = HEARTBEAT_ALLOWED_ORIGINS.has(origin) ? {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Max-Age": "600",
+      Vary: "Origin",
+    } : {};
+    if (request.method === "OPTIONS" && url.pathname === "/heartbeat") {
+      if (!HEARTBEAT_ALLOWED_ORIGINS.has(origin)) return new Response(null, { status: 403 });
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+    if (url.pathname === "/heartbeat") {
+      if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      if (!HEARTBEAT_ALLOWED_ORIGINS.has(origin)) return new Response("Origin not allowed", { status: 403 });
+      const response = await issueSignedHeartbeat(request, env);
+      const headers = new Headers(response.headers);
+      for (const [key, value] of Object.entries(corsHeaders)) headers.set(key, value);
+      return new Response(response.body, { status: response.status, headers });
+    }
+    if (request.method !== "GET" || url.pathname !== "/health") {
       return new Response("Not found", { status: 404 });
     }
     return Response.json({ service: "fiskalo-atk-recovery", environment: "ATK TEST", productionEnabled: false });
