@@ -1,4 +1,4 @@
-using System.Net;
+using System.Net;\nusing System.Collections.Concurrent;\nusing System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -19,7 +19,7 @@ const string HealthPath = "/health";
 const string CsrPath = "/api/v1/keys/csr";
 const string QueuePath = "/api/v1/queue";
 const string QueueAttestationPath = "/api/v1/queue/attestation";
-const string QueueReconcilePath = "/api/v1/queue/reconcile";
+const string QueueReconcilePath = "/api/v1/queue/reconcile";\nconst string HeartbeatChallengePath = "/api/v1/connectivity/challenge";\nconst string HeartbeatVerifyPath = "/api/v1/connectivity/heartbeat";
 const string AtkVerifyPath = "/api/v1/atk/test/verify";
 const string AtkSignCsrPath = "/api/v1/atk/test/sign-csr";
 const string AtkCertificateAttestationPath = "/api/v1/atk/test/certificate-attestation";
@@ -52,7 +52,7 @@ var reservationStore = new OfflineNumberReservationStore(reservationPath, queueP
 string? sessionToken = OperatingSystem.IsWindows() ? sessionStore.Load() : null;
 var pairingCode = sessionToken is null ? Base64Url(RandomNumberGenerator.GetBytes(32)) : "";
 var failedPairAttempts = 0;
-var pairLockedUntil = DateTimeOffset.MinValue;
+var pairLockedUntil = DateTimeOffset.MinValue;\nvar heartbeatChallenges = new ConcurrentDictionary<string, PendingHeartbeatChallenge>(StringComparer.Ordinal);
 
 Console.WriteLine("Fiskalo POS Agent " + AgentVersion);
 Console.WriteLine("Local endpoint: http://127.0.0.1:17843");
@@ -182,6 +182,76 @@ app.MapGet(StatusPath, (HttpContext context) =>
         testInstallationVerified = OperatingSystem.IsWindows() && File.Exists(installationPath),
         nextStep = "ATK-test-certificate-onboarding-required"
     });
+});
+
+app.MapPost(HeartbeatChallengePath, (HeartbeatChallengeRequest request, HttpContext context) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Trusted POS heartbeat requires the protected Windows POS Agent.", statusCode: StatusCodes.Status501NotImplemented);
+    if (!Guid.TryParse(request.BusinessId, out var businessId) || !Guid.TryParse(request.PosUuid, out var posUuid))
+        return Results.BadRequest(new { error = "valid_business_and_pos_uuids_required" });
+
+    var nowTicks = Stopwatch.GetTimestamp();
+    foreach (var entry in heartbeatChallenges)
+    {
+        if (entry.Value.ExpiresAtTimestamp < nowTicks)
+            heartbeatChallenges.TryRemove(entry.Key, out _);
+    }
+
+    var nonce = Base64Url(RandomNumberGenerator.GetBytes(32));
+    var expiresAt = nowTicks + (long)(Stopwatch.Frequency * 90);
+    heartbeatChallenges[nonce] = new PendingHeartbeatChallenge(
+        businessId.ToString("D").ToLowerInvariant(),
+        posUuid.ToString("D").ToLowerInvariant(),
+        expiresAt);
+    return Results.Ok(new { nonce, expiresInSeconds = 90 });
+});
+
+app.MapPost(HeartbeatVerifyPath, async (
+    HeartbeatVerificationRequest request,
+    HttpContext context,
+    CancellationToken cancellationToken) =>
+{
+    if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
+    if (!OperatingSystem.IsWindows()) return Results.Problem("Trusted POS heartbeat requires the protected Windows POS Agent.", statusCode: StatusCodes.Status501NotImplemented);
+    if (string.IsNullOrWhiteSpace(request.Nonce) ||
+        !heartbeatChallenges.TryRemove(request.Nonce, out var challenge) ||
+        challenge.ExpiresAtTimestamp < Stopwatch.GetTimestamp())
+        return Results.Conflict(new { error = "heartbeat_challenge_expired_or_replayed" });
+
+    var verifier = new ServerHeartbeatVerifier();
+    if (!verifier.Verify(
+        challenge.BusinessId,
+        challenge.PosUuid,
+        request.Nonce,
+        request.IssuedAtUnixMilliseconds,
+        request.SignatureBase64))
+        return Results.Unauthorized();
+
+    try
+    {
+        var serverTime = DateTimeOffset.FromUnixTimeMilliseconds(request.IssuedAtUnixMilliseconds);
+        var persisted = await queueStore.RecordTrustedHeartbeatAsync(serverTime, cancellationToken);
+        var deviceClockSkewSeconds = (DateTimeOffset.UtcNow - persisted).TotalSeconds;
+        return Results.Ok(new
+        {
+            verified = true,
+            businessId = challenge.BusinessId,
+            posUuid = challenge.PosUuid,
+            serverTimeUtc = persisted,
+            deviceClockSkewSeconds,
+            clockSkewWarning = Math.Abs(deviceClockSkewSeconds) > 120,
+            productionEnabled = false
+        });
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Conflict(new { error = "heartbeat_timestamp_not_monotonic" });
+    }
+    catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException or ArgumentOutOfRangeException)
+    {
+        return Results.Problem("Unable to persist the verified server heartbeat.", statusCode: StatusCodes.Status500InternalServerError);
+    }
 });
 
 app.MapGet(OfflineReservationsPath, async (HttpContext context, CancellationToken cancellationToken) =>
@@ -920,6 +990,20 @@ static bool HasValidSession(HttpContext context, string? expectedToken)
 
 static string Base64Url(byte[] bytes) =>
     Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+internal sealed record PendingHeartbeatChallenge(
+    string BusinessId,
+    string PosUuid,
+    long ExpiresAtTimestamp);
+
+internal sealed record HeartbeatChallengeRequest(
+    [property: JsonPropertyName("businessId")] string BusinessId,
+    [property: JsonPropertyName("posUuid")] string PosUuid);
+
+internal sealed record HeartbeatVerificationRequest(
+    [property: JsonPropertyName("nonce")] string Nonce,
+    [property: JsonPropertyName("issuedAtUnixMilliseconds")] long IssuedAtUnixMilliseconds,
+    [property: JsonPropertyName("signatureBase64")] string SignatureBase64);
 
 internal sealed record PairRequest(
     [property: JsonPropertyName("pairingCode")] string? PairingCode);
