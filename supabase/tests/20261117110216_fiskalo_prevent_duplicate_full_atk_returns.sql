@@ -6,6 +6,10 @@ declare
   helper_oid oid;
   wrapper_oid oid;
   wrapper_is_definer boolean;
+  server_finalizer_oid oid;
+  server_finalizer_is_definer boolean;
+  server_finalizer_config text[];
+  server_finalizer_definition text;
   definition text;
 begin
   helper_oid:=to_regprocedure(
@@ -43,6 +47,29 @@ begin
     'EXECUTE'
   ) then
     raise exception 'Authenticated clients must not execute the public correction wrapper';
+  end if;
+  server_finalizer_oid:=to_regprocedure(
+    'public.fiskalo_basic_server_record_atk_correction_v2(uuid,uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb,text,text,text,text,bigint,text)'
+  );
+  if server_finalizer_oid is null then
+    raise exception 'Trusted server correction finalizer is missing';
+  end if;
+  select prosecdef,coalesce(proconfig,array[]::text[])
+    into server_finalizer_is_definer,server_finalizer_config
+    from pg_proc where oid=server_finalizer_oid;
+  if not server_finalizer_is_definer or
+     not server_finalizer_config @> array['search_path=""']::text[] then
+    raise exception 'Server correction finalizer must be SECURITY DEFINER with an empty search_path';
+  end if;
+  if not has_function_privilege('service_role',server_finalizer_oid,'EXECUTE') or
+     has_function_privilege('authenticated',server_finalizer_oid,'EXECUTE') or
+     has_function_privilege('anon',server_finalizer_oid,'EXECUTE') then
+    raise exception 'Server correction finalizer must be service-role only';
+  end if;
+  select pg_get_functiondef(server_finalizer_oid) into server_finalizer_definition;
+  if position('set_config(''request.jwt.claim.sub''' in server_finalizer_definition)=0 or
+     position('public.fiskalo_basic_record_atk_correction(' in server_finalizer_definition)=0 then
+    raise exception 'Server correction finalizer must set the verified actor context and call the protected wrapper';
   end if;
   if position('for update of d' in definition)=0 or
      position('p_document_type not in (2,3)' in definition)=0 or
