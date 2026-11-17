@@ -18,8 +18,9 @@ create index if not exists fiskalo_atk_pos_heartbeat_latest_idx
   on public.fiskalo_atk_pos_heartbeat_evidence (business_id, pos_id, server_time_utc desc);
 
 alter table public.fiskalo_atk_pos_heartbeat_evidence enable row level security;
-revoke all on table public.fiskalo_atk_pos_heartbeat_evidence from public, anon, authenticated, service_role;
-grant select on table public.fiskalo_atk_pos_heartbeat_evidence to service_role;
+revoke all on table public.fiskalo_atk_pos_heartbeat_evidence from public, anon, authenticated;
+revoke update, delete, truncate on table public.fiskalo_atk_pos_heartbeat_evidence from service_role;
+grant select, insert on table public.fiskalo_atk_pos_heartbeat_evidence to service_role;
 
 create or replace function public.fiskalo_record_atk_pos_heartbeat(
   p_business_id uuid,
@@ -30,7 +31,7 @@ create or replace function public.fiskalo_record_atk_pos_heartbeat(
   p_signature_base64 text
 ) returns table(previous_heartbeat_at timestamptz, gap_seconds integer)
 language plpgsql
-security definer
+security invoker
 set search_path = ''
 as $$
 declare
