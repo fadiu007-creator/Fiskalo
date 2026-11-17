@@ -42,6 +42,29 @@ begin
     raise exception 'Offline fiscal document heartbeat evidence trigger is missing';
   end if;
 
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger t
+    join pg_catalog.pg_class c on c.oid = t.tgrelid
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'fiskalo_basic_fiscal_documents'
+      and t.tgname = 'fiskalo_basic_bind_offline_heartbeat_evidence'
+      and (t.tgattr::text like '%outage_heartbeat_evidence_id%' or
+           t.tgattr::text like '%offline_time_evidence%')
+  ) then
+    -- Column numbers are stored in tgattr, so verify the canonical trigger definition below.
+    if position('outage_heartbeat_evidence_id' in (
+      select pg_catalog.pg_get_triggerdef(t.oid)
+      from pg_catalog.pg_trigger t
+      join pg_catalog.pg_class c on c.oid = t.tgrelid
+      where c.relname = 'fiskalo_basic_fiscal_documents'
+        and t.tgname = 'fiskalo_basic_bind_offline_heartbeat_evidence'
+    )) = 0 then
+      raise exception 'Evidence reference changes must invoke the heartbeat binding trigger';
+    end if;
+  end if;
+
   if exists (
     select 1
     from pg_catalog.pg_proc p
