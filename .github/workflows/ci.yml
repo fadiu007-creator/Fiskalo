@@ -52,6 +52,7 @@ jobs:
       - run: deno lint supabase/functions/fiskalo-basic-workers
       - run: npm run typecheck
       - run: npm run test:products
+      - run: npm run test:workflow-security
       - run: npm run test:payments
       - run: npm run test:pos-outage
       - run: npm run test:reports
