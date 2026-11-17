@@ -126,7 +126,7 @@ export async function refreshVerifiedPosHeartbeat(
     posUuid?: string;
   };
   if (!response.ok || signed.nonce !== challenge.nonce ||
-      signed.businessId !== businessId || signed.posUuid !== posUuid ||
+      signed.businessId !== businessId || signed.posUuid !== posUuid ||\n      signed.environment !== "ATK TEST" || signed.productionEnabled !== false ||
       !Number.isSafeInteger(signed.issuedAtUnixMs) || typeof signed.signatureBase64 !== "string") {
     throw new Error("The server did not return a valid signed POS heartbeat.");
   }
