@@ -35,7 +35,9 @@ begin
   if v_trigger_definition is null
      or position('outage_heartbeat_evidence_id' in v_trigger_definition)=0
      or position('offline_time_evidence' in v_trigger_definition)=0
-     or position('recovery_deadline_at' in v_trigger_definition)=0 then
+     or position('recovery_deadline_at' in v_trigger_definition)=0
+     or position('business_id' in v_trigger_definition)=0
+     or position('sale_id' in v_trigger_definition)=0 then
     raise exception 'Evidence reference changes must invoke the heartbeat binding trigger';
   end if;
 
