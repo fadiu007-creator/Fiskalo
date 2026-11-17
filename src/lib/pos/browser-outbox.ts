@@ -374,7 +374,10 @@ export function requestServerSignedPosHeartbeat(
   accessToken: string,
   nonceOverride?: string,
 ): Promise<TrustedPosHeartbeat> {
-  const key = businessId + ":" + posRecordId;
+  // A POS Agent challenge nonce must never be satisfied by a concurrent
+  // browser-only heartbeat for the same POS. Keep challenge-bound and periodic
+  // requests in separate idempotency lanes.
+  const key = businessId + ":" + posRecordId + ":" + (nonceOverride ? "challenge:" + nonceOverride : "periodic");
   const inFlight = heartbeatInFlight.get(key);
   if (inFlight) return inFlight;
   if (!nonceOverride) {
