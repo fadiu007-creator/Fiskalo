@@ -43,6 +43,7 @@ type EncryptedRecord = {
 };
 type EncryptedOutboxRecord = EncryptedRecord & { idempotencyKey: string };
 type EncryptedOutageRecord = EncryptedRecord & { id: string };
+type EncryptedHeartbeatRecord = EncryptedRecord & { id: string; serverTimeUnixMs: number };
 
 export type PosConnectivityOutage = {
   id: string;
@@ -310,19 +311,39 @@ export async function getLastTrustedPosHeartbeat(
 }
 
 async function saveTrustedPosHeartbeat(value: TrustedPosHeartbeat): Promise<void> {
-  const existing = await getLastTrustedPosHeartbeat(value.businessId, value.posRecordId);
-  if (existing && Date.parse(value.serverTimeUtc) <= Date.parse(existing.serverTimeUtc)) {
-    throw new Error("Replayed or out-of-order server heartbeat rejected.");
-  }
+  const serverTimeUnixMs = Date.parse(value.serverTimeUtc);
+  if (!Number.isFinite(serverTimeUnixMs)) throw new Error("Signed heartbeat has an invalid server timestamp.");
   const encrypted = await encryptBrowserFiscalData(HEARTBEAT_ENCRYPTION_SCOPE, value);
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = strictTransaction(db, HEARTBEAT_STORE_NAME);
-      tx.objectStore(HEARTBEAT_STORE_NAME).put({ id: value.id, revision: 1, encrypted } satisfies EncryptedOutageRecord);
+      const store = tx.objectStore(HEARTBEAT_STORE_NAME);
+      let replayed = false;
+      const request = store.get(value.id);
+      request.onsuccess = () => {
+        const current = request.result as EncryptedHeartbeatRecord | undefined;
+        if (current && Number.isFinite(current.serverTimeUnixMs) &&
+            current.serverTimeUnixMs >= serverTimeUnixMs) {
+          replayed = true;
+          tx.abort();
+          return;
+        }
+        store.put({
+          id: value.id,
+          revision: (current?.revision ?? 0) + 1,
+          serverTimeUnixMs,
+          encrypted,
+        } satisfies EncryptedHeartbeatRecord);
+      };
+      request.onerror = () => reject(request.error ?? new Error("Could not read trusted heartbeat metadata."));
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("Could not persist trusted POS heartbeat."));
-      tx.onabort = () => reject(tx.error ?? new Error("Trusted POS heartbeat write was aborted."));
+      tx.onabort = () => reject(tx.error ?? new Error(
+        replayed ? "Replayed or out-of-order server heartbeat rejected." : "Trusted POS heartbeat write was aborted.",
+      ));
+      tx.onerror = () => {
+        if (!replayed) reject(tx.error ?? new Error("Could not persist trusted POS heartbeat."));
+      };
     });
   } finally { db.close(); }
 }
@@ -402,6 +423,7 @@ export async function getOrStartPosConnectivityOutage(
   businessId: string,
   posRecordId: string,
   detectedAt = new Date().toISOString(),
+  trustedLastHeartbeatAt?: string | null,
 ): Promise<PosConnectivityOutage> {
   if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
   const id = await outageKey(businessId, posRecordId);
@@ -418,7 +440,9 @@ export async function getOrStartPosConnectivityOutage(
     const startedAt = resolvePosOutageStart(
       existing && existing.businessId === businessId && existing.posRecordId === posRecordId
         ? existing.startedAt : null,
-      detectedAt,
+      trustedLastHeartbeatAt && Number.isFinite(Date.parse(trustedLastHeartbeatAt))
+        ? trustedLastHeartbeatAt
+        : detectedAt,
     );
     const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt };
     if (existing && existing.startedAt === startedAt && isEncryptedRecord(raw)) return existing;
