@@ -262,7 +262,8 @@ async function issueSignedHeartbeat(request: Request, env: Env): Promise<Respons
     },
   });
 }
-\nfunction encodeBase64(bytes: Uint8Array) {
+
+function encodeBase64(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
