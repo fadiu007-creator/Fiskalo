@@ -85,6 +85,20 @@ begin
       '11111111-1111-4111-8111-111111111111'::uuid,
       '22222222-2222-4222-8222-222222222222'::uuid,
       '33333333-3333-4333-8333-333333333333'::uuid,
+      '2026-11-17T10:01:00Z'::timestamptz,
+      repeat('c',64),
+      repeat('A',86) || '=='
+    );
+    raise exception 'A distinct nonce with a duplicate timestamp must be rejected';
+  exception when raise_exception then
+    if sqlerrm = 'A distinct nonce with a duplicate timestamp must be rejected' then raise; end if;
+  end;
+
+  begin
+    perform public.fiskalo_record_atk_pos_heartbeat(
+      '11111111-1111-4111-8111-111111111111'::uuid,
+      '22222222-2222-4222-8222-222222222222'::uuid,
+      '33333333-3333-4333-8333-333333333333'::uuid,
       '2026-11-17T10:02:00Z'::timestamptz,
       repeat('b',64),
       repeat('A',86) || '=='
