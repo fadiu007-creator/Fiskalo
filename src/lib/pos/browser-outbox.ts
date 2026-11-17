@@ -3,9 +3,12 @@ import type { EncryptedBrowserPayload } from "../atk/local-storage-crypto.ts";
 
 const DB_NAME = "fiskalo-fiscal-outbox";
 const STORE_NAME = "signed-documents";
-const OUTAGE_STORE_NAME = "connectivity-outages";\nconst HEARTBEAT_STORE_NAME = "trusted-heartbeats";
+const OUTAGE_STORE_NAME = "connectivity-outages";
+const HEARTBEAT_STORE_NAME = "trusted-heartbeats";
 const OUTBOX_ENCRYPTION_SCOPE = "basic-fiscal-outbox";
-const OUTAGE_ENCRYPTION_SCOPE = "basic-pos-connectivity-outage";\nconst HEARTBEAT_ENCRYPTION_SCOPE = "basic-pos-trusted-heartbeat";\nconst HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEk7Kh22GR/MCr1G1QizihiqiMMTcpBBbWA+xzJfXOLnQogcm5FstM26nOyg6hagbuhgNcksl7WAXVlbBWIfUqXA==";
+const OUTAGE_ENCRYPTION_SCOPE = "basic-pos-connectivity-outage";
+const HEARTBEAT_ENCRYPTION_SCOPE = "basic-pos-trusted-heartbeat";
+const HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEk7Kh22GR/MCr1G1QizihiqiMMTcpBBbWA+xzJfXOLnQogcm5FstM26nOyg6hagbuhgNcksl7WAXVlbBWIfUqXA==";
 
 export type BrowserFiscalOutboxItem = {
   idempotencyKey: string;
@@ -337,7 +340,7 @@ export async function requestServerSignedPosHeartbeat(
   }
   if (!crypto?.subtle || !crypto.getRandomValues) throw new Error("Secure browser cryptography is required.");
   const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
-  const nonce = btoa(String.fromCharCode(...nonceBytes)).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  const nonce = btoa(String.fromCharCode(...nonceBytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
   const response = await fetch(new URL("/heartbeat", endpoint.origin), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
