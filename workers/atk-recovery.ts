@@ -3,6 +3,7 @@ type Env = {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   ATK_HEARTBEAT_PRIVATE_KEY_PEM?: string;
+  FISKALO_ALLOWED_ORIGINS?: string;
 };
 
 type Json = Record<string, unknown>;
@@ -149,6 +150,15 @@ const HEARTBEAT_ALLOWED_ORIGINS = new Set([
   "https://fiskalo.shqiptare.workers.dev",
   "https://fiskalo.pages.dev",
 ]);
+
+function isAllowedHeartbeatOrigin(origin: string, env: Env): boolean {
+  if (HEARTBEAT_ALLOWED_ORIGINS.has(origin)) return true;
+  return (env.FISKALO_ALLOWED_ORIGINS ?? "")
+    .split(/[;,]/)
+    .map(value => value.trim())
+    .filter(Boolean)
+    .includes(origin);
+}
 
 function isUuid(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -653,7 +663,7 @@ export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") ?? "";
-    const corsHeaders = HEARTBEAT_ALLOWED_ORIGINS.has(origin) ? {
+    const corsHeaders = isAllowedHeartbeatOrigin(origin, env) ? {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -661,12 +671,12 @@ export default {
       Vary: "Origin",
     } : {};
     if (request.method === "OPTIONS" && url.pathname === "/heartbeat") {
-      if (!HEARTBEAT_ALLOWED_ORIGINS.has(origin)) return new Response(null, { status: 403 });
+      if (!isAllowedHeartbeatOrigin(origin, env)) return new Response(null, { status: 403 });
       return new Response(null, { status: 204, headers: corsHeaders });
     }
     if (url.pathname === "/heartbeat") {
       if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
-      if (!HEARTBEAT_ALLOWED_ORIGINS.has(origin)) return new Response("Origin not allowed", { status: 403 });
+      if (!isAllowedHeartbeatOrigin(origin, env)) return new Response("Origin not allowed", { status: 403 });
       const response = await issueSignedHeartbeat(request, env);
       const headers = new Headers(response.headers);
       for (const [key, value] of Object.entries(corsHeaders)) headers.set(key, value);
