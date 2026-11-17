@@ -60,6 +60,7 @@ jobs:
       - run: npm run test:local-storage-crypto
       - run: npm run test:atk-browser
       - run: npm run test:atk-recovery
+      - run: npm run test:atk-heartbeat
       - run: npm run test:atk-certificates
       - run: npm run test:atk-coupon-validation
       - run: npm run lint
