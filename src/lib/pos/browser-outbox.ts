@@ -372,8 +372,16 @@ export function requestServerSignedPosHeartbeat(
   businessId: string,
   posRecordId: string,
   accessToken: string,
+  nonceOverride?: string,
 ): Promise<TrustedPosHeartbeat> {
   const key = businessId + ":" + posRecordId;
+  if (nonceOverride) {
+    const request = performServerSignedPosHeartbeat(businessId, posRecordId, accessToken, nonceOverride);
+    request.then(value => {
+      recentHeartbeatCache.set(key, { completedAt: performance.now(), value });
+    }, () => undefined);
+    return request;
+  }
   const now = performance.now();
   const recent = recentHeartbeatCache.get(key);
   if (recent && now - recent.completedAt < 5_000) return Promise.resolve(recent.value);
@@ -394,6 +402,7 @@ async function performServerSignedPosHeartbeat(
   businessId: string,
   posRecordId: string,
   accessToken: string,
+  nonceOverride?: string,
 ): Promise<TrustedPosHeartbeat> {
   if (!accessToken) throw new Error("An authenticated session is required for a trusted POS heartbeat.");
   if (!globalThis.crypto?.subtle || !globalThis.crypto.getRandomValues) {
@@ -401,7 +410,9 @@ async function performServerSignedPosHeartbeat(
   }
   const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
   const nonceBinary = Array.from(nonceBytes, byte => String.fromCharCode(byte)).join("");
-  const nonce = btoa(nonceBinary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  const generatedNonce = btoa(nonceBinary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  const nonce = nonceOverride ?? generatedNonce;
+  if (!/^[A-Za-z0-9_-]{43}$/.test(nonce)) throw new Error("POS Agent heartbeat challenge nonce is invalid.");
   const response = await fetch("/api/pos/heartbeat", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
