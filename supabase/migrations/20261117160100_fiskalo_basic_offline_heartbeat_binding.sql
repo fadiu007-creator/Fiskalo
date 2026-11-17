@@ -23,12 +23,11 @@ declare
   v_should_validate boolean := false;
 begin
   if tg_op = 'INSERT' then
-    v_should_validate := new.submission_state = 'queued' and new.offline_issued_at is not null;
+    v_should_validate := new.offline_issued_at is not null;
   else
-    v_should_validate := new.submission_state = 'queued'
-      and new.offline_issued_at is not null
+    v_should_validate := new.offline_issued_at is not null
       and (
-        old.submission_state is distinct from 'queued'
+        old.offline_time_evidence is distinct from 'legacy_unverified'
         or old.business_id is distinct from new.business_id
         or old.sale_id is distinct from new.sale_id
         or old.offline_issued_at is distinct from new.offline_issued_at
