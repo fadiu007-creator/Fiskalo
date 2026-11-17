@@ -39,11 +39,12 @@ The recovery Worker also issues P-256 ECDSA-signed POS heartbeats. Configure its
 
 ```bash
 npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --config wrangler.atk-recovery.jsonc
+npm run deploy:atk-recovery
 ```
 
 Paste the PKCS#8 PEM value generated for the public key pinned in `ServerHeartbeatVerifier.cs` and `browser-outbox.ts`. Keep that private key exclusively in Cloudflare Secrets. Configure `NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL` on the main Fiskalo application with the deployed recovery Worker's HTTPS origin (for example, the Worker URL shown by Wrangler; do not guess the account subdomain). The Worker authorizes heartbeat requests against the authenticated user's active ATK TEST POS membership. The browser verifies the signature before persisting the heartbeat in encrypted IndexedDB. A missing signing secret returns HTTP 503 and never falls back to a browser timestamp.
 
-Apply Supabase migrations `0037_fiskalo_atk_pos_heartbeat_evidence.sql` and `0038_fiskalo_basic_offline_heartbeat_binding.sql` before enabling offline recovery. Migration 0038 adds a database trigger that refuses newly queued offline receipts or corrections unless their outage timestamp matches a server-signed prior heartbeat for the same POS, and stores the evidence-row reference on the fiscal document.
+Apply pending Supabase migrations `0037_fiskalo_atk_pos_heartbeat_evidence.sql` and `0038_fiskalo_basic_offline_heartbeat_binding.sql` to the intended project before enabling offline recovery (after review, via the repository's Supabase migration workflow). Migration 0038 adds a database trigger that refuses newly queued offline receipts or corrections unless their outage timestamp matches a server-signed prior heartbeat for the same POS, and stores the evidence-row reference on the fiscal document.
 
 The heartbeat Worker must persist each nonce hash, authenticated actor, POS identity, server timestamp, previous heartbeat and measured gap through the atomic SQL RPC before returning a signature. The append-only evidence ledger is not readable or writable by browser roles. The SQL contract is included in `scripts/test-supabase-sql.sh`. The SQL contract is included in `scripts/test-supabase-sql.sh`.
 
