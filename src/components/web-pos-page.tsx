@@ -114,30 +114,28 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
         return activePosId;
       }
 
-      const { data: fullPos, error: fullPosError } = await supabase
-        .from("fiskalo_atk_pos_installations")
-        .select("id")
-        .eq("organization_id", organizationId)
-        .eq("environment", "test")
-        .eq("status", "active")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (fullPosError) throw fullPosError;
-      if (fullPos?.id) {
-        activePosId = String(fullPos.id);
-        window.localStorage.setItem(storageKey, activePosId);
-        return activePosId;
+      if (basicMode) {
+        const { data: basicPos, error: basicPosError } = await supabase
+          .from("fiskalo_basic_pos")
+          .select("id")
+          .eq("business_id", organizationId)
+          .limit(1)
+          .maybeSingle();
+        if (basicPosError) throw basicPosError;
+        activePosId = basicPos?.id ? String(basicPos.id) : null;
+      } else {
+        const { data: fullPos, error: fullPosError } = await supabase
+          .from("fiskalo_atk_pos_installations")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("environment", "test")
+          .eq("status", "active")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fullPosError) throw fullPosError;
+        activePosId = fullPos?.id ? String(fullPos.id) : null;
       }
-
-      const { data: basicPos, error: basicPosError } = await supabase
-        .from("fiskalo_basic_pos")
-        .select("id")
-        .eq("business_id", organizationId)
-        .limit(1)
-        .maybeSingle();
-      if (basicPosError) throw basicPosError;
-      activePosId = basicPos?.id ? String(basicPos.id) : null;
       if (activePosId) window.localStorage.setItem(storageKey, activePosId);
       return activePosId;
     };
