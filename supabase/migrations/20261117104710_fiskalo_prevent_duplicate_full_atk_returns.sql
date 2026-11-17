@@ -89,20 +89,15 @@ begin
     return v_new_id;
   end if;
 
-  -- This helper only creates full corrections. Until partial-return quantity
-  -- accounting is implemented, a sale may have at most one active/accepted
-  -- full cancellation and at most one active/accepted full return.
-  if p_document_type in (2,3) and exists (
+  -- Cancel and full Return are mutually exclusive full-sale corrections.
+  -- Partial-return quantity allocation is not implemented in this workflow.
+  if exists (
     select 1 from public.fiskalo_basic_fiscal_documents d
     where d.parent_document_id=v_original.id
-      and d.document_type=p_document_type
+      and d.document_type in (2,3)
       and d.submission_state in ('queued','submitted','accepted','needs_reconciliation')
   ) then
-    if p_document_type=2 then
-      raise exception 'An ATK cancellation already exists or is unresolved for this sale';
-    else
-      raise exception 'A full ATK return already exists or is unresolved for this sale';
-    end if;
+    raise exception 'An ATK cancellation or return already exists or is unresolved for this sale';
   end if;
 
   insert into public.fiskalo_basic_fiscal_documents(
