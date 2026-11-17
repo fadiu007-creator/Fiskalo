@@ -405,7 +405,7 @@ async function performServerSignedPosHeartbeat(
   }
   const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
   const nonceBinary = Array.from(nonceBytes, byte => String.fromCharCode(byte)).join("");
-  const generatedNonce = btoa(nonceBinary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  const generatedNonce = btoa(nonceBinary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   const nonce = nonceOverride ?? generatedNonce;
   if (!/^[A-Za-z0-9_-]{43}$/.test(nonce)) throw new Error("POS Agent heartbeat challenge nonce is invalid.");
   const response = await fetch("/api/pos/heartbeat", {
