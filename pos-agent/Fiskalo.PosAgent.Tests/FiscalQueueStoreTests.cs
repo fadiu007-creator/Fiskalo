@@ -734,14 +734,15 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
-    public async Task ConnectivityUnavailablePrefersLastTrustedServerHeartbeatOverWindowsClock()
+    public async Task AtkProbeOutageRemainsSeparateFromServerHeartbeatEvidence()
     {
         using var fixture = new QueueFixture();
         var trusted = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
         await fixture.Store.RecordTrustedHeartbeatAsync(trusted);
 
         var localClock = trusted.AddHours(12);
-        Assert.Equal(trusted, await fixture.Store.MarkConnectivityUnavailableAsync(localClock));
+        Assert.Equal(localClock, await fixture.Store.MarkConnectivityUnavailableAsync(localClock));
+        Assert.Equal(trusted, await fixture.Store.GetLastTrustedServerTimeAsync());
     }
 
     [Fact]
