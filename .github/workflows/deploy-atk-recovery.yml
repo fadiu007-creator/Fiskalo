@@ -62,13 +62,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          ATK_HEARTBEAT_PRIVATE_KEY_PEM: ${{ secrets.ATK_HEARTBEAT_PRIVATE_KEY_PEM }}
+          FISKALO_ALLOWED_ORIGINS: ${{ secrets.FISKALO_ALLOWED_ORIGINS }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing GitHub secret CLOUDFLARE_API_TOKEN" && exit 1)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing GitHub secret CLOUDFLARE_ACCOUNT_ID" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY" && exit 1)
           test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || (echo "Missing GitHub secret NEXT_PUBLIC_SUPABASE_ANON_KEY" && exit 1)
+          test -n "$ATK_HEARTBEAT_PRIVATE_KEY_PEM" || (echo "Missing GitHub secret ATK_HEARTBEAT_PRIVATE_KEY_PEM" && exit 1)
+          test -n "$FISKALO_ALLOWED_ORIGINS" || (echo "Missing GitHub secret FISKALO_ALLOWED_ORIGINS with exact app origin(s)" && exit 1)
           printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --name fiskalo
           printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.atk-recovery.jsonc
+          printf '%s' "$ATK_HEARTBEAT_PRIVATE_KEY_PEM" | npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --config wrangler.atk-recovery.jsonc
+          printf '%s' "$FISKALO_ALLOWED_ORIGINS" | npx wrangler secret put FISKALO_ALLOWED_ORIGINS --config wrangler.atk-recovery.jsonc
 
       - name: Deploy Fiskalo web application Worker
         env:
@@ -76,8 +82,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           NEXT_PUBLIC_SUPABASE_URL: https://saavqlbwffrwxingbnri.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL: ${{ secrets.NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: npm run deploy
+        run: |
+          test -n "$NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL" || (echo "Missing GitHub secret NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL" && exit 1)
+          npm run deploy
 
       - name: Deploy scheduled ATK recovery Worker
         env:
