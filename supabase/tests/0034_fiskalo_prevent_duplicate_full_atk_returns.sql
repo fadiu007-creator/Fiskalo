@@ -13,7 +13,6 @@ begin
   select pg_get_functiondef(helper_oid) into definition;
   if position('for update of d' in definition)=0 or
      position('p_document_type in (2,3)' in definition)=0 or
-     position('d.document_type=v_document_type' in definition)>0 or
      position('d.document_type=p_document_type' in definition)=0 or
      position('needs_reconciliation' in definition)=0 or
      position('A full ATK return already exists or is unresolved for this sale' in definition)=0 or
