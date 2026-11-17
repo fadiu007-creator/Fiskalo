@@ -304,7 +304,8 @@ async function dbGet<T>(env: Env, table: string, query: URLSearchParams): Promis
 }
 
 async function dbInsert(env: Env, table: string, value: Json): Promise<void> {
-  const response = await fetch(env.SUPABASE_URL.replace(/\\/$/, "") + "/rest/v1/" + table, {
+  const baseUrl = env.SUPABASE_URL.endsWith("/") ? env.SUPABASE_URL.slice(0, -1) : env.SUPABASE_URL;
+  const response = await fetch(baseUrl + "/rest/v1/" + table, {
     method: "POST",
     headers: { ...headers(env), Prefer: "return=minimal" },
     body: JSON.stringify(value),
