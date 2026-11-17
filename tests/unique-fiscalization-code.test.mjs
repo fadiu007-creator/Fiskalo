@@ -14,6 +14,7 @@ test("trims surrounding whitespace but preserves the issued identifier", () => {
 test("does not impose an undocumented ATK identifier format", () => {
   assert.equal(normalizeUniqueFiscalizationCode("123456789"), "123456789");
   assert.equal(normalizeUniqueFiscalizationCode("AbC/2026+X"), "AbC/2026+X");
+  assert.equal(normalizeUniqueFiscalizationCode("U000123456789"), "U000123456789");
 });
 
 test("rejects control characters and unreasonable input length", () => {
