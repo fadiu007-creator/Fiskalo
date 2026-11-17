@@ -240,7 +240,7 @@ app.MapPost(HeartbeatVerifyPath, async (
     try
     {
         var serverTime = DateTimeOffset.FromUnixTimeMilliseconds(request.IssuedAtUnixMilliseconds);
-        var persisted = await queueStore.RecordTrustedHeartbeatAsync(serverTime, cancellationToken);
+        var persisted = await queueStore.RecordTrustedHeartbeatAsync(challenge.BusinessId, challenge.PosUuid, serverTime, cancellationToken);
         return Results.Ok(new
         {
             verified = true,
