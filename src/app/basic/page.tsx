@@ -519,7 +519,7 @@ export default function Home(){
         const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
         const outageDeadline=outageRecoveryDeadline(outage.startedAt);
         await updateFiscalOutboxItem(idempotencyKey,{
-          state:"queued",offlineIssuedAtUtc:outage.startedAt,recoveryDeadlineUtc:outageDeadline,
+          state:"queued",offlineIssuedAtUtc:issuedAtUtc,recoveryDeadlineUtc:outageDeadline,
           lastError:"Shfletuesi ishte offline; korrigjimi pret ngarkimin cloud."
         });
       }else{
@@ -531,8 +531,8 @@ export default function Home(){
         }catch(error){
           if(!(error instanceof CloudAtkError)||!error.notDelivered)throw error;
           const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
-          const offlineIssuedAt=outage.startedAt;
-          const outageDeadline=outageRecoveryDeadline(offlineIssuedAt);
+          const offlineIssuedAt=issuedAtUtc;
+          const outageDeadline=outageRecoveryDeadline(outage.startedAt);
           try{
             await queueCloudCorrection(supabase,{...correctionInput,offlineIssuedAt});
             queuedOffline=true;
@@ -731,8 +731,8 @@ export default function Home(){
       });
       if(!navigator.onLine){
         const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
-        const offlineIssuedAtUtc=outage.startedAt;
-        const offlineDeadline=outageRecoveryDeadline(offlineIssuedAtUtc);
+        const offlineIssuedAtUtc=issuedAtUtc;
+        const offlineDeadline=outageRecoveryDeadline(outage.startedAt);
         await updateFiscalOutboxItem(idempotencyKey,{
           state:"queued",offlineIssuedAtUtc,recoveryDeadlineUtc:offlineDeadline,
           lastError:"Shfletuesi ishte pa lidhje përpara dërgimit në ATK."
@@ -763,8 +763,8 @@ export default function Home(){
       } catch (submitError) {
         if (submitError instanceof CloudAtkError && submitError.notDelivered) {
           const outage=await getOrStartPosConnectivityOutage(business.id,pos.id);
-          const offlineIssuedAtUtc=outage.startedAt;
-          const offlineDeadline=outageRecoveryDeadline(offlineIssuedAtUtc);
+          const offlineIssuedAtUtc=issuedAtUtc;
+          const offlineDeadline=outageRecoveryDeadline(outage.startedAt);
           let cloudQueued=false;
           let queueErrorMessage=submitError.message;
           try {
