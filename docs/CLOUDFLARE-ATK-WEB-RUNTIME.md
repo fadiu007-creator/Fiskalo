@@ -45,7 +45,7 @@ Paste the PKCS#8 PEM value generated for the public key pinned in `ServerHeartbe
 
 Apply Supabase migrations `0037_fiskalo_atk_pos_heartbeat_evidence.sql` and `0038_fiskalo_basic_offline_heartbeat_binding.sql` before enabling offline recovery. Migration 0038 adds a database trigger that refuses newly queued offline receipts or corrections unless their outage timestamp matches a server-signed prior heartbeat for the same POS, and stores the evidence-row reference on the fiscal document.
 
-The heartbeat Worker must persist each nonce hash, authenticated actor, POS identity, server timestamp, previous heartbeat and measured gap through the atomic SQL RPC before returning a signature. It creates an append-only evidence ledger that browser roles cannot read or modify; the Worker inserts each nonce hash, authenticated actor, POS identity, server timestamp and server signature before returning the heartbeat. The SQL contract is included in `scripts/test-supabase-sql.sh`.
+The heartbeat Worker must persist each nonce hash, authenticated actor, POS identity, server timestamp, previous heartbeat and measured gap through the atomic SQL RPC before returning a signature. The append-only evidence ledger is not readable or writable by browser roles. The SQL contract is included in `scripts/test-supabase-sql.sh`. The SQL contract is included in `scripts/test-supabase-sql.sh`.
 
 The recovery Worker reads the existing `zikos` Supabase project configured in `wrangler.atk-recovery.jsonc`. Its cron trigger is `*/5 * * * *`. Check the Worker `/health` endpoint and Cloudflare Worker logs after deployment. The service-role key must not be committed to GitHub or placed in Worker vars.
 
