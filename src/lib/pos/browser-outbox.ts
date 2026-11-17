@@ -375,7 +375,7 @@ export async function requestServerSignedPosHeartbeat(
     posRecordId.toLowerCase(),
     nonce,
     String(payload.issuedAtUnixMs),
-  ].join("\\n");
+  ].join("\n");
   const signatureBinary = atob(payload.signatureBase64);
   const signature = Uint8Array.from(signatureBinary, char => char.charCodeAt(0));
   if (signature.length !== 64 || !await crypto.subtle.verify(
