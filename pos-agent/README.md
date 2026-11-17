@@ -28,6 +28,14 @@ Use the printed one-time pairing code to pair the browser dashboard with the loc
 - Ambiguous submissions require reconciliation; do not retry blindly.
 - Local endpoint: `http://127.0.0.1:17843`.
 
+## Server-signed heartbeat
+
+The Agent exposes paired-session endpoints `/api/v1/connectivity/challenge` and `/api/v1/connectivity/heartbeat`. The browser obtains a one-time nonce from the Agent, requests a server timestamp from Fiskalo's same-origin Cloudflare API, then returns the signed timestamp to the Agent. The Agent verifies the pinned P-256 public key and stores the monotonic timestamp in its DPAPI-protected connectivity journal. It rejects reused challenges, expired challenges, wrong business/POS identities, invalid signatures and non-increasing timestamps.
+
+A heartbeat gap greater than 90 seconds is stored separately from ATK endpoint probe failures. Existing queued offline documents are re-anchored to the previous signed server heartbeat and their 48-hour recovery deadline is recalculated from that trusted anchor. Normal heartbeat intervals do not create an Internet outage record.
+
+The browser stores the Agent pairing token encrypted with its non-exportable IndexedDB key. Pair from the Fiskalo Basic POS header using the one-time code printed by the Agent. Set `FISKALO_ALLOWED_ORIGINS` to the exact HTTPS origin of the Fiskalo application before starting the Agent if the default origin list does not include it.
+
 ## Current limitations
 
 - Requires Windows; no Android/iOS agent in this MVP.
