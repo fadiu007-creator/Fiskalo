@@ -13,7 +13,7 @@ public sealed class ServerHeartbeatVerifier
         "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8JZgYcM2G4QYtWc1vHnh7FXjWAaPyJcUh/VAR8qAThZnZ1UAvmN5OK8DgNkeLfWVBSHEGlM1KCykjp66dNIeZA==";
     private readonly byte[] _publicKey;
 
-    public ServerHeartbeatVerifier() : this(Convert.FromBase64String(ProductionPublicKeyBase64)) { }
+    public ServerHeartbeatVerifier() : this(Convert.FromBase64String(TestPublicKeyBase64)) { }
 
     public ServerHeartbeatVerifier(byte[] subjectPublicKeyInfo)
     {
