@@ -18,6 +18,7 @@ as $$
 declare
   v_pos_id uuid;
   v_evidence_id uuid;
+  v_outage_started_at timestamptz;
   v_should_validate boolean := false;
 begin
   if tg_op = 'INSERT' then
@@ -30,6 +31,7 @@ begin
         or old.offline_issued_at is distinct from new.offline_issued_at
         or old.outage_heartbeat_evidence_id is distinct from new.outage_heartbeat_evidence_id
         or old.offline_time_evidence is distinct from new.offline_time_evidence
+        or old.recovery_deadline_at is distinct from new.recovery_deadline_at
       );
   end if;
 
@@ -47,8 +49,8 @@ begin
     raise exception 'Offline fiscal document sale/POS identity could not be verified';
   end if;
 
-  select h.id
-    into v_evidence_id
+  select h.id, h.previous_heartbeat_at
+    into v_evidence_id, v_outage_started_at
   from public.fiskalo_atk_pos_heartbeat_evidence h
   where h.business_id = new.business_id
     and h.pos_id = v_pos_id
@@ -67,6 +69,7 @@ begin
 
   new.outage_heartbeat_evidence_id := v_evidence_id;
   new.offline_time_evidence := 'server_bounded_outage_window';
+  new.recovery_deadline_at := v_outage_started_at + interval '48 hours';
   return new;
 end;
 $$;
@@ -78,7 +81,7 @@ drop trigger if exists fiskalo_basic_bind_offline_heartbeat_evidence
   on public.fiskalo_basic_fiscal_documents;
 
 create trigger fiskalo_basic_bind_offline_heartbeat_evidence
-before insert or update of submission_state, offline_issued_at, outage_heartbeat_evidence_id, offline_time_evidence
+before insert or update of submission_state, offline_issued_at, recovery_deadline_at, outage_heartbeat_evidence_id, offline_time_evidence
 on public.fiskalo_basic_fiscal_documents
 for each row
 execute function fiskalo_private.fiskalo_basic_bind_offline_heartbeat_evidence();
