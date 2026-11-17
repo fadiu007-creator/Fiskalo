@@ -124,9 +124,12 @@ export async function refreshVerifiedPosHeartbeat(
     nonce?: string;
     businessId?: string;
     posUuid?: string;
+    environment?: string;
+    productionEnabled?: boolean;
   };
   if (!response.ok || signed.nonce !== challenge.nonce ||
-      signed.businessId !== businessId || signed.posUuid !== posUuid ||\n      signed.environment !== "ATK TEST" || signed.productionEnabled !== false ||
+      signed.businessId !== businessId || signed.posUuid !== posUuid ||
+      signed.environment !== "ATK TEST" || signed.productionEnabled !== false ||
       !Number.isSafeInteger(signed.issuedAtUnixMs) || typeof signed.signatureBase64 !== "string") {
     throw new Error("The server did not return a valid signed POS heartbeat.");
   }
