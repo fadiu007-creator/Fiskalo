@@ -470,7 +470,7 @@ public sealed class FiscalQueueStore
             // Use the last persisted healthy probe, including across agent restarts.
             // The caller's timestamp is only a conservative fallback when no healthy
             // probe has ever been persisted on this installation.
-            var outageStart = state.LastSuccessfulProbeAtUtc ?? timestamp;
+            var outageStart = state.LastTrustedServerTimeUtc ?? state.LastSuccessfulProbeAtUtc ?? timestamp;
             await SaveConnectivityStateAsync(state with { OutageStartedAtUtc = outageStart }, cancellationToken);
             return outageStart;
         }
