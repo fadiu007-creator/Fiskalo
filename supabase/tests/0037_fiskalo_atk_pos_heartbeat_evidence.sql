@@ -66,7 +66,7 @@ begin
     repeat('b',64),
     repeat('A',86) || '=='
   );
-  if v_second.previous_heartbeat_at <> '2026-11-17T10:00:00Z'::timestamptz or v_second.gap_seconds <> 60 then
+  if v_second.previous_heartbeat_at is distinct from '2026-11-17T10:00:00Z'::timestamptz or v_second.gap_seconds is distinct from 60 then
     raise exception 'Heartbeat ledger must atomically return the previous server timestamp and gap';
   end if;
 
