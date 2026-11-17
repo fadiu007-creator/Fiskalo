@@ -120,9 +120,19 @@ end;
 $$;
 
 
+-- Only the trusted server-side ATK gateway may finalize a correction. The
+-- authenticated browser can reserve and begin a correction, but cannot assert
+-- that ATK accepted it or supply a fabricated transaction response.
+revoke all on function public.fiskalo_basic_record_atk_correction(
+  uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb
+) from public,anon,authenticated;
+grant execute on function public.fiskalo_basic_record_atk_correction(
+  uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb
+) to service_role;
+
 revoke all on function fiskalo_private.fiskalo_basic_record_atk_correction(
   uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb
-) from public,anon;
+) from public,anon,authenticated;
 grant execute on function fiskalo_private.fiskalo_basic_record_atk_correction(
   uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb
-) to authenticated;
+) to service_role;
