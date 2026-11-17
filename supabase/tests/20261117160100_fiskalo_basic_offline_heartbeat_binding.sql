@@ -18,7 +18,8 @@ begin
   v_function_definition := pg_catalog.pg_get_functiondef(
     'fiskalo_private.fiskalo_basic_bind_offline_heartbeat_evidence()'::regprocedure
   );
-  if position('old.offline_time_evidence is distinct from ''legacy_unverified''' in v_function_definition)=0
+  if position('old.offline_issued_at is not null and new.offline_issued_at is null' in v_function_definition)=0
+     or position('old.offline_time_evidence is distinct from ''legacy_unverified''' in v_function_definition)=0
      or position('new.offline_issued_at >= h.previous_heartbeat_at - interval ''2 minutes''' in v_function_definition)=0
      or position('new.offline_issued_at <= h.server_time_utc + interval ''2 minutes''' in v_function_definition)=0
      or position('coalesce(v_gap_seconds, 0) > 90' in v_function_definition)=0
