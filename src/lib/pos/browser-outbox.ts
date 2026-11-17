@@ -365,7 +365,32 @@ async function saveTrustedPosHeartbeat(heartbeat: TrustedPosHeartbeat): Promise<
   } finally { db.close(); }
 }
 
-export async function requestServerSignedPosHeartbeat(
+const heartbeatInFlight = new Map<string, Promise<TrustedPosHeartbeat>>();
+const recentHeartbeatCache = new Map<string, { completedAt: number; value: TrustedPosHeartbeat }>();
+
+export function requestServerSignedPosHeartbeat(
+  businessId: string,
+  posRecordId: string,
+  accessToken: string,
+): Promise<TrustedPosHeartbeat> {
+  const key = businessId + ":" + posRecordId;
+  const now = performance.now();
+  const recent = recentHeartbeatCache.get(key);
+  if (recent && now - recent.completedAt < 5_000) return Promise.resolve(recent.value);
+  const inFlight = heartbeatInFlight.get(key);
+  if (inFlight) return inFlight;
+  const request = performServerSignedPosHeartbeat(businessId, posRecordId, accessToken);
+  heartbeatInFlight.set(key, request);
+  request.then(value => {
+    recentHeartbeatCache.set(key, { completedAt: performance.now(), value });
+    heartbeatInFlight.delete(key);
+  }, () => {
+    heartbeatInFlight.delete(key);
+  });
+  return request;
+}
+
+async function performServerSignedPosHeartbeat(
   businessId: string,
   posRecordId: string,
   accessToken: string,
