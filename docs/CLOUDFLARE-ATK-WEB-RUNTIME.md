@@ -43,6 +43,8 @@ npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --config wrangler.atk-reco
 
 Paste the PKCS#8 PEM value generated for the public key pinned in `ServerHeartbeatVerifier.cs` and `browser-outbox.ts`. Keep that private key exclusively in Cloudflare Secrets. Configure `NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL` on the main Fiskalo application with the deployed recovery Worker's HTTPS origin (for example, the Worker URL shown by Wrangler; do not guess the account subdomain). The Worker authorizes heartbeat requests against the authenticated user's active ATK TEST POS membership. The browser verifies the signature before persisting the heartbeat in encrypted IndexedDB. A missing signing secret returns HTTP 503 and never falls back to a browser timestamp.
 
+Apply Supabase migration `0037_fiskalo_atk_pos_heartbeat_evidence.sql` before enabling the heartbeat endpoint. It creates an append-only evidence ledger that browser roles cannot read or modify; the Worker inserts each nonce hash, authenticated actor, POS identity, server timestamp and server signature before returning the heartbeat. The SQL contract is included in `scripts/test-supabase-sql.sh`.
+
 The recovery Worker reads the existing `zikos` Supabase project configured in `wrangler.atk-recovery.jsonc`. Its cron trigger is `*/5 * * * *`. Check the Worker `/health` endpoint and Cloudflare Worker logs after deployment. The service-role key must not be committed to GitHub or placed in Worker vars.
 
 CI validates the recovery Worker with `npm run cf-build:atk-recovery` and tests its safe-retry, ambiguous-delivery and 48-hour deadline behavior with `npm run test:atk-recovery`.
