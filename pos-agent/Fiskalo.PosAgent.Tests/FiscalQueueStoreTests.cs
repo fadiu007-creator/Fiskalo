@@ -280,6 +280,23 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task ConnectivityMonitorUsesFreshVerifiedServerHeartbeatAsTimeAnchor()
+    {
+        using var fixture = new QueueFixture();
+        var serverTime = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        await fixture.Store.RecordTrustedHeartbeatAsync(serverTime);
+        var probeCount = 0;
+        var monitor = new Fiskalo.PosAgent.Core.Atk.FiscalConnectivityMonitor(
+            fixture.Store,
+            _ => Task.FromResult(++probeCount == 1));
+
+        Assert.Null(await monitor.ProbeAsync(serverTime.AddSeconds(30)));
+        Assert.Equal(serverTime, await fixture.Store.GetLastSuccessfulConnectivityProbeAtUtcAsync());
+        Assert.Equal(serverTime, await monitor.ProbeAsync(serverTime.AddSeconds(60)));
+        Assert.Equal(serverTime, await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+    }
+
+    [Fact]
     public async Task ConnectivityMonitor_AnchorsFortyEightHourDeadlineAtFirstDetectedOutage()
     {
         using var fixture = new QueueFixture();
