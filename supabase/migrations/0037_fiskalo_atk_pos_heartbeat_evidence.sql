@@ -54,7 +54,7 @@ begin
   where e.business_id = p_business_id
     and e.pos_id = p_pos_id;
 
-  if v_previous is not null and p_server_time_utc <= v_previous then
+  if v_previous is not null and p_server_time_utc < v_previous then
     raise exception 'Heartbeat server timestamp must be strictly increasing';
   end if;
 
