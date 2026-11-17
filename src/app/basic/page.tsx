@@ -8,7 +8,7 @@ import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, g
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
 import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, reserveCloudCorrection, submitCloudCorrection, queueCloudCorrection, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
-import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline } from "@/lib/pos/browser-outbox";
+import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline, requestServerSignedPosHeartbeat } from "@/lib/pos/browser-outbox";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { ATK_ITEM_CATEGORIES, getAtkItemCategoryLabel, isAtkItemCategoryCode } from "@/lib/atk/product-categories";
@@ -200,6 +200,55 @@ export default function Home(){
     if(!navigator.onLine)recordOutage();
     return()=>window.removeEventListener("offline",recordOutage);
   },[business,selectedPos]);
+
+  useEffect(()=>{
+    const workerUrl=process.env.NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL;
+    if(!business||!selectedPos||!supabase||!user||!workerUrl)return;
+    let active=true;
+    let running=false;
+    let timer:ReturnType<typeof setInterval>|null=null;
+    const refreshHeartbeat=async()=>{
+      if(!active||running||!navigator.onLine)return;
+      running=true;
+      try{
+        const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+        if(sessionError)throw sessionError;
+        const accessToken=sessionData.session?.access_token;
+        if(!accessToken)return;
+        const heartbeat=await requestServerSignedPosHeartbeat(
+          workerUrl,accessToken,business.id,selectedPos
+        );
+        if(!active)return;
+        if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
+          await getOrStartPosConnectivityOutage(
+            business.id,selectedPos,new Date().toISOString(),heartbeat.previousHeartbeatAtUtc
+          );
+        }else{
+          const localItems=await listFiscalOutboxItems(business.id);
+          const pending=localItems.some(item=>
+            item.posRecordId===selectedPos&&
+            (item.state==="queued"||item.state==="needs_reconciliation")
+          );
+          if(!pending)await clearPosConnectivityOutage(business.id,selectedPos);
+        }
+      }catch(error){
+        if(error instanceof TypeError&&navigator.onLine){
+          await getOrStartPosConnectivityOutage(business.id,selectedPos).catch(()=>undefined);
+        }
+      }finally{
+        running=false;
+      }
+    };
+    const onOnline=()=>{void refreshHeartbeat();};
+    window.addEventListener("online",onOnline);
+    void refreshHeartbeat();
+    timer=setInterval(()=>{void refreshHeartbeat();},60_000);
+    return()=>{
+      active=false;
+      if(timer)clearInterval(timer);
+      window.removeEventListener("online",onOnline);
+    };
+  },[business,selectedPos,supabase,user]);
 
   useEffect(()=>{
     if(!business||!supabase||!user)return;
