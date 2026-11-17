@@ -249,19 +249,24 @@ async function issueSignedHeartbeat(request: Request, env: Env): Promise<Respons
   for (const byte of signature) binary += String.fromCharCode(byte);
   const signatureBase64 = btoa(binary);
   const nonceSha256 = await sha256Hex(new TextEncoder().encode(nonce));
+  let evidence: Array<{ previous_heartbeat_at: string | null; gap_seconds: number | null }>;
   try {
-    await dbInsert(env, "fiskalo_atk_pos_heartbeat_evidence", {
-      business_id: businessId,
-      pos_id: posUuid,
-      actor_id: user.id,
-      environment: "ATK TEST",
-      server_time_utc: new Date(issuedAtUnixMs).toISOString(),
-      nonce_sha256: nonceSha256,
-      signature_base64: signatureBase64,
+    evidence = await dbRpc(env, "fiskalo_record_atk_pos_heartbeat", {
+      p_business_id: businessId,
+      p_pos_id: posUuid,
+      p_actor_id: user.id,
+      p_server_time_utc: new Date(issuedAtUnixMs).toISOString(),
+      p_nonce_sha256: nonceSha256,
+      p_signature_base64: signatureBase64,
     });
   } catch {
     return Response.json({ error: "heartbeat_evidence_persistence_failed" }, { status: 503 });
   }
+  if (!Array.isArray(evidence) || evidence.length !== 1) {
+    return Response.json({ error: "heartbeat_evidence_persistence_failed" }, { status: 503 });
+  }
+  const previousHeartbeatAtUtc = evidence[0].previous_heartbeat_at;
+  const gapSeconds = evidence[0].gap_seconds;
   return Response.json({
     version: 1,
     businessId,
@@ -269,6 +274,9 @@ async function issueSignedHeartbeat(request: Request, env: Env): Promise<Respons
     nonce,
     issuedAtUnixMs,
     signatureBase64,
+    previousHeartbeatAtUtc,
+    gapSeconds,
+    gapDetected: typeof gapSeconds === "number" && gapSeconds > 90,
     environment: "ATK TEST",
     productionEnabled: false,
   }, {
@@ -301,17 +309,6 @@ async function dbGet<T>(env: Env, table: string, query: URLSearchParams): Promis
   });
   if (!response.ok) throw new Error("Supabase read failed (" + response.status + ") for " + table);
   return await response.json() as T[];
-}
-
-async function dbInsert(env: Env, table: string, value: Json): Promise<void> {
-  const baseUrl = env.SUPABASE_URL.endsWith("/") ? env.SUPABASE_URL.slice(0, -1) : env.SUPABASE_URL;
-  const response = await fetch(baseUrl + "/rest/v1/" + table, {
-    method: "POST",
-    headers: { ...headers(env), Prefer: "return=minimal" },
-    body: JSON.stringify(value),
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error("Supabase insert failed (" + response.status + ") for " + table);
 }
 
 async function dbPatch(env: Env, table: string, query: URLSearchParams, value: Json): Promise<Json[]> {
