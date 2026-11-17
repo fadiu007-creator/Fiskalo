@@ -149,6 +149,8 @@ async function verifyPayload(certificatePem: string, payload: string, signature:
 const HEARTBEAT_ALLOWED_ORIGINS = new Set([
   "https://fiskalo.shqiptare.workers.dev",
   "https://fiskalo.pages.dev",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
 ]);
 
 function isAllowedHeartbeatOrigin(origin: string, env: Env): boolean {
