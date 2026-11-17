@@ -19,7 +19,7 @@ public sealed class FiscalQueueStore
     private readonly IFiscalQueueProtector _protector;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private sealed record ConnectivityState(DateTimeOffset? LastSuccessfulProbeAtUtc, DateTimeOffset? OutageStartedAtUtc, DateTimeOffset? LastTrustedServerTimeUtc = null, DateTimeOffset? TrustedInternetOutageStartedAtUtc = null);
+    private sealed record ConnectivityState(DateTimeOffset? LastSuccessfulProbeAtUtc, DateTimeOffset? OutageStartedAtUtc, DateTimeOffset? LastTrustedServerTimeUtc = null, DateTimeOffset? TrustedInternetOutageStartedAtUtc = null, string? TrustedBusinessId = null, string? TrustedPosUuid = null);
 
     public FiscalQueueStore(string path, IFiscalQueueProtector protector)
     {
@@ -400,9 +400,17 @@ public sealed class FiscalQueueStore
     /// A heartbeat gap is anchored to the last previously trusted server timestamp.
     /// </summary>
     public async Task<DateTimeOffset> RecordTrustedHeartbeatAsync(
+        string businessId,
+        string posUuid,
         DateTimeOffset serverTimeUtc,
         CancellationToken cancellationToken = default)
     {
+        if (!Guid.TryParse(businessId, out var businessGuid))
+            throw new ArgumentException("A valid business UUID is required.", nameof(businessId));
+        if (!Guid.TryParse(posUuid, out var posGuid))
+            throw new ArgumentException("A valid POS UUID is required.", nameof(posUuid));
+        var normalizedBusinessId = businessGuid.ToString("D").ToLowerInvariant();
+        var normalizedPosUuid = posGuid.ToString("D").ToLowerInvariant();
         var timestamp = serverTimeUtc.ToUniversalTime();
         if (timestamp <= DateTimeOffset.UnixEpoch)
             throw new ArgumentOutOfRangeException(nameof(serverTimeUtc));
@@ -411,6 +419,12 @@ public sealed class FiscalQueueStore
         try
         {
             var state = await LoadConnectivityStateAsync(cancellationToken);
+            if (state.TrustedBusinessId is { } trustedBusiness &&
+                !string.Equals(trustedBusiness, normalizedBusinessId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("This POS Agent is already paired to a different business.");
+            if (state.TrustedPosUuid is { } trustedPos &&
+                !string.Equals(trustedPos, normalizedPosUuid, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("This POS Agent is already paired to a different POS.");
             if (state.LastTrustedServerTimeUtc is { } previous && timestamp <= previous)
                 throw new InvalidOperationException("A replayed or out-of-order server heartbeat was rejected.");
 
@@ -426,7 +440,9 @@ public sealed class FiscalQueueStore
                 var changed = false;
                 for (var i = 0; i < items.Count; i++)
                 {
-                    if (items[i].OfflineIssuedAtUtc is null || items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation or FiscalQueueStatus.Submitting))
+                    if (items[i].OfflineIssuedAtUtc is null || items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation or FiscalQueueStatus.Submitting) ||
+                        !string.Equals(items[i].BusinessUuid, normalizedBusinessId, StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(items[i].PosUuid, normalizedPosUuid, StringComparison.OrdinalIgnoreCase))
                         continue;
                     items[i] = items[i] with
                     {
@@ -441,7 +457,9 @@ public sealed class FiscalQueueStore
             await SaveConnectivityStateAsync(state with
             {
                 LastTrustedServerTimeUtc = timestamp,
-                TrustedInternetOutageStartedAtUtc = trustedInternetOutage
+                TrustedInternetOutageStartedAtUtc = trustedInternetOutage,
+                TrustedBusinessId = normalizedBusinessId,
+                TrustedPosUuid = normalizedPosUuid
             }, cancellationToken);
             return timestamp;
         }
@@ -637,7 +655,7 @@ public sealed class FiscalQueueStore
 
     private async Task<ConnectivityState> LoadConnectivityStateAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_connectivityPath)) return new ConnectivityState(null, null, null, null);
+        if (!File.Exists(_connectivityPath)) return new ConnectivityState(null, null, null, null, null, null);
         var encrypted = await File.ReadAllBytesAsync(_connectivityPath, cancellationToken);
         byte[]? plaintext = null;
         try
@@ -654,7 +672,7 @@ public sealed class FiscalQueueStore
             }
 
             var legacyOutage = JsonSerializer.Deserialize<DateTimeOffset>(plaintext, JsonOptions);
-            return new ConnectivityState(null, legacyOutage, null, null);
+            return new ConnectivityState(null, legacyOutage, null, null, null, null);
         }
         finally
         {
