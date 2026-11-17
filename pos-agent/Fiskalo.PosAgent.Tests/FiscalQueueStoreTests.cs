@@ -228,6 +228,40 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task ConnectivityHealthyProbeDoesNotMovePersistedAnchorBackwardsAfterClockRollback()
+    {
+        using var fixture = new QueueFixture();
+        var lastHealthy = DateTimeOffset.Parse("2026-11-17T12:00:00Z");
+        await fixture.Store.MarkConnectivityAvailableAsync(lastHealthy);
+
+        var returnedOutage = await fixture.Store.MarkConnectivityAvailableAsync(lastHealthy.AddMinutes(-5));
+
+        Assert.Null(returnedOutage);
+        Assert.Equal(lastHealthy, await fixture.Store.GetLastSuccessfulConnectivityProbeAtUtcAsync());
+        Assert.Null(await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+    }
+
+    [Fact]
+    public async Task ConnectivityClockRollbackCannotCloseOutageBeforeItsRecordedStart()
+    {
+        using var fixture = new QueueFixture();
+        var lastHealthy = DateTimeOffset.Parse("2026-11-17T12:00:00Z");
+        var outageDetected = lastHealthy.AddMinutes(1);
+        await fixture.Store.MarkConnectivityAvailableAsync(lastHealthy);
+        Assert.Equal(lastHealthy, await fixture.Store.MarkConnectivityUnavailableAsync(outageDetected));
+
+        var rolledBackResult = await fixture.Store.MarkConnectivityAvailableAsync(lastHealthy.AddMinutes(-10));
+        Assert.Equal(lastHealthy, rolledBackResult);
+        Assert.Equal(lastHealthy, await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+
+        var recoveredAt = lastHealthy.AddMinutes(2);
+        var recoveredResult = await fixture.Store.MarkConnectivityAvailableAsync(recoveredAt);
+        Assert.Equal(lastHealthy, recoveredResult);
+        Assert.Null(await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+        Assert.Equal(recoveredAt, await fixture.Store.GetLastSuccessfulConnectivityProbeAtUtcAsync());
+    }
+
+    [Fact]
     public async Task ConnectivityMonitor_AnchorsFortyEightHourDeadlineAtFirstDetectedOutage()
     {
         using var fixture = new QueueFixture();
