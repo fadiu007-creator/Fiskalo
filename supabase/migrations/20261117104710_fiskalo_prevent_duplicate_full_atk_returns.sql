@@ -95,7 +95,7 @@ begin
     select 1 from public.fiskalo_basic_fiscal_documents d
     where d.parent_document_id=v_original.id
       and d.document_type in (2,3)
-      and d.submission_state in ('queued','submitted','accepted','needs_reconciliation')
+      and d.submission_state in ('queued','submitting','submitted','accepted','needs_reconciliation')
   ) then
     raise exception 'An ATK cancellation or return already exists or is unresolved for this sale';
   end if;
