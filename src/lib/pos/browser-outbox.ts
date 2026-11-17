@@ -3,9 +3,9 @@ import type { EncryptedBrowserPayload } from "../atk/local-storage-crypto.ts";
 
 const DB_NAME = "fiskalo-fiscal-outbox";
 const STORE_NAME = "signed-documents";
-const OUTAGE_STORE_NAME = "connectivity-outages";
+const OUTAGE_STORE_NAME = "connectivity-outages";\nconst HEARTBEAT_STORE_NAME = "trusted-heartbeats";
 const OUTBOX_ENCRYPTION_SCOPE = "basic-fiscal-outbox";
-const OUTAGE_ENCRYPTION_SCOPE = "basic-pos-connectivity-outage";
+const OUTAGE_ENCRYPTION_SCOPE = "basic-pos-connectivity-outage";\nconst HEARTBEAT_ENCRYPTION_SCOPE = "basic-pos-trusted-heartbeat";\nconst HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEk7Kh22GR/MCr1G1QizihiqiMMTcpBBbWA+xzJfXOLnQogcm5FstM26nOyg6hagbuhgNcksl7WAXVlbBWIfUqXA==";
 
 export type BrowserFiscalOutboxItem = {
   idempotencyKey: string;
@@ -53,7 +53,7 @@ function openDb(): Promise<IDBDatabase> {
     throw new Error("This browser does not support a durable offline fiscal outbox.");
   }
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 2);
+    const request = indexedDB.open(DB_NAME, 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE_NAME)) {
         request.result.createObjectStore(STORE_NAME, { keyPath: "idempotencyKey" });
@@ -269,6 +269,130 @@ async function writeOutageRecordIfRevision(
       };
     });
   } finally { db.close(); }
+}
+
+export type TrustedPosHeartbeat = {
+  id: string;
+  businessId: string;
+  posRecordId: string;
+  serverTimeUtc: string;
+  nonce: string;
+};
+
+async function heartbeatRecordId(businessId: string, posRecordId: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(businessId + ":" + posRecordId),
+  ));
+  return "heartbeat-" + Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function getLastTrustedPosHeartbeat(
+  businessId: string,
+  posRecordId: string,
+): Promise<TrustedPosHeartbeat | null> {
+  const id = await heartbeatRecordId(businessId, posRecordId);
+  const db = await openDb();
+  let raw: unknown;
+  try {
+    raw = await new Promise((resolve, reject) => {
+      const request = db.transaction(HEARTBEAT_STORE_NAME, "readonly").objectStore(HEARTBEAT_STORE_NAME).get(id);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error ?? new Error("Could not read trusted POS heartbeat."));
+    });
+  } finally { db.close(); }
+  if (!raw) return null;
+  if (!isEncryptedRecord(raw)) throw new Error("Trusted POS heartbeat is not encrypted. Do not clear browser data.");
+  return decryptBrowserFiscalData<TrustedPosHeartbeat>(HEARTBEAT_ENCRYPTION_SCOPE, raw.encrypted);
+}
+
+async function saveTrustedPosHeartbeat(value: TrustedPosHeartbeat): Promise<void> {
+  const existing = await getLastTrustedPosHeartbeat(value.businessId, value.posRecordId);
+  if (existing && Date.parse(value.serverTimeUtc) <= Date.parse(existing.serverTimeUtc)) {
+    throw new Error("Replayed or out-of-order server heartbeat rejected.");
+  }
+  const encrypted = await encryptBrowserFiscalData(HEARTBEAT_ENCRYPTION_SCOPE, value);
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = strictTransaction(db, HEARTBEAT_STORE_NAME);
+      tx.objectStore(HEARTBEAT_STORE_NAME).put({ id: value.id, revision: 1, encrypted } satisfies EncryptedOutageRecord);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("Could not persist trusted POS heartbeat."));
+      tx.onabort = () => reject(tx.error ?? new Error("Trusted POS heartbeat write was aborted."));
+    });
+  } finally { db.close(); }
+}
+
+export async function requestServerSignedPosHeartbeat(
+  workerUrl: string,
+  accessToken: string,
+  businessId: string,
+  posRecordId: string,
+): Promise<TrustedPosHeartbeat> {
+  if (!accessToken) throw new Error("An authenticated session is required for a trusted POS heartbeat.");
+  const endpoint = new URL(workerUrl);
+  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new Error("The ATK recovery Worker must use a trusted HTTPS origin.");
+  }
+  if (!crypto?.subtle || !crypto.getRandomValues) throw new Error("Secure browser cryptography is required.");
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
+  const nonce = btoa(String.fromCharCode(...nonceBytes)).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  const response = await fetch(new URL("/heartbeat", endpoint.origin), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+    body: JSON.stringify({ businessId, posUuid: posRecordId, nonce }),
+    cache: "no-store",
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+  });
+  const payload = await response.json().catch(() => null) as null | {
+    version?: number; businessId?: string; posUuid?: string; nonce?: string;
+    issuedAtUnixMs?: number; signatureBase64?: string; productionEnabled?: boolean;
+  };
+  if (!response.ok || !payload || payload.version !== 1 ||
+      payload.businessId !== businessId || payload.posUuid !== posRecordId ||
+      payload.nonce !== nonce || payload.productionEnabled !== false ||
+      !Number.isSafeInteger(payload.issuedAtUnixMs) ||
+      typeof payload.signatureBase64 !== "string") {
+    throw new Error("The recovery Worker did not return a valid signed heartbeat.");
+  }
+  const binaryKey = atob(HEARTBEAT_PUBLIC_KEY_SPKI_BASE64);
+  const publicKeyBytes = Uint8Array.from(binaryKey, char => char.charCodeAt(0));
+  const publicKey = await crypto.subtle.importKey(
+    "spki",
+    publicKeyBytes,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["verify"],
+  );
+  const canonical = [
+    "fiskalo-atk-heartbeat-v1",
+    businessId.toLowerCase(),
+    posRecordId.toLowerCase(),
+    nonce,
+    String(payload.issuedAtUnixMs),
+  ].join("\\n");
+  const signatureBinary = atob(payload.signatureBase64);
+  const signature = Uint8Array.from(signatureBinary, char => char.charCodeAt(0));
+  if (signature.length !== 64 || !await crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    publicKey,
+    signature,
+    new TextEncoder().encode(canonical),
+  )) {
+    throw new Error("The POS heartbeat server signature is invalid.");
+  }
+  const serverTimeUtc = new Date(payload.issuedAtUnixMs).toISOString();
+  const value: TrustedPosHeartbeat = {
+    id: await heartbeatRecordId(businessId, posRecordId),
+    businessId,
+    posRecordId,
+    serverTimeUtc,
+    nonce,
+  };
+  await saveTrustedPosHeartbeat(value);
+  return value;
 }
 
 export async function getOrStartPosConnectivityOutage(
