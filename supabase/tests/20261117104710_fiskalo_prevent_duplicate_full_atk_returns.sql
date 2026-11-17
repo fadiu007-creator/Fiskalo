@@ -1,4 +1,4 @@
--- Run after migrations 0001-0034 in a Supabase SQL session.
+-- Run after applying migration 20261117104710_fiskalo_prevent_duplicate_full_atk_returns in a Supabase SQL session.
 -- Static function-definition contract for single full-return/cancellation protection.
 begin;
 do $$
