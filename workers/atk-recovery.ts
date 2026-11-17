@@ -277,7 +277,7 @@ async function issueSignedHeartbeat(request: Request, env: Env): Promise<Respons
     signatureBase64,
     previousHeartbeatAtUtc,
     gapSeconds,
-    gapDetected: typeof gapSeconds === "number" && gapSeconds > 90,
+    gapDetected: typeof gapSeconds === "number" && gapSeconds > 180,
     environment: "ATK TEST",
     productionEnabled: false,
   }, {
