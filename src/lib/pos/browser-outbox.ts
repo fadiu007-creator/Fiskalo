@@ -381,12 +381,12 @@ export async function requestServerSignedPosHeartbeat(
   });
   const payload = await response.json().catch(() => null) as null | {
     version?: number; businessId?: string; posUuid?: string; nonce?: string;
-    issuedAtUnixMs?: number; signatureBase64?: string; productionEnabled?: boolean;
+    issuedAtUnixMs?: number; signatureBase64?: string; productionEnabled?: boolean; environment?: string;
     previousHeartbeatAtUtc?: string | null; gapSeconds?: number | null; gapDetected?: boolean;
   };
   if (!response.ok || !payload || payload.version !== 1 ||
       payload.businessId !== businessId || payload.posUuid !== posRecordId ||
-      payload.nonce !== nonce || payload.productionEnabled !== false ||
+      payload.nonce !== nonce || payload.environment !== "ATK TEST" || payload.productionEnabled !== false ||
       !Number.isSafeInteger(payload.issuedAtUnixMs) ||
       typeof payload.signatureBase64 !== "string" ||
       (payload.previousHeartbeatAtUtc !== null && payload.previousHeartbeatAtUtc !== undefined &&
