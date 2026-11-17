@@ -6,6 +6,46 @@ async function call<T>(path:string,token?:string,body?:unknown):Promise<T>{
   return payload as T;
 }
 export type AgentStatus={service:string;version:string;paired:boolean;fiscalizationEnabled:boolean;capabilities:string[];windowsKeyStoreAvailable:boolean;testCertificateInstalled:boolean;testInstallationVerified:boolean};
+export async function requestPosHeartbeatChallenge(
+  agentSessionToken: string,
+  businessId: string,
+  posUuid: string,
+) {
+  return call<{nonce:string;expiresInSeconds:number}>(
+    "/api/v1/connectivity/challenge",
+    agentSessionToken,
+    {businessId,posUuid},
+  );
+}
+
+export async function persistVerifiedPosHeartbeat(
+  agentSessionToken: string,
+  heartbeat: {
+    businessId:string;
+    posUuid:string;
+    nonce:string;
+    issuedAtUnixMs:number;
+    signatureBase64:string;
+  },
+) {
+  const result = await call<{
+    verified:boolean;
+    businessId:string;
+    posUuid:string;
+    serverTimeUtc:string;
+    productionEnabled:boolean;
+  }>("/api/v1/connectivity/heartbeat",agentSessionToken,{
+    nonce:heartbeat.nonce,
+    issuedAtUnixMilliseconds:heartbeat.issuedAtUnixMs,
+    signatureBase64:heartbeat.signatureBase64,
+  });
+  if(!result.verified||result.businessId!==heartbeat.businessId||result.posUuid!==heartbeat.posUuid||
+    result.serverTimeUtc!==new Date(heartbeat.issuedAtUnixMs).toISOString()||result.productionEnabled!==false){
+    throw new Error("Windows POS Agent did not persist the verified server heartbeat.");
+  }
+  return result;
+}
+
 export async function refreshVerifiedPosHeartbeat(
   agentSessionToken: string,
   supabaseAccessToken: string,
