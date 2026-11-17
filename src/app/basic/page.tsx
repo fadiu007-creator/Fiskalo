@@ -275,7 +275,7 @@ export default function Home(){
         const heartbeat=await requestServerSignedPosHeartbeat(
           business.id,selectedPos,accessToken,agentChallengeNonce
         );
-        if(agentSessionToken&&agentChallengeNonce){
+        if(agentSessionToken&&agentChallengeNonce&&heartbeat.nonce===agentChallengeNonce){
           try{
             await persistVerifiedPosHeartbeat(agentSessionToken,{
               businessId:business.id,
