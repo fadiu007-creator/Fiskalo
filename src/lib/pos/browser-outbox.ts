@@ -281,6 +281,9 @@ export type TrustedPosHeartbeat = {
   posRecordId: string;
   serverTimeUtc: string;
   nonce: string;
+  previousHeartbeatAtUtc?: string | null;
+  gapSeconds?: number | null;
+  gapDetected?: boolean;
 };
 
 async function heartbeatRecordId(businessId: string, posRecordId: string): Promise<string> {
@@ -378,12 +381,18 @@ export async function requestServerSignedPosHeartbeat(
   const payload = await response.json().catch(() => null) as null | {
     version?: number; businessId?: string; posUuid?: string; nonce?: string;
     issuedAtUnixMs?: number; signatureBase64?: string; productionEnabled?: boolean;
+    previousHeartbeatAtUtc?: string | null; gapSeconds?: number | null; gapDetected?: boolean;
   };
   if (!response.ok || !payload || payload.version !== 1 ||
       payload.businessId !== businessId || payload.posUuid !== posRecordId ||
       payload.nonce !== nonce || payload.productionEnabled !== false ||
       !Number.isSafeInteger(payload.issuedAtUnixMs) ||
-      typeof payload.signatureBase64 !== "string") {
+      typeof payload.signatureBase64 !== "string" ||
+      (payload.previousHeartbeatAtUtc !== null && payload.previousHeartbeatAtUtc !== undefined &&
+        (typeof payload.previousHeartbeatAtUtc !== "string" || !Number.isFinite(Date.parse(payload.previousHeartbeatAtUtc)))) ||
+      (payload.gapSeconds !== null && payload.gapSeconds !== undefined &&
+        (!Number.isSafeInteger(payload.gapSeconds) || payload.gapSeconds < 0)) ||
+      typeof payload.gapDetected !== "boolean") {
     throw new Error("The recovery Worker did not return a valid signed heartbeat.");
   }
   const binaryKey = atob(HEARTBEAT_PUBLIC_KEY_SPKI_BASE64);
@@ -419,6 +428,9 @@ export async function requestServerSignedPosHeartbeat(
     posRecordId,
     serverTimeUtc,
     nonce,
+    previousHeartbeatAtUtc: payload.previousHeartbeatAtUtc ?? null,
+    gapSeconds: payload.gapSeconds ?? null,
+    gapDetected: payload.gapDetected,
   };
   await saveTrustedPosHeartbeat(value);
   return value;
