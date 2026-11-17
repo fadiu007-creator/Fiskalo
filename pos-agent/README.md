@@ -31,6 +31,6 @@ Use the printed one-time pairing code to pair the browser dashboard with the loc
 ## Current limitations
 
 - Requires Windows; no Android/iOS agent in this MVP.
-- The web checkout-to-agent paid-sale handoff still needs integration.
+- The Basic Agent checkout hands the immutable sale snapshot to the paired Windows Agent for local coupon signing/submission; the browser does not receive or export the private key.
 - Physical Windows device testing, real printer testing, and ATK TEST Sale/Cancel/Return acceptance are still required.
 - A passing CI build is not ATK certification.
