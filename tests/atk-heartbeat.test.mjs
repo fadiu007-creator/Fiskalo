@@ -21,7 +21,9 @@ async function makeKeyPair() {
   const privatePem = "-----BEGIN PRIVATE KEY-----\n" +
     btoa(String.fromCharCode(...privateDer)).match(/.{1,64}/g).join("\n") +
     "\n-----END PRIVATE KEY-----";
-  return { privatePem, publicKey: pair.publicKey };
+  const publicDer = new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey));
+  const publicKeySpkiBase64 = btoa(String.fromCharCode(...publicDer));
+  return { privatePem, publicKey: pair.publicKey, publicKeySpkiBase64 };
 }
 
 function mockFetch(originalFetch, previousHeartbeatAt = null, gapSeconds = null) {
@@ -74,6 +76,7 @@ test("issues a P-256 signed heartbeat only for an authenticated POS member", asy
       SUPABASE_URL: "https://project.supabase.co",
       SUPABASE_SERVICE_ROLE_KEY: "test-service-role",
       ATK_HEARTBEAT_PRIVATE_KEY_PEM: keys.privatePem,
+      ATK_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64: keys.publicKeySpkiBase64,
     });
     assert.equal(response.status, 200);
     const payload = await response.json();
