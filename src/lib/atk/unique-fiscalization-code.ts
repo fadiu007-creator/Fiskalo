@@ -11,7 +11,7 @@ export function normalizeUniqueFiscalizationCode(value: string): string {
   if (/[\\u0000-\\u001f\\u007f]/.test(normalized)) {
     throw new Error("Kodi Unik për Fiskalizim përmban karaktere të pavlefshme.");
   }
-  if (normalized.length > 256) {
+  if (normalized.length > 128) {
     throw new Error("Kodi Unik për Fiskalizim është shumë i gjatë.");
   }
   return normalized;
