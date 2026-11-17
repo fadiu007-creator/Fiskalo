@@ -37,17 +37,16 @@ function mockFetch(originalFetch) {
     if (url.pathname === "/rest/v1/fiskalo_basic_members") {
       return Response.json([{ business_id: businessId, user_id: userId }]);
     }
-    if (url.pathname === "/rest/v1/fiskalo_atk_pos_heartbeat_evidence") {
+    if (url.pathname === "/rest/v1/rpc/fiskalo_record_atk_pos_heartbeat") {
       assert.equal(init.method, "POST");
       const evidence = JSON.parse(init.body);
-      assert.equal(evidence.business_id, businessId);
-      assert.equal(evidence.pos_id, posUuid);
-      assert.equal(evidence.actor_id, userId);
-      assert.equal(evidence.environment, "ATK TEST");
-      assert.match(evidence.nonce_sha256, /^[0-9a-f]{64}$/);
-      assert.ok(evidence.server_time_utc);
-      assert.ok(evidence.signature_base64);
-      return new Response(null, { status: 201 });
+      assert.equal(evidence.p_business_id, businessId);
+      assert.equal(evidence.p_pos_id, posUuid);
+      assert.equal(evidence.p_actor_id, userId);
+      assert.equal(evidence.p_server_time_utc !== undefined, true);
+      assert.match(evidence.p_nonce_sha256, /^[0-9a-f]{64}$/);
+      assert.ok(evidence.p_signature_base64);
+      return Response.json([{ previous_heartbeat_at: null, gap_seconds: null }]);
     }
     if (url.pathname === "/rest/v1/fiskalo_atk_pos_installations" ||
         url.pathname === "/rest/v1/fiskalo_organization_users") {
@@ -83,6 +82,8 @@ test("issues a P-256 signed heartbeat only for an authenticated POS member", asy
     assert.equal(payload.posUuid, posUuid);
     assert.equal(payload.nonce, nonce);
     assert.equal(payload.productionEnabled, false);
+    assert.equal(payload.gapDetected, false);
+    assert.equal(payload.previousHeartbeatAtUtc, null);
     assert.ok(Number.isSafeInteger(payload.issuedAtUnixMs));
     const message = [
       "fiskalo-atk-heartbeat-v1",
