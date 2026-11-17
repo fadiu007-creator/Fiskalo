@@ -36,7 +36,7 @@ begin
      )
      or has_function_privilege(
        'authenticated',
-       'public.fiskalo_record_atk_pos_heartbeat(uuid,uuid,uuid,timestamptz,text,text)',
+       'public.fiskalo_record_atk_pos_heartbeat(uuid,uuid,uuid,timestamptz,text,text,text)',
        'EXECUTE'
      )
      or not has_function_privilege(
