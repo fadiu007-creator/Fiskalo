@@ -81,6 +81,7 @@ test("issues a P-256 signed heartbeat only for an authenticated POS member", asy
     assert.equal(payload.businessId, businessId);
     assert.equal(payload.posUuid, posUuid);
     assert.equal(payload.nonce, nonce);
+    assert.equal(payload.environment, "ATK TEST");
     assert.equal(payload.productionEnabled, false);
     assert.equal(payload.gapDetected, false);
     assert.equal(payload.previousHeartbeatAtUtc, null);
