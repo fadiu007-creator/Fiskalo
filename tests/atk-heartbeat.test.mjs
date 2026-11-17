@@ -4,7 +4,7 @@ import { webcrypto } from "node:crypto";
 import {
   createHeartbeatCanonicalMessage,
   handleHeartbeat,
-} from "../src/app/api/pos/heartbeat/route.ts";
+} from "../src/lib/pos/server-heartbeat.ts";
 
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 
