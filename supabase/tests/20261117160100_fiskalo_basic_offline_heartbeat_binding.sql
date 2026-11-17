@@ -18,11 +18,11 @@ begin
   v_function_definition := pg_catalog.pg_get_functiondef(
     'fiskalo_private.fiskalo_basic_bind_offline_heartbeat_evidence()'::regprocedure
   );
-  if position('h.previous_heartbeat_at <= new.offline_issued_at' in v_function_definition)=0
-     or position('h.server_time_utc >= new.offline_issued_at' in v_function_definition)=0
-     or position('new.offline_issued_at >= h.server_time_utc - interval ''48 hours''' in v_function_definition)=0
+  if position('new.offline_issued_at >= h.previous_heartbeat_at - interval ''2 minutes''' in v_function_definition)=0
+     or position('new.offline_issued_at <= h.server_time_utc + interval ''2 minutes''' in v_function_definition)=0
+     or position('coalesce(v_gap_seconds, 0) > 90' in v_function_definition)=0
      or position('new.recovery_deadline_at := v_outage_started_at + interval ''48 hours''' in v_function_definition)=0 then
-    raise exception 'Offline issue time must be bounded by the server-measured outage interval and recovery window';
+    raise exception 'Offline issue time must be bounded by a server heartbeat interval and deadline';
   end if;
 
   select pg_catalog.pg_get_triggerdef(t.oid) into v_trigger_definition
