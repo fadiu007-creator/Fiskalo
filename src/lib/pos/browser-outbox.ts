@@ -333,7 +333,7 @@ async function saveTrustedPosHeartbeat(value: TrustedPosHeartbeat): Promise<void
       request.onsuccess = () => {
         const current = request.result as EncryptedHeartbeatRecord | undefined;
         if (current && Number.isFinite(current.serverTimeUnixMs) &&
-            current.serverTimeUnixMs >= serverTimeUnixMs) {
+            current.serverTimeUnixMs > serverTimeUnixMs) {
           replayed = true;
           tx.abort();
           return;
