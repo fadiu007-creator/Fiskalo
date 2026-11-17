@@ -18,5 +18,5 @@ test("does not impose an undocumented ATK identifier format", () => {
 
 test("rejects control characters and unreasonable input length", () => {
   assert.throws(() => normalizeUniqueFiscalizationCode("ABC\\nDEF"), /karaktere të pavlefshme/);
-  assert.throws(() => normalizeUniqueFiscalizationCode("A".repeat(257)), /shumë i gjatë/);
+  assert.throws(() => normalizeUniqueFiscalizationCode("A".repeat(129)), /shumë i gjatë/);
 });
