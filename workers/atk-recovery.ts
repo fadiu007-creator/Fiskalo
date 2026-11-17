@@ -157,6 +157,7 @@ function isUuid(value: unknown): value is string {
 function heartbeatMessage(businessId: string, posUuid: string, nonce: string, issuedAtUnixMs: number) {
   return [
     "fiskalo-atk-heartbeat-v1",
+    "ATK TEST",
     businessId.toLowerCase(),
     posUuid.toLowerCase(),
     nonce,
