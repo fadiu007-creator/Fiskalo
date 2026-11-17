@@ -395,7 +395,7 @@ public sealed class FiscalQueueStore
             };
         }, cancellationToken);
 
-    /// <summary>Persists a strictly monotonic timestamp after a server signature and one-time challenge are verified.</summary>
+    /// <summary>Persists a nondecreasing timestamp after a server signature and one-time challenge are verified; nonce replay is rejected by the challenge lifecycle.</summary>
     public async Task<DateTimeOffset> RecordTrustedHeartbeatAsync(
         DateTimeOffset serverTimeUtc,
         CancellationToken cancellationToken = default)
