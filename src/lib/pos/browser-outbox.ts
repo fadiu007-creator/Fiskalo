@@ -307,7 +307,12 @@ export async function getLastTrustedPosHeartbeat(
   } finally { db.close(); }
   if (!raw) return null;
   if (!isEncryptedRecord(raw)) throw new Error("Trusted POS heartbeat is not encrypted. Do not clear browser data.");
-  return decryptBrowserFiscalData<TrustedPosHeartbeat>(HEARTBEAT_ENCRYPTION_SCOPE, raw.encrypted);
+  const value = await decryptBrowserFiscalData<TrustedPosHeartbeat>(HEARTBEAT_ENCRYPTION_SCOPE, raw.encrypted);
+  if (value.id !== id || value.businessId !== businessId || value.posRecordId !== posRecordId ||
+      !Number.isFinite(Date.parse(value.serverTimeUtc)) || typeof value.nonce !== "string") {
+    throw new Error("Trusted POS heartbeat identity or timestamp is invalid.");
+  }
+  return value;
 }
 
 async function saveTrustedPosHeartbeat(value: TrustedPosHeartbeat): Promise<void> {
