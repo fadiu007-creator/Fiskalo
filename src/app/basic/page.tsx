@@ -99,16 +99,22 @@ export default function Home(){
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
 
   useEffect(()=>{
-    const token=getAgentToken();
-    if(!token)return;
-    setAgentSessionToken(token);
-    void getLocalAgentStatus(token).then(status=>{
-      setAgentStatus(status.paired?"paired":"not_paired");
-    }).catch(()=>{
-      clearAgentToken();
-      setAgentSessionToken(null);
-      setAgentStatus("not_paired");
+    let active=true;
+    void getAgentToken().then(async token=>{
+      if(!active||!token)return;
+      setAgentSessionToken(token);
+      try{
+        const status=await getLocalAgentStatus(token);
+        if(active)setAgentStatus(status.paired?"paired":"not_paired");
+      }catch{
+        clearAgentToken();
+        if(active){
+          setAgentSessionToken(null);
+          setAgentStatus("not_paired");
+        }
+      }
     });
+    return()=>{active=false;};
   },[]);
 
   async function pairAgent(event:FormEvent<HTMLFormElement>){
@@ -985,7 +991,7 @@ export default function Home(){
   if(!configured)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">Basic ATK MVP</span></header><section className="panel"><h1>Konfigurimi kërkohet</h1><p className="sub">Vendos NEXT_PUBLIC_SUPABASE_URL dhe NEXT_PUBLIC_SUPABASE_ANON_KEY në mjedisin e aplikacionit.</p></section></main>;
   if(loading)return <main className="shell"><div className="brand">fiskalo<span>.</span></div><p className="sub">Duke ngarkuar…</p></main>;
   if(!user)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><div className="row"><span className="eyebrow">Fiscal POS · Kosovo</span><Link href="/" className="btn secondary">Basic Agent</Link></div></header><section className="panel" style={{maxWidth:460,margin:"8vh auto"}}><div className="eyebrow">Hyr në llogari</div><h1>Mirë se u ktheve.</h1><p className="sub">Hyr si pronar ose arkëtar.</p><form onSubmit={signIn}><div className="field"><label>Email</label><input id="email" type="email" required autoComplete="username"/></div><div className="field"><label>Fjalëkalimi</label><input id="password" type="password" required autoComplete="current-password"/></div>{message&&<p className="notice">{message}</p>}<button className="btn" disabled={busy} style={{width:"100%"}}>{busy?"Duke hyrë…":"Hyr"}</button></form></section></main>;
-  if(!business)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></header><section className="panel" style={{maxWidth:560,margin:"5vh auto"}}><div className="eyebrow">Konfigurimi fillestar</div><h1>Regjistro biznesin</h1><p className="sub">Krijo hapësirën e biznesit. NUI duhet të jetë numri real i biznesit.</p><form onSubmit={createBusiness}><div className="field"><label>Emri i biznesit</label><input required value={businessName} onChange={e=>setBusinessName(e.target.value)}/></div><div className="field"><label>NUI (9 shifra)</label><input required inputMode="numeric" pattern="[0-9]{9}" value={nui} onChange={e=>setNui(e.target.value)}/></div>{message&&<p className="notice">{message}</p>}<button className="btn" disabled={busy}>{busy?"Duke ruajtur…":"Krijo biznesin"}</button></form></section></main>;
+  if(!business)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><button className="btn secondary" onClick={()=>{unpairAgent();void supabase!.auth.signOut();}}>Dil</button></header><section className="panel" style={{maxWidth:560,margin:"5vh auto"}}><div className="eyebrow">Konfigurimi fillestar</div><h1>Regjistro biznesin</h1><p className="sub">Krijo hapësirën e biznesit. NUI duhet të jetë numri real i biznesit.</p><form onSubmit={createBusiness}><div className="field"><label>Emri i biznesit</label><input required value={businessName} onChange={e=>setBusinessName(e.target.value)}/></div><div className="field"><label>NUI (9 shifra)</label><input required inputMode="numeric" pattern="[0-9]{9}" value={nui} onChange={e=>setNui(e.target.value)}/></div>{message&&<p className="notice">{message}</p>}<button className="btn" disabled={busy}>{busy?"Duke ruajtur…":"Krijo biznesin"}</button></form></section></main>;
 
   return <main className="shell">
     <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui} · {memberRole==="owner"?"Pronari":"Arkëtari"}</span></div><div className="row">{memberRole==="owner"&&<Link href="/basic/reports" className="btn secondary">Raportet</Link>}<details><summary className="btn secondary">POS Agent · {agentStatus==="paired"?"Lidhur":"Pa lidhur"}</summary><section className="panel" style={{position:"absolute",right:16,top:72,zIndex:30,width:320,boxShadow:"0 12px 32px rgba(0,0,0,.18)"}}>{agentSessionToken?<><p className="sub">POS Agent është çiftuar për këtë sesion të shfletuesit. Heartbeat-et e nënshkruara ruhen edhe në journal-in DPAPI të Windows.</p><button type="button" className="btn secondary" onClick={unpairAgent}>Shkëput</button></>:<form onSubmit={pairAgent}><div className="field"><label>Kodi njëpërdorimësh i POS Agent</label><input value={agentPairingCode} onChange={event=>setAgentPairingCode(event.target.value)} autoComplete="off" required/></div><p className="sub">Nise POS Agent në Windows dhe vendos kodin e çiftimit që shfaqet në terminal.</p><button className="btn" disabled={agentPairingBusy}>{agentPairingBusy?"Duke lidhur…":"Lidh POS Agent"}</button></form>}</section></details><Link href="/" className="btn secondary">Basic Agent</Link><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
