@@ -6,6 +6,8 @@ create table if not exists public.fiskalo_atk_pos_heartbeat_evidence (
   actor_id uuid not null,
   environment text not null check (environment = 'ATK TEST'),
   server_time_utc timestamptz not null,
+  previous_heartbeat_at timestamptz,
+  gap_seconds integer check (gap_seconds is null or gap_seconds >= 0),
   nonce_sha256 text not null check (nonce_sha256 ~ '^[0-9a-f]{64}$'),
   signature_base64 text not null check (length(signature_base64) between 80 and 256),
   created_at timestamptz not null default now(),
@@ -66,9 +68,9 @@ begin
   end if;
 
   insert into public.fiskalo_atk_pos_heartbeat_evidence (
-    business_id, pos_id, actor_id, environment, server_time_utc, nonce_sha256, signature_base64
+    business_id, pos_id, actor_id, environment, server_time_utc, previous_heartbeat_at, gap_seconds, nonce_sha256, signature_base64
   ) values (
-    p_business_id, p_pos_id, p_actor_id, 'ATK TEST', p_server_time_utc, p_nonce_sha256, p_signature_base64
+    p_business_id, p_pos_id, p_actor_id, 'ATK TEST', p_server_time_utc, v_previous, v_gap_seconds, p_nonce_sha256, p_signature_base64
   );
 
   return query select v_previous, v_gap_seconds;
