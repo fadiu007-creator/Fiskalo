@@ -471,7 +471,7 @@ export async function getOrStartPosConnectivityOutage(
       ? "server_signed" as const
       : existing?.timeEvidence ?? "local_untrusted" as const;
     const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt, timeEvidence };
-    if (existing && existing.startedAt === startedAt && isEncryptedRecord(raw)) return existing;
+    if (existing && existing.startedAt === startedAt && existing.timeEvidence === timeEvidence && isEncryptedRecord(raw)) return existing;
     const encrypted = await encryptBrowserFiscalData(OUTAGE_ENCRYPTION_SCOPE, result);
     if (raw) {
       const revision = isEncryptedRecord(raw) ? raw.revision : 0;
