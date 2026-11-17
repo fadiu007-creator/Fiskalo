@@ -34,6 +34,8 @@ The Agent exposes paired-session endpoints `/api/v1/connectivity/challenge` and 
 
 A heartbeat gap greater than 90 seconds is stored separately from ATK endpoint probe failures. Existing queued offline documents are re-anchored to the previous signed server heartbeat and their 48-hour recovery deadline is recalculated from that trusted anchor. Normal heartbeat intervals do not create an Internet outage record.
 
+Each Windows Agent is pinned to the first business/POS identity that sends a verified heartbeat; use one Agent installation per physical register. Moving an Agent to a different POS requires settling/exporting its fiscal queue and resetting the local Agent data before pairing the new register.
+
 The browser stores the Agent pairing token encrypted with its non-exportable IndexedDB key. Pair from the Fiskalo Basic POS header using the one-time code printed by the Agent. Set `FISKALO_ALLOWED_ORIGINS` to the exact HTTPS origin of the Fiskalo application before starting the Agent if the default origin list does not include it.
 
 ## Current limitations
