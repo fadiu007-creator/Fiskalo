@@ -1,4 +1,6 @@
-using System.Net;\nusing System.Collections.Concurrent;\nusing System.Diagnostics;
+using System.Net;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -19,7 +21,9 @@ const string HealthPath = "/health";
 const string CsrPath = "/api/v1/keys/csr";
 const string QueuePath = "/api/v1/queue";
 const string QueueAttestationPath = "/api/v1/queue/attestation";
-const string QueueReconcilePath = "/api/v1/queue/reconcile";\nconst string HeartbeatChallengePath = "/api/v1/connectivity/challenge";\nconst string HeartbeatVerifyPath = "/api/v1/connectivity/heartbeat";
+const string QueueReconcilePath = "/api/v1/queue/reconcile";
+const string HeartbeatChallengePath = "/api/v1/connectivity/challenge";
+const string HeartbeatVerifyPath = "/api/v1/connectivity/heartbeat";
 const string AtkVerifyPath = "/api/v1/atk/test/verify";
 const string AtkSignCsrPath = "/api/v1/atk/test/sign-csr";
 const string AtkCertificateAttestationPath = "/api/v1/atk/test/certificate-attestation";
@@ -52,7 +56,8 @@ var reservationStore = new OfflineNumberReservationStore(reservationPath, queueP
 string? sessionToken = OperatingSystem.IsWindows() ? sessionStore.Load() : null;
 var pairingCode = sessionToken is null ? Base64Url(RandomNumberGenerator.GetBytes(32)) : "";
 var failedPairAttempts = 0;
-var pairLockedUntil = DateTimeOffset.MinValue;\nvar heartbeatChallenges = new ConcurrentDictionary<string, PendingHeartbeatChallenge>(StringComparer.Ordinal);
+var pairLockedUntil = DateTimeOffset.MinValue;
+var heartbeatChallenges = new ConcurrentDictionary<string, PendingHeartbeatChallenge>(StringComparer.Ordinal);
 
 Console.WriteLine("Fiskalo POS Agent " + AgentVersion);
 Console.WriteLine("Local endpoint: http://127.0.0.1:17843");
