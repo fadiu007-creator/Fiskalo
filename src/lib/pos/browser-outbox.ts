@@ -375,19 +375,14 @@ export function requestServerSignedPosHeartbeat(
   nonceOverride?: string,
 ): Promise<TrustedPosHeartbeat> {
   const key = businessId + ":" + posRecordId;
-  if (nonceOverride) {
-    const request = performServerSignedPosHeartbeat(businessId, posRecordId, accessToken, nonceOverride);
-    request.then(value => {
-      recentHeartbeatCache.set(key, { completedAt: performance.now(), value });
-    }, () => undefined);
-    return request;
-  }
-  const now = performance.now();
-  const recent = recentHeartbeatCache.get(key);
-  if (recent && now - recent.completedAt < 5_000) return Promise.resolve(recent.value);
   const inFlight = heartbeatInFlight.get(key);
   if (inFlight) return inFlight;
-  const request = performServerSignedPosHeartbeat(businessId, posRecordId, accessToken);
+  if (!nonceOverride) {
+    const now = performance.now();
+    const recent = recentHeartbeatCache.get(key);
+    if (recent && now - recent.completedAt < 5_000) return Promise.resolve(recent.value);
+  }
+  const request = performServerSignedPosHeartbeat(businessId, posRecordId, accessToken, nonceOverride);
   heartbeatInFlight.set(key, request);
   request.then(value => {
     recentHeartbeatCache.set(key, { completedAt: performance.now(), value });
