@@ -21,7 +21,7 @@ public sealed class FiscalQueueStoreTests
 
         Assert.Equal(first, await fixture.Store.RecordTrustedHeartbeatAsync(first));
         Assert.Equal(first, await fixture.Store.GetLastTrustedServerTimeAsync());
-        Assert.Throws<InvalidOperationException>(() => fixture.Store.RecordTrustedHeartbeatAsync(first).GetAwaiter().GetResult());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.RecordTrustedHeartbeatAsync(first));
         Assert.Equal(later, await fixture.Store.RecordTrustedHeartbeatAsync(later));
 
         var reopened = new FiscalQueueStore(fixture.Path, fixture.Protector);
