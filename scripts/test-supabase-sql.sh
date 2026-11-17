@@ -79,7 +79,8 @@ for migration in "${migrations[@]}"; do
     0033_fiskalo_basic_authority_export.sql) run_test "0033_fiskalo_basic_authority_export.sql" ;;
     0034_fiskalo_restrict_trigger_rpc_surface.sql) run_test "0034_fiskalo_restrict_trigger_rpc_surface.sql" ;;
     0035_fiskalo_basic_certificate_application_binding.sql) run_test "0035_fiskalo_basic_certificate_application_binding.sql" ;;
-    0036_fiskalo_basic_certificate_application_id_text_cast.sql) run_test "0036_fiskalo_basic_certificate_application_id_text_cast.sql" ;;\n    0037_fiskalo_atk_pos_heartbeat_evidence.sql) run_test "0037_fiskalo_atk_pos_heartbeat_evidence.sql" ;;
+    0036_fiskalo_basic_certificate_application_id_text_cast.sql) run_test "0036_fiskalo_basic_certificate_application_id_text_cast.sql" ;;
+    0037_fiskalo_atk_pos_heartbeat_evidence.sql) run_test "0037_fiskalo_atk_pos_heartbeat_evidence.sql" ;;
   esac
 done
 
