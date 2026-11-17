@@ -65,6 +65,7 @@ function mockSupabaseFetch(originalFetch, options = {}) {
       assert.equal(body.p_business_id, businessId);
       assert.equal(body.p_pos_id, posUuid);
       assert.equal(body.p_actor_id, userId);
+      assert.equal(body.p_nonce, nonce);
       assert.match(body.p_nonce_sha256, /^[0-9a-f]{64}$/);
       assert.match(body.p_signature_base64, /^[A-Za-z0-9+/]{86}==$/);
       return Response.json([{
