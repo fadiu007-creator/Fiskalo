@@ -203,6 +203,9 @@ app.MapPost(HeartbeatChallengePath, (HeartbeatChallengeRequest request, HttpCont
             heartbeatChallenges.TryRemove(entry.Key, out _);
     }
 
+    if (heartbeatChallenges.Count >= 32)
+        return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+
     var nonce = Base64Url(RandomNumberGenerator.GetBytes(32));
     var expiresAt = nowTicks + (long)(Stopwatch.Frequency * 90);
     heartbeatChallenges[nonce] = new PendingHeartbeatChallenge(
