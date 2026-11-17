@@ -165,7 +165,7 @@ function heartbeatMessage(businessId: string, posUuid: string, nonce: string, is
 }
 
 function pemPkcs8Bytes(pem: string): ArrayBuffer {
-  const body = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\\s/g, "");
+  const body = pem.replaceAll("-----BEGIN PRIVATE KEY-----", "").replaceAll("-----END PRIVATE KEY-----", "").replaceAll("\r", "").replaceAll("\n", "").replaceAll(" ", "").replaceAll("\t", "");
   const binary = atob(body);
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
@@ -179,7 +179,8 @@ async function issueSignedHeartbeat(request: Request, env: Env): Promise<Respons
   if (!authorization.startsWith("Bearer ") || authorization.length > 8192) {
     return Response.json({ error: "authentication_required" }, { status: 401 });
   }
-  const userResponse = await fetch(env.SUPABASE_URL.replace(/\\/$/, "") + "/auth/v1/user", {
+  const supabaseBaseUrl = env.SUPABASE_URL.endsWith("/") ? env.SUPABASE_URL.slice(0, -1) : env.SUPABASE_URL;
+  const userResponse = await fetch(supabaseBaseUrl + "/auth/v1/user", {
     headers: {
       apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: authorization,
