@@ -16,7 +16,15 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository)
+      }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +35,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           test "$GITHUB_REF" = "refs/heads/main" || (echo "Deployments are restricted to main." && exit 1)
+
+      - name: Refuse stale automatic deployment
+        if: github.event_name == 'workflow_run'
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          current_main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test -n "$current_main_sha" || (echo "Could not resolve current main SHA" && exit 1)
+          if [ "$current_main_sha" != "$EXPECTED_SHA" ]; then
+            echo "Refusing to deploy stale commit $EXPECTED_SHA; current main is $current_main_sha."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
