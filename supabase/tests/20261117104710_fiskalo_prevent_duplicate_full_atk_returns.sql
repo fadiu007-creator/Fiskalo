@@ -4,12 +4,20 @@ begin;
 do $$
 declare
   helper_oid oid;
+  wrapper_oid oid;
+  wrapper_is_definer boolean;
   definition text;
 begin
   helper_oid:=to_regprocedure(
     'fiskalo_private.fiskalo_basic_record_atk_correction(uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb)'
   );
   if helper_oid is null then raise exception 'ATK correction persistence RPC is missing'; end if;
+  wrapper_oid:=to_regprocedure(
+    'public.fiskalo_basic_record_atk_correction(uuid,uuid,bigint,bigint,smallint,text,text,text,numeric,jsonb)'
+  );
+  if wrapper_oid is null then raise exception 'Trusted public correction wrapper is missing'; end if;
+  select prosecdef into wrapper_is_definer from pg_proc where oid=wrapper_oid;
+  if wrapper_is_definer then raise exception 'Public correction wrapper must remain SECURITY INVOKER'; end if;
   select pg_get_functiondef(helper_oid) into definition;
   if has_function_privilege('authenticated',helper_oid,'EXECUTE') then
     raise exception 'Authenticated clients must not execute the correction finalizer';
