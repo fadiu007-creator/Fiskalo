@@ -4,13 +4,13 @@ using System.Text;
 namespace Fiskalo.PosAgent.Core.Atk;
 
 /// <summary>
-/// Verifies a server-authenticated connectivity heartbeat. The production public
+/// Verifies a server-authenticated connectivity heartbeat. The ATK TEST public
 /// key is pinned in the Agent; the corresponding private key is a Cloudflare secret.
 /// </summary>
 public sealed class ServerHeartbeatVerifier
 {
-    private const string ProductionPublicKeyBase64 =
-        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEk7Kh22GR/MCr1G1QizihiqiMMTcpBBbWA+xzJfXOLnQogcm5FstM26nOyg6hagbuhgNcksl7WAXVlbBWIfUqXA==";
+    private const string TestPublicKeyBase64 =
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8JZgYcM2G4QYtWc1vHnh7FXjWAaPyJcUh/VAR8qAThZnZ1UAvmN5OK8DgNkeLfWVBSHEGlM1KCykjp66dNIeZA==";
     private readonly byte[] _publicKey;
 
     public ServerHeartbeatVerifier() : this(Convert.FromBase64String(ProductionPublicKeyBase64)) { }
