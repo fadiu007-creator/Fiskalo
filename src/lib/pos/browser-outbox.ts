@@ -443,6 +443,11 @@ export async function getOrStartPosConnectivityOutage(
   trustedLastHeartbeatAt?: string | null,
 ): Promise<PosConnectivityOutage> {
   if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
+  let trustedStart = trustedLastHeartbeatAt ?? null;
+  if (!trustedStart) {
+    try { trustedStart = (await getLastTrustedPosHeartbeat(businessId, posRecordId))?.serverTimeUtc ?? null; }
+    catch { trustedStart = null; }
+  }
   const id = await outageKey(businessId, posRecordId);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const raw = await readOutageRecord(id);
@@ -457,8 +462,8 @@ export async function getOrStartPosConnectivityOutage(
     const startedAt = resolvePosOutageStart(
       existing && existing.businessId === businessId && existing.posRecordId === posRecordId
         ? existing.startedAt : null,
-      trustedLastHeartbeatAt && Number.isFinite(Date.parse(trustedLastHeartbeatAt))
-        ? trustedLastHeartbeatAt
+      trustedStart && Number.isFinite(Date.parse(trustedStart))
+        ? trustedStart
         : detectedAt,
     );
     const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt };
