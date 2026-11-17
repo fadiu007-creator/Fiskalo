@@ -534,7 +534,9 @@ public sealed class FiscalQueueStore
                 timestamp,
                 null,
                 state.LastTrustedServerTimeUtc,
-                hasUnresolvedFiscalItems ? state.TrustedInternetOutageStartedAtUtc : null), cancellationToken);
+                hasUnresolvedFiscalItems ? state.TrustedInternetOutageStartedAtUtc : null,
+                state.TrustedBusinessId,
+                state.TrustedPosUuid), cancellationToken);
             return state.OutageStartedAtUtc;
         }
         finally { _gate.Release(); }
