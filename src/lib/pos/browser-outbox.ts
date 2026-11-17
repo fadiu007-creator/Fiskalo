@@ -8,7 +8,7 @@ const HEARTBEAT_STORE_NAME = "trusted-heartbeats";
 const OUTBOX_ENCRYPTION_SCOPE = "basic-fiscal-outbox";
 const OUTAGE_ENCRYPTION_SCOPE = "basic-pos-connectivity-outage";
 const HEARTBEAT_ENCRYPTION_SCOPE = "basic-pos-trusted-heartbeat";
-const HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0DAQcDQgAEHwziGBcgBfjbJ120yQ93+B+0Yqe1iP3C0ZDOaFxyMN6du4G0pCEI7AwYrHpIMkxRwV2/nNSdVZHsLt7Cwmlcww==";
+const HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHwziGBcgBfjbJ120yQ93+B+0Yqe1iP3C0ZDOaFxyMN6du4G0pCEI7AwYrHpIMkxRwV2/nNSdVZHsLt7Cwmlcww==";
 
 export type BrowserFiscalOutboxItem = {
   idempotencyKey: string;
