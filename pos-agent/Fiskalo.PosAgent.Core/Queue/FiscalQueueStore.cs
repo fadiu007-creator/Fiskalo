@@ -425,6 +425,17 @@ public sealed class FiscalQueueStore
         try
         {
             var state = await LoadConnectivityStateAsync(cancellationToken);
+
+            // A Windows wall-clock rollback must not move the persisted healthy anchor
+            // backwards or close an outage with a restoration timestamp earlier than
+            // its start. Keep the outage open until the local clock catches up. This is
+            // conservative operational handling only, not trusted legal-time evidence.
+            if (state.OutageStartedAtUtc is { } outageStart && timestamp < outageStart)
+                return outageStart;
+            if (state.OutageStartedAtUtc is null &&
+                state.LastSuccessfulProbeAtUtc is { } lastHealthy && timestamp < lastHealthy)
+                return null;
+
             var items = await LoadAsync(cancellationToken);
             var changed = false;
             for (var i = 0; i < items.Count; i++)
