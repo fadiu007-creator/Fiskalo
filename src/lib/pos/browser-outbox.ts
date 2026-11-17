@@ -233,6 +233,27 @@ export function resolvePosOutageStart(existingStart: string | null | undefined, 
   return existingStart && Number.isFinite(Date.parse(existingStart)) ? existingStart : detectedAt;
 }
 
+export function resolvePosOutageEvidence(
+  existing: PosConnectivityOutage | null,
+  trustedLastHeartbeatAt: string | null,
+  detectedAt: string,
+): Pick<PosConnectivityOutage, "startedAt" | "timeEvidence"> {
+  if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
+  if (trustedLastHeartbeatAt && Number.isFinite(Date.parse(trustedLastHeartbeatAt))) {
+    const preserveEarlierTrusted = existing?.timeEvidence === "server_signed_heartbeat" &&
+      Number.isFinite(Date.parse(existing.startedAt)) &&
+      Date.parse(existing.startedAt) <= Date.parse(trustedLastHeartbeatAt);
+    return {
+      startedAt: preserveEarlierTrusted ? existing!.startedAt : trustedLastHeartbeatAt,
+      timeEvidence: "server_signed_heartbeat",
+    };
+  }
+  return {
+    startedAt: resolvePosOutageStart(existing?.startedAt ?? null, detectedAt),
+    timeEvidence: existing?.timeEvidence ?? "browser_local_untrusted",
+  };
+}
+
 /** The 48-hour recovery deadline is measured from the first observed outage time. */
 export function outageRecoveryDeadline(startedAt: string): string {
   const timestamp = Date.parse(startedAt);
@@ -514,19 +535,12 @@ export async function getOrStartPosConnectivityOutage(
       : null;
     const trustedStart = trustedLastHeartbeatAt ??
       (lastTrusted && Number.isFinite(Date.parse(lastTrusted.serverTimeUtc)) ? lastTrusted.serverTimeUtc : null);
-    const existingIsTrusted = existing?.timeEvidence === "server_signed_heartbeat";
-    const startedAt = trustedStart && Number.isFinite(Date.parse(trustedStart))
-      ? (existingIsTrusted && existing?.startedAt && Date.parse(existing.startedAt) <= Date.parse(trustedStart)
-          ? existing.startedAt : trustedStart)
-      : resolvePosOutageStart(
-          existing && existing.businessId === businessId && existing.posRecordId === posRecordId
-            ? existing.startedAt : null,
-          detectedAt,
-        );
-    const timeEvidence = trustedStart && Number.isFinite(Date.parse(trustedStart))
-      ? "server_signed_heartbeat" as const
-      : existing?.timeEvidence ?? "browser_local_untrusted" as const;
-    const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt, timeEvidence };
+    const evidence = resolvePosOutageEvidence(
+      existing && existing.businessId === businessId && existing.posRecordId === posRecordId ? existing : null,
+      trustedStart,
+      detectedAt,
+    );
+    const result: PosConnectivityOutage = { id, businessId, posRecordId, ...evidence };
     if (existing && existing.startedAt === startedAt && existing.timeEvidence === timeEvidence && isEncryptedRecord(raw)) return existing;
     const encrypted = await encryptBrowserFiscalData(OUTAGE_ENCRYPTION_SCOPE, result);
     if (raw) {
