@@ -467,7 +467,8 @@ export async function getOrStartPosConnectivityOutage(
     if (hasTrustedStart && existingStart && Date.parse(trustedStart!) < Date.parse(existingStart)) {
       startedAt = trustedStart!;
     }
-    const timeEvidence = hasTrustedStart
+    const timeEvidence = hasTrustedStart &&
+      (!existingStart || Date.parse(trustedStart!) <= Date.parse(existingStart))
       ? "server_signed" as const
       : existing?.timeEvidence ?? "local_untrusted" as const;
     const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt, timeEvidence };
