@@ -39,11 +39,10 @@ begin
   end if;
   if position('for update of d' in definition)=0 or
      position('p_document_type in (2,3)' in definition)=0 or
-     position('d.document_type=p_document_type' in definition)=0 or
+     position('d.document_type in (2,3)' in definition)=0 or
      position('needs_reconciliation' in definition)=0 or
-     position('A full ATK return already exists or is unresolved for this sale' in definition)=0 or
-     position('An ATK cancellation already exists or is unresolved for this sale' in definition)=0 then
-    raise exception 'Full correction guard must lock the original sale and prevent duplicate active, accepted or unresolved cancellations and returns';
+     position('An ATK cancellation or return already exists or is unresolved for this sale' in definition)=0 then
+    raise exception 'Full correction guard must lock the original sale and prevent a second active, accepted or unresolved cancellation or return';
   end if;
 end $$;
 rollback;
