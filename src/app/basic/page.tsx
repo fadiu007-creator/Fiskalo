@@ -211,6 +211,8 @@ export default function Home(){
       if(!active||running||!navigator.onLine)return;
       running=true;
       try{
+        const pendingOutbox=await listFiscalOutboxItems(business.id);
+        if(pendingOutbox.some(item=>item.posRecordId===selectedPos&&item.state==="queued"))return;
         const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
         if(sessionError)throw sessionError;
         const accessToken=sessionData.session?.access_token;
@@ -242,7 +244,7 @@ export default function Home(){
     const onOnline=()=>{void refreshHeartbeat();};
     window.addEventListener("online",onOnline);
     void refreshHeartbeat();
-    timer=setInterval(()=>{void refreshHeartbeat();},60_000);
+    timer=setInterval(()=>{void refreshHeartbeat();},30_000);
     return()=>{
       active=false;
       if(timer)clearInterval(timer);
@@ -260,6 +262,18 @@ export default function Home(){
       try{
         const queued=(await listFiscalOutboxItems(business.id)).filter(item=>item.state==="queued");
         const touchedPosIds=new Set<string>();
+        if(queued.length){
+          const workerUrl=process.env.NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL;
+          if(!workerUrl)throw new Error("ATK recovery Worker URL is not configured; offline fiscal documents remain safely in the local queue.");
+          const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+          if(sessionError)throw sessionError;
+          const accessToken=sessionData.session?.access_token;
+          if(!accessToken)throw new Error("A valid authenticated session is required to verify offline recovery evidence.");
+          const uniquePosIds=[...new Set(queued.map(item=>item.posRecordId))];
+          for(const posRecordId of uniquePosIds){
+            await requestServerSignedPosHeartbeat(workerUrl,accessToken,business.id,posRecordId);
+          }
+        }
         for(const item of queued){
           touchedPosIds.add(item.posRecordId);
           if(!active||!navigator.onLine)break;
