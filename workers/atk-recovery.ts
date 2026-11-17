@@ -204,21 +204,24 @@ async function issueSignedHeartbeat(request: Request, env: Env): Promise<Respons
     return Response.json({ error: "invalid_heartbeat" }, { status: 400 });
   }
 
-  const [positions, memberships] = await Promise.all([
+  const [basicPositions, basicMemberships, fullPositions, fullMemberships] = await Promise.all([
     dbGet<{ id: string; business_id: string }>(env, "fiskalo_basic_pos", postgrestQuery({
-      select: "id,business_id",
-      id: "eq." + posUuid,
-      business_id: "eq." + businessId,
-      limit: "1",
+      select: "id,business_id", id: "eq." + posUuid, business_id: "eq." + businessId, limit: "1",
     })),
     dbGet<{ business_id: string; user_id: string }>(env, "fiskalo_basic_members", postgrestQuery({
-      select: "business_id,user_id",
-      business_id: "eq." + businessId,
-      user_id: "eq." + user.id,
-      limit: "1",
+      select: "business_id,user_id", business_id: "eq." + businessId, user_id: "eq." + user.id, limit: "1",
+    })),
+    dbGet<{ id: string; organization_id: string; environment: string; status: string }>(env, "fiskalo_atk_pos_installations", postgrestQuery({
+      select: "id,organization_id,environment,status", id: "eq." + posUuid,
+      organization_id: "eq." + businessId, environment: "eq.test", status: "eq.active", limit: "1",
+    })),
+    dbGet<{ organization_id: string; user_id: string }>(env, "fiskalo_organization_users", postgrestQuery({
+      select: "organization_id,user_id", organization_id: "eq." + businessId, user_id: "eq." + user.id, limit: "1",
     })),
   ]);
-  if (!positions.length || !memberships.length) {
+  const basicAuthorized = basicPositions.length > 0 && basicMemberships.length > 0;
+  const fullAuthorized = fullPositions.length > 0 && fullMemberships.length > 0;
+  if (!basicAuthorized && !fullAuthorized) {
     return Response.json({ error: "pos_access_denied" }, { status: 403 });
   }
 
