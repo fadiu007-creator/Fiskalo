@@ -107,6 +107,10 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
 
     const loadActivePos = async () => {
       if (activePosId) return activePosId;
+      if (!navigator.onLine) {
+        activePosId = window.localStorage.getItem(cachedPosKey);
+        return activePosId;
+      }
       const { data, error: posError } = await supabase
         .from("fiskalo_atk_pos_installations")
         .select("id")
@@ -148,6 +152,7 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
         const accessToken = sessionData.session?.access_token;
         if (!accessToken) return;
         await requestServerSignedPosHeartbeat(workerUrl, accessToken, organizationId, posId);
+        window.localStorage.setItem(cachedPosKey, posId);
         await clearPosConnectivityOutage(organizationId, posId);
       } catch (error) {
         // Only a browser-level transport failure is evidence of lost connectivity.
