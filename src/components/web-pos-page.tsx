@@ -12,6 +12,7 @@ import { printWithAgent, readPrinterSettings } from "@/lib/printing/thermal-prin
 import { readAtkVerificationNo } from "@/lib/printing/escpos";
 import { ensureATKTestPosReady } from "@/lib/atk/ensure-test-pos-ready";
 import { deleteOfflinePosDraft, listOfflinePosDrafts, saveOfflinePosDraft, type OfflinePosDraft } from "@/lib/pos/offline-drafts";
+import { clearPosConnectivityOutage, getLastTrustedPosHeartbeat, getOrStartPosConnectivityOutage, requestServerSignedPosHeartbeat } from "@/lib/pos/browser-outbox";
 import { ArrowRight, FileText, Plus, RefreshCw, Search, Settings2, ShoppingCart } from "lucide-react";
 
 type Product = { id: string; name: string; sku: string | null; pos_category: string; image_url: string | null; unit_price: number; vat_rate: number; stock_quantity: number; track_stock: boolean; item_type: string; is_active: boolean; atk_unit_code: string | null; atk_tax_code: string | null; atk_item_category_code: string | null };
@@ -94,6 +95,83 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
   }, [organizationId, supabase]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const workerUrl = process.env.NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL;
+    if (!workerUrl) return;
+    let cancelled = false;
+    let running = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let activePosId: string | null = null;
+
+    const loadActivePos = async () => {
+      if (activePosId) return activePosId;
+      const { data, error: posError } = await supabase
+        .from("fiskalo_atk_pos_installations")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("environment", "test")
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (posError) throw posError;
+      activePosId = data?.id ?? null;
+      return activePosId;
+    };
+
+    const markOffline = async () => {
+      const posId = await loadActivePos();
+      if (!posId || cancelled) return;
+      const previous = await getLastTrustedPosHeartbeat(organizationId, posId);
+      await getOrStartPosConnectivityOutage(
+        organizationId,
+        posId,
+        new Date().toISOString(),
+        previous?.serverTimeUtc ?? null,
+      );
+    };
+
+    const refresh = async () => {
+      if (cancelled || running) return;
+      running = true;
+      try {
+        const posId = await loadActivePos();
+        if (!posId || cancelled) return;
+        if (!navigator.onLine) {
+          await markOffline();
+          return;
+        }
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) return;
+        await requestServerSignedPosHeartbeat(workerUrl, accessToken, organizationId, posId);
+        await clearPosConnectivityOutage(organizationId, posId);
+      } catch (error) {
+        // Only a browser-level transport failure is evidence of lost connectivity.
+        // Authorization/configuration errors must not manufacture an outage.
+        if (error instanceof TypeError && navigator.onLine) {
+          try { await markOffline(); } catch { /* retain the last encrypted evidence */ }
+        }
+      } finally {
+        running = false;
+      }
+    };
+
+    const onOffline = () => { void markOffline().catch(() => undefined); };
+    const onOnline = () => { void refresh(); };
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    void refresh();
+    timer = setInterval(() => { void refresh(); }, 60_000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [organizationId, supabase]);
 
   useEffect(() => {
     let active = true;
