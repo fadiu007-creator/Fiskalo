@@ -130,20 +130,21 @@ export async function handleHeartbeat(
     if (posRows.length !== 1) return jsonError("pos_access_denied", 403);
 
     let signingKey: CryptoKey;
+    let pinnedPublicKey: CryptoKey;
     try {
       signingKey = await crypto.subtle.importKey(
         "pkcs8", pemPkcs8Bytes(env.ATK_HEARTBEAT_PRIVATE_KEY_PEM),
-        { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"],
+        { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"],
       );
-      const privateJwk = await crypto.subtle.exportKey("jwk", signingKey);
-      if (!privateJwk.x || !privateJwk.y) throw new Error("Heartbeat key has no public point.");
-      const publicKey = await crypto.subtle.importKey(
-        "jwk",
-        { kty: "EC", crv: "P-256", x: privateJwk.x, y: privateJwk.y, ext: true, key_ops: ["verify"] },
-        { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"],
+      const publicBinary = atob(expectedPublicKeySpkiBase64);
+      const publicBytes = Uint8Array.from(publicBinary, char => char.charCodeAt(0));
+      pinnedPublicKey = await crypto.subtle.importKey(
+        "spki",
+        publicBytes.buffer.slice(publicBytes.byteOffset, publicBytes.byteOffset + publicBytes.byteLength),
+        { name: "ECDSA", namedCurve: "P-256" },
+        false,
+        ["verify"],
       );
-      const publicSpki = new Uint8Array(await crypto.subtle.exportKey("spki", publicKey));
-      if (toBase64(publicSpki) !== expectedPublicKeySpkiBase64) throw new Error("Heartbeat key does not match the pinned public key.");
     } catch { return jsonError("heartbeat_signing_key_invalid_or_mismatched", 503); }
 
     const issuedAtUnixMs = Date.now();
@@ -151,7 +152,12 @@ export async function handleHeartbeat(
     const signature = new Uint8Array(await crypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-256" }, signingKey, new TextEncoder().encode(canonical),
     ));
-    if (signature.length !== 64) return jsonError("heartbeat_signature_invalid", 503);
+    if (signature.length !== 64 || !await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      pinnedPublicKey,
+      signature.buffer.slice(signature.byteOffset, signature.byteOffset + signature.byteLength),
+      new TextEncoder().encode(canonical),
+    )) return jsonError("heartbeat_signing_key_invalid_or_mismatched", 503);
     const signatureBase64 = toBase64(signature);
     const nonceSha256 = await sha256Hex(decodeNonce(body.nonce)!);
 
