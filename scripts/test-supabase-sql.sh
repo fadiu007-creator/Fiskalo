@@ -57,6 +57,7 @@ migrations=(
   "0035_fiskalo_basic_certificate_application_binding.sql"
   "0036_fiskalo_basic_certificate_application_id_text_cast.sql"
   "0037_fiskalo_atk_pos_heartbeat_evidence.sql"
+  "0038_fiskalo_basic_offline_heartbeat_binding.sql"
 )
 
 for migration in "${migrations[@]}"; do
@@ -81,6 +82,7 @@ for migration in "${migrations[@]}"; do
     0035_fiskalo_basic_certificate_application_binding.sql) run_test "0035_fiskalo_basic_certificate_application_binding.sql" ;;
     0036_fiskalo_basic_certificate_application_id_text_cast.sql) run_test "0036_fiskalo_basic_certificate_application_id_text_cast.sql" ;;
     0037_fiskalo_atk_pos_heartbeat_evidence.sql) run_test "0037_fiskalo_atk_pos_heartbeat_evidence.sql" ;;
+    0038_fiskalo_basic_offline_heartbeat_binding.sql) run_test "0038_fiskalo_basic_offline_heartbeat_binding.sql" ;;
   esac
 done
 
