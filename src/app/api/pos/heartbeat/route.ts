@@ -1,4 +1,3 @@
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0DAQcDQgAE8JZgYcM2G4QYtWc1vHnh7FXjWAaPyJcUh/VAR8qAThZnZ1UAvmN5OK8DgNkeLfWVBSHEGlM1KCykjp66dNIeZA==";
