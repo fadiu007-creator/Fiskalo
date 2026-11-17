@@ -37,11 +37,11 @@ begin
     raise exception 'Only service_role may append signed heartbeat evidence';
   end if;
 end
-$;
+$$;
 
 begin;
 set local role service_role;
-do $
+do $$
 declare
   v_first record;
   v_second record;
@@ -84,5 +84,5 @@ begin
     null;
   end;
 end
-$;
+$$;
 rollback;
