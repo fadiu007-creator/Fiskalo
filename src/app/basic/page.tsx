@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateCorrectionIdempotencyKey } from "@/lib/pos/correction-idempotency";
@@ -10,6 +10,7 @@ import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/l
 import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, reserveCloudCorrection, submitCloudCorrection, queueCloudCorrection, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
 import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline, requestServerSignedPosHeartbeat } from "@/lib/pos/browser-outbox";
+import { clearAgentToken, getAgentToken, getLocalAgentStatus, pairLocalAgent, persistVerifiedPosHeartbeat, requestPosHeartbeatChallenge } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { normalizeUniqueFiscalizationCode } from "@/lib/atk/unique-fiscalization-code";
@@ -59,6 +60,10 @@ export default function Home(){
   const [sales,setSales]=useState<SaleRecord[]>([]);
   const [receipt,setReceipt]=useState<SaleRecord|null>(null);
   const [queueOverdueCount,setQueueOverdueCount]=useState(0);
+  const [agentSessionToken,setAgentSessionToken]=useState<string|null>(null);
+  const [agentStatus,setAgentStatus]=useState("not_paired");
+  const [agentPairingCode,setAgentPairingCode]=useState("");
+  const [agentPairingBusy,setAgentPairingBusy]=useState(false);
   const [businessName,setBusinessName]=useState("");
   const [nui,setNui]=useState("");
   const [vatNumber,setVatNumber]=useState("");
@@ -92,6 +97,43 @@ export default function Home(){
   const [isPosFullscreen,setIsPosFullscreen]=useState(false);
 
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
+
+  useEffect(()=>{
+    const token=getAgentToken();
+    if(!token)return;
+    setAgentSessionToken(token);
+    void getLocalAgentStatus(token).then(status=>{
+      setAgentStatus(status.paired?"paired":"not_paired");
+    }).catch(()=>{
+      clearAgentToken();
+      setAgentSessionToken(null);
+      setAgentStatus("not_paired");
+    });
+  },[]);
+
+  async function pairAgent(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();
+    if(!agentPairingCode.trim()||agentPairingBusy)return;
+    setAgentPairingBusy(true);
+    try{
+      const paired=await pairLocalAgent(agentPairingCode.trim());
+      setAgentSessionToken(paired.sessionToken);
+      const status=await getLocalAgentStatus(paired.sessionToken);
+      setAgentStatus(status.paired?"paired":"not_paired");
+      setAgentPairingCode("");
+      setMessage(status.paired?"POS Agent u lidh me sukses.":"POS Agent nuk konfirmoi çiftimin.");
+    }catch(error){
+      setMessage(error instanceof Error?error.message:"Lidhja me POS Agent dështoi.");
+    }finally{
+      setAgentPairingBusy(false);
+    }
+  }
+
+  function unpairAgent(){
+    clearAgentToken();
+    setAgentSessionToken(null);
+    setAgentStatus("not_paired");
+  }
   const loadWorkspace=useCallback(async(uid:string)=>{
     if(!supabase)return;
     const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name,operator_identifier").eq("user_id",uid).limit(1).maybeSingle();
