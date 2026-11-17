@@ -87,6 +87,7 @@ test("issues a P-256 signed heartbeat only for an authenticated POS member", asy
     assert.ok(Number.isSafeInteger(payload.issuedAtUnixMs));
     const message = [
       "fiskalo-atk-heartbeat-v1",
+      "ATK TEST",
       businessId.toLowerCase(),
       posUuid.toLowerCase(),
       nonce,
