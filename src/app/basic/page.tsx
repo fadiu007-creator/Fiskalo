@@ -267,9 +267,23 @@ export default function Home(){
       running=true;
       try{
         const queued=(await listFiscalOutboxItems(business.id)).filter(item=>item.state==="queued");
-        const touchedPosIds=new Set<string>();
+        const touchedPosIds=new Set(queued.map(item=>item.posRecordId));
+        if(queued.length){
+          const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+          if(sessionError)throw sessionError;
+          const accessToken=sessionData.session?.access_token;
+          if(!accessToken)throw new Error("Hyr përsëri për të sinkronizuar dokumentet offline.");
+          for(const posRecordId of touchedPosIds){
+            if(!active||!navigator.onLine)break;
+            const heartbeat=await requestServerSignedPosHeartbeat(business.id,posRecordId,accessToken);
+            if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
+              await getOrStartPosConnectivityOutage(
+                business.id,posRecordId,new Date().toISOString(),heartbeat.previousHeartbeatAtUtc
+              );
+            }
+          }
+        }
         for(const item of queued){
-          touchedPosIds.add(item.posRecordId);
           if(!active||!navigator.onLine)break;
           const recoveryOverdue=Date.parse(item.recoveryDeadlineUtc)<=Date.now();
           // The 48-hour point is an escalation/notification deadline, not permission
