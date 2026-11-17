@@ -35,6 +35,14 @@ Set the same secret on the main `fiskalo` Worker using its `wrangler.jsonc` conf
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.jsonc
 ```
 
+The recovery Worker also issues P-256 ECDSA-signed POS heartbeats. Configure its signing key as a Worker secret (never a committed file or a `vars` entry):
+
+```bash
+npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --config wrangler.atk-recovery.jsonc
+```
+
+Paste the PKCS#8 PEM value generated for the public key pinned in `ServerHeartbeatVerifier.cs` and `browser-outbox.ts`. Keep that private key exclusively in Cloudflare Secrets. Configure `NEXT_PUBLIC_ATK_RECOVERY_WORKER_URL` on the main Fiskalo application with the deployed recovery Worker's HTTPS origin (for example, the Worker URL shown by Wrangler; do not guess the account subdomain). The Worker authorizes heartbeat requests against the authenticated user's active ATK TEST POS membership. The browser verifies the signature before persisting the heartbeat in encrypted IndexedDB. A missing signing secret returns HTTP 503 and never falls back to a browser timestamp.
+
 The recovery Worker reads the existing `zikos` Supabase project configured in `wrangler.atk-recovery.jsonc`. Its cron trigger is `*/5 * * * *`. Check the Worker `/health` endpoint and Cloudflare Worker logs after deployment. The service-role key must not be committed to GitHub or placed in Worker vars.
 
 CI validates the recovery Worker with `npm run cf-build:atk-recovery` and tests its safe-retry, ambiguous-delivery and 48-hour deadline behavior with `npm run test:atk-recovery`.
