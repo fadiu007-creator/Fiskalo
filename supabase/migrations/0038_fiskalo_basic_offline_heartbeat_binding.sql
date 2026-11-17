@@ -50,9 +50,10 @@ begin
   from public.fiskalo_atk_pos_heartbeat_evidence h
   where h.business_id = new.business_id
     and h.pos_id = v_pos_id
-    and h.previous_heartbeat_at = new.offline_issued_at
+    and h.previous_heartbeat_at <= new.offline_issued_at
     and h.gap_seconds > 0
-    and h.server_time_utc > new.offline_issued_at
+    and h.server_time_utc >= new.offline_issued_at
+    and new.offline_issued_at >= h.server_time_utc - interval '48 hours'
     and h.server_time_utc >= now() - interval '48 hours'
     and h.server_time_utc <= now() + interval '2 minutes'
   order by h.server_time_utc asc
