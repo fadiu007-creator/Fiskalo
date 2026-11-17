@@ -129,6 +129,7 @@ test("reports the server-measured gap from the previous heartbeat", async () => 
       SUPABASE_URL: "https://project.supabase.co",
       SUPABASE_SERVICE_ROLE_KEY: "test-service-role",
       ATK_HEARTBEAT_PRIVATE_KEY_PEM: keys.privatePem,
+      ATK_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64: keys.publicKeySpkiBase64,
     });
     assert.equal(response.status, 200);
     const payload = await response.json();
