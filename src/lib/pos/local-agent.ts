@@ -6,9 +6,73 @@ async function call<T>(path:string,token?:string,body?:unknown):Promise<T>{
   return payload as T;
 }
 export type AgentStatus={service:string;version:string;paired:boolean;fiscalizationEnabled:boolean;capabilities:string[];windowsKeyStoreAvailable:boolean;testCertificateInstalled:boolean;testInstallationVerified:boolean};
+export async function refreshVerifiedPosHeartbeat(
+  agentSessionToken: string,
+  supabaseAccessToken: string,
+  businessId: string,
+  posUuid: string,
+) {
+  if (!agentSessionToken || !supabaseAccessToken) throw new Error("Both POS Agent and Supabase sessions are required.");
+  const challenge = await call<{nonce:string;expiresInSeconds:number}>(
+    "/api/v1/connectivity/challenge",
+    agentSessionToken,
+    {businessId,posUuid},
+  );
+  const response = await fetch("/api/pos/heartbeat",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      Authorization:"Bearer "+supabaseAccessToken,
+    },
+    body:JSON.stringify({businessId,posUuid,nonce:challenge.nonce}),
+    cache:"no-store",
+    credentials:"same-origin",
+    referrerPolicy:"same-origin",
+  });
+  const signed = await response.json().catch(()=>null) as null|{
+    businessId?:string;posUuid?:string;nonce?:string;issuedAtUnixMs?:number;signatureBase64?:string;
+    environment?:string;productionEnabled?:boolean;
+  };
+  if(!response.ok||!signed||signed.businessId!==businessId||signed.posUuid!==posUuid||
+    signed.nonce!==challenge.nonce||signed.environment!=="ATK TEST"||signed.productionEnabled!==false||
+    !Number.isSafeInteger(signed.issuedAtUnixMs)||typeof signed.signatureBase64!=="string"){
+    throw new Error("Cloudflare did not return a valid signed POS Agent heartbeat.");
+  }
+  const verified = await call<{
+    verified:boolean;businessId:string;posUuid:string;serverTimeUtc:string;productionEnabled:boolean;
+  }>("/api/v1/connectivity/heartbeat",agentSessionToken,{
+    nonce:challenge.nonce,
+    issuedAtUnixMilliseconds:signed.issuedAtUnixMs,
+    signatureBase64:signed.signatureBase64,
+  });
+  if(!verified.verified||verified.businessId!==businessId||verified.posUuid!==posUuid||
+    verified.serverTimeUtc!==new Date(signed.issuedAtUnixMs!).toISOString()||verified.productionEnabled!==false){
+    throw new Error("Windows POS Agent did not persist the verified server heartbeat.");
+  }
+  return verified;
+}
+
 export type AtkVerification={businessName:string;verificationCode:string;environment:string;productionEnabled:boolean};
 export type AtkCertificate={certificateStatus:string;subject:string;thumbprint:string;environment:string;privateKeyExported:boolean;productionEnabled:boolean};
-export async function pairLocalAgent(pairingCode:string){return call<{sessionToken:string;agentVersion:string}>("/api/v1/pair",undefined,{pairingCode});}
+const AGENT_SESSION_KEY = "fiskalo.pos-agent.session.v1";
+
+export function getAgentToken(): string | null {
+  try { return window.sessionStorage.getItem(AGENT_SESSION_KEY); }
+  catch { return null; }
+}
+
+export function clearAgentToken(): void {
+  try { window.sessionStorage.removeItem(AGENT_SESSION_KEY); }
+  catch { /* session storage is optional */ }
+}
+
+export async function pairLocalAgent(pairingCode:string){
+  const paired = await call<{sessionToken:string;agentVersion:string}>("/api/v1/pair",undefined,{pairingCode});
+  if (!paired.sessionToken) throw new Error("POS Agent did not return a pairing session.");
+  try { window.sessionStorage.setItem(AGENT_SESSION_KEY, paired.sessionToken); }
+  catch { throw new Error("This browser cannot securely retain the POS Agent session. Enable session storage and pair again."); }
+  return paired;
+}
 export async function getLocalAgentStatus(token:string){return call<AgentStatus>("/api/v1/status",token);}
 export async function verifyLocalTestPos(token:string,input:{nui:number;fiscalizationNumber:string;posId:number;branchId:number;applicationId:number}){return call<AtkVerification>("/api/v1/atk/test/verify",token,input);}
 export async function issueLocalTestCertificate(token:string,input:{businessName:string;businessNui:number;branchId:number;verificationCode:string;posId:number;applicationId:number}){return call<AtkCertificate>("/api/v1/atk/test/sign-csr",token,input);}
