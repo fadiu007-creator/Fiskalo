@@ -102,7 +102,8 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
     let cancelled = false;
     let running = false;
     let timer: ReturnType<typeof setInterval> | null = null;
-    let activePosId: string | null = null;\n    const cachedPosKey = "fiskalo:active-atk-test-pos:" + organizationId;
+    let activePosId: string | null = null;
+    const cachedPosKey = "fiskalo:active-atk-test-pos:" + organizationId;
 
     const loadActivePos = async () => {
       if (activePosId) return activePosId;
