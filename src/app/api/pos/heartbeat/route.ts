@@ -171,7 +171,7 @@ export async function handleHeartbeat(
       body: JSON.stringify({
         p_business_id: body.businessId, p_pos_id: body.posUuid, p_actor_id: user.id,
         p_server_time_utc: new Date(issuedAtUnixMs).toISOString(),
-        p_nonce_sha256: nonceSha256, p_signature_base64: signatureBase64,
+        p_nonce: body.nonce, p_nonce_sha256: nonceSha256, p_signature_base64: signatureBase64,
       }),
       cache: "no-store",
     });
