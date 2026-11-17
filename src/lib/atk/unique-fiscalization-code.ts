@@ -8,7 +8,7 @@ export function normalizeUniqueFiscalizationCode(value: string): string {
   if (!normalized) {
     throw new Error("Kodi Unik për Fiskalizim i lëshuar nga ATK në EDI është i detyrueshëm.");
   }
-  if (/[\\u0000-\\u001f\\u007f]/.test(normalized)) {
+  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
     throw new Error("Kodi Unik për Fiskalizim përmban karaktere të pavlefshme.");
   }
   if (normalized.length > 128) {
