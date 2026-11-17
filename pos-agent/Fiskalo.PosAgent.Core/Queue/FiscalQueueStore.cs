@@ -426,7 +426,7 @@ public sealed class FiscalQueueStore
                 var changed = false;
                 for (var i = 0; i < items.Count; i++)
                 {
-                    if (items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation or FiscalQueueStatus.Submitting))
+                    if (items[i].OfflineIssuedAtUtc is null || items[i].Status is not (FiscalQueueStatus.Queued or FiscalQueueStatus.NeedsReconciliation or FiscalQueueStatus.Submitting))
                         continue;
                     items[i] = items[i] with
                     {
