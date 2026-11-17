@@ -10,7 +10,7 @@ import {
 
 test("preserves all 53 published ATK May 2026 goods and services rows", () => {
   assert.equal(ATK_ITEM_CATEGORY_SOURCE.publishedOn, "2026-05-29");
-  assert.equal(ATK_ITEM_CATEGORY_CATEGORIES_COUNT(), 53);
+  assert.equal(ATK_ITEM_CATEGORIES.length, 53);
   assert.equal(new Set(ATK_ITEM_CATEGORIES.map((item) => item.code)).size, 52);
   assert.equal(ATK_ITEM_CATEGORY_OPTIONS.length, 52);
   assert.ok(ATK_ITEM_CATEGORIES.every((item) => item.label.length > 0));
@@ -39,7 +39,3 @@ test("accepts exact official category codes and rejects arbitrary text", () => {
     assert.equal(getAtkItemCategoryLabel(invalid), null);
   }
 });
-
-function ATK_ITEM_CATEGORY_CATEGORIES_COUNT() {
-  return ATK_ITEM_CATEGORIES.length;
-}
