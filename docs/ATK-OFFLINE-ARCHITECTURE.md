@@ -42,13 +42,23 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - PWA: cached business/POS/product workspace, IndexedDB sale journal, local-first checkout and reconnect synchronization.
 - Supabase Edge Function `fiskalo-basic-atk-receipts`: verifies local Agent attestations and signature/snapshot bindings before database persistence.
 
+## Server heartbeat configuration
+
+Set the P-256 PKCS#8 private key as a Cloudflare Worker secret on the `fiskalo` Worker:
+
+```bash
+npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo
+```
+
+The public key is pinned in the route and browser verifier. The server imports the private key as non-exportable and verifies every signature against the pinned public key before recording evidence. Missing or mismatched keys fail closed. Do not put the private key in source control or any `NEXT_PUBLIC_` variable.
+
 ## Important operational limits
 
 - Offline capacity must be provisioned while online. If the POS has no reserved CouponIds or no daily numbers for the current Kosovo business date, the Agent fails closed; it does not invent a number.
 - The secure local runtime currently targets Windows. Other operating systems need their own secure-keystore POS Agent.
 - The cached operator identity and paired local Agent are required to issue locally during a network outage. Cloud authorization and data refresh resume when connectivity returns.
 - The local Agent retries only when transport evidence proves the request was not delivered. An ambiguous ATK result remains locked for reconciliation.
-- The Cloudflare-hosted `/api/pos/heartbeat` endpoint issues P-256 ECDSA-signed ATK TEST timestamps after authenticating the member and POS. The browser verifies the pinned public key and stores the signed heartbeat in encrypted IndexedDB. The database records an append-only nonce, actor, POS, signature, server timestamp and measured gap; new offline fiscal documents are linked to the heartbeat interval that bounds their local issue time. The paired Windows Agent can independently verify and persist the same signed timestamp when its heartbeat bridge is enabled. This proves a server-measured absence of heartbeat, not the cause of the interruption or the exact second a local device generated a document.
+- The Cloudflare-hosted `/api/pos/heartbeat` endpoint issues P-256 ECDSA-signed ATK TEST timestamps after authenticating the member and POS. The browser verifies the pinned public key and stores the signed heartbeat in encrypted IndexedDB. The database records an append-only nonce, actor, POS, signature, server timestamp and measured gap; new cloud-synchronized offline fiscal documents are linked to the heartbeat interval that bounds their local issue time. This proves a server-measured absence of browser heartbeat, not the cause of the interruption or the exact second a local device generated a document. The Windows Agent's independent retry/deadline clock still uses device time; mirroring the server anchor into the DPAPI-protected Agent journal remains outstanding.
 - Article 44 paragraph 5 notification is only recorded after the owner has actually notified ATK through an official channel or in person and uploaded evidence. Fiskalo does not submit the notice automatically.
 - Article 44 paragraph 6 export combines server-synchronized unaccepted documents with the local POS Agent queue. It fails closed if the paired local queue cannot be read; a server-only export is not described as complete.
 - The tenth-of-following-month export includes every non-accepted offline fiscal document, including rejected documents. The export must still be reviewed and submitted by the taxpayer to ATK.
