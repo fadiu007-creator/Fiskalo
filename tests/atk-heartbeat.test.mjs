@@ -24,7 +24,7 @@ async function makeKeyPair() {
   return { privatePem, publicKey: pair.publicKey };
 }
 
-function mockFetch(originalFetch) {
+function mockFetch(originalFetch, previousHeartbeatAt = null, gapSeconds = null) {
   globalThis.fetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     if (url.pathname === "/auth/v1/user") {
@@ -46,7 +46,7 @@ function mockFetch(originalFetch) {
       assert.equal(evidence.p_server_time_utc !== undefined, true);
       assert.match(evidence.p_nonce_sha256, /^[0-9a-f]{64}$/);
       assert.ok(evidence.p_signature_base64);
-      return Response.json([{ previous_heartbeat_at: null, gap_seconds: null }]);
+      return Response.json([{ previous_heartbeat_at: previousHeartbeatAt, gap_seconds: gapSeconds }]);
     }
     if (url.pathname === "/rest/v1/fiskalo_atk_pos_installations" ||
         url.pathname === "/rest/v1/fiskalo_organization_users") {
@@ -101,6 +101,35 @@ test("issues a P-256 signed heartbeat only for an authenticated POS member", asy
       new TextEncoder().encode(message),
     ), true);
     assert.equal(response.headers.get("Cache-Control"), "no-store, no-cache, must-revalidate");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("reports the server-measured gap from the previous heartbeat", async () => {
+  const originalFetch = globalThis.fetch;
+  const keys = await makeKeyPair();
+  const previousHeartbeatAt = new Date(Date.now() - 3_600_000).toISOString();
+  mockFetch(originalFetch, previousHeartbeatAt, 3600);
+  try {
+    const response = await worker.fetch(new Request("https://recovery.example/heartbeat", {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        Authorization: "Bearer valid-user-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ businessId, posUuid, nonce: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" }),
+    }), {
+      SUPABASE_URL: "https://project.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role",
+      ATK_HEARTBEAT_PRIVATE_KEY_PEM: keys.privatePem,
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.previousHeartbeatAtUtc, previousHeartbeatAt);
+    assert.equal(payload.gapSeconds, 3600);
+    assert.equal(payload.gapDetected, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
