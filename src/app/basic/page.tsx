@@ -131,11 +131,6 @@ export default function Home(){
     }
   }
 
-  function unpairAgent(){
-    clearAgentToken();
-    setAgentSessionToken(null);
-    setAgentStatus("not_paired");
-  }
   const loadWorkspace=useCallback(async(uid:string)=>{
     if(!supabase)return;
     const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name,operator_identifier").eq("user_id",uid).limit(1).maybeSingle();
