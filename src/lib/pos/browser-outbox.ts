@@ -407,6 +407,7 @@ export async function requestServerSignedPosHeartbeat(
   );
   const canonical = [
     "fiskalo-atk-heartbeat-v1",
+    "ATK TEST",
     businessId.toLowerCase(),
     posRecordId.toLowerCase(),
     nonce,
