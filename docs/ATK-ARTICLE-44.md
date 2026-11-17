@@ -47,3 +47,8 @@ Migrations:
 - `0032_fiskalo_article44_monthly_export_proof_guard.sql`
 
 The owner UI is available at `/article-44`.
+
+
+## Local clock rollback handling
+
+The POS Agent preserves the last successful local probe timestamp as a high-water mark. If the Windows wall clock moves backwards, a healthy probe cannot overwrite that anchor or close an active outage with a restoration time earlier than the outage start. The operational outage remains open until the clock catches up. This prevents internally inconsistent local deadlines; it does not make device time trustworthy, prove an ISP interruption, or replace server-signed time evidence.
