@@ -14,6 +14,7 @@
     "test:atk-browser": "node --experimental-strip-types --test tests/atk-browser-runtime.test.mjs tests/atk-protobuf.test.mjs",
     "test:atk-recovery": "node --experimental-strip-types --test tests/atk-recovery.test.mjs",
     "test:atk-heartbeat": "node --experimental-strip-types --test tests/atk-heartbeat.test.mjs",
+    "test:pos-server-heartbeat": "node --experimental-strip-types --test tests/pos-server-heartbeat.test.mjs",
     "test:atk-certificates": "node --experimental-strip-types --test tests/atk-certificate-crypto.test.mjs",
     "test:atk-coupon-validation": "node --experimental-strip-types --test tests/atk-coupon-validation.test.mjs",
     "test:payments": "node --experimental-strip-types --test tests/payment-allocation.test.mjs",
