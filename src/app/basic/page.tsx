@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { getOrCreateCorrectionIdempotencyKey } from "@/lib/pos/correction-idempotency";
 import BusinessOperations from "@/components/business-operations";
 import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, getPosCertificatePem, signAtkBase64Payload, generateNuiKf } from "@/lib/atk/browser-runtime";
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
@@ -443,13 +444,12 @@ export default function Home(){
     }
     setBusy(true);setMessage("");
     const correctionKeyStorage="fiskalo.pendingCorrection."+sale.id+"."+documentType;
-    let idempotencyKey=localStorage.getItem(correctionKeyStorage)||crypto.randomUUID();
+    let idempotencyKey=getOrCreateCorrectionIdempotencyKey(localStorage.getItem(correctionKeyStorage),()=>crypto.randomUUID());
     localStorage.setItem(correctionKeyStorage,idempotencyKey);
     try{
       const identity={businessNui:business.nui,branchId:pos.branch_id,posId:pos.pos_id,businessName:pos.verified_business_name||business.name};
       if(!await hasMatchingPosCertificate(identity))throw new Error("Çelësi privat dhe certifikata ATK nuk përputhen në këtë shfletues.");
       const certificatePem=await getPosCertificatePem(identity);
-      idempotencyKey=crypto.randomUUID();
       const reservation=await reserveCloudCorrection(supabase,{
         businessId:business.id,saleId:sale.id,documentType,idempotencyKey
       });
