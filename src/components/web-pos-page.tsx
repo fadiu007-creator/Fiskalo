@@ -108,7 +108,8 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
     const resolvePosId = async (): Promise<string | null> => {
       if (activePosId) return activePosId;
       const storageKey = "fiskalo-pos-heartbeat:" + organizationId;
-      const cachedPosId = window.localStorage.getItem(storageKey);
+      let cachedPosId: string | null = null;
+      try { cachedPosId = window.localStorage.getItem(storageKey); } catch { /* local cache is optional */ }
       if (!navigator.onLine && cachedPosId && /^[0-9a-f-]{36}$/i.test(cachedPosId)) {
         activePosId = cachedPosId;
         return activePosId;
@@ -136,7 +137,9 @@ export function WebPosPage({ basicMode = false }: { basicMode?: boolean } = {}) 
         if (fullPosError) throw fullPosError;
         activePosId = fullPos?.id ? String(fullPos.id) : null;
       }
-      if (activePosId) window.localStorage.setItem(storageKey, activePosId);
+      if (activePosId) {
+        try { window.localStorage.setItem(storageKey, activePosId); } catch { /* server lookup remains authoritative */ }
+      }
       return activePosId;
     };
 
