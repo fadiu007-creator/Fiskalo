@@ -9,6 +9,28 @@ import {
   resolveFiscalReportState,
 } from "../src/lib/reports/sales-report.ts";
 
+function parseCsvLine(line) {
+  const values = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quoted && character === '"' && line[index + 1] === '"') {
+      value += '"';
+      index += 1;
+    } else if (character === '"') {
+      quoted = !quoted;
+    } else if (character === "," && !quoted) {
+      values.push(value);
+      value = "";
+    } else {
+      value += character;
+    }
+  }
+  values.push(value);
+  return values;
+}
+
 test("summarizes sales, VAT groups, split tenders and Kosovo-local days", () => {
   const sales = [
     {
@@ -99,13 +121,16 @@ test("correction documents do not replace the original sale fiscal status or tra
   ];
   const report = buildSalesReport([sale], [], documents);
   const csv = buildSalesReportCsv([sale], [], documents);
+  const [headersLine, valuesLine] = csv.replace(/^\uFEFF/, "").split("\r\n");
+  const headers = parseCsvLine(headersLine);
+  const values = parseCsvLine(valuesLine);
   assert.equal(report.acceptedCount, 1);
   assert.equal(report.correctionCount, 1);
   assert.equal(report.correctionGrossCents, 118);
   assert.equal(report.adjustedGrossCents, 0);
-  assert.match(csv, /"123"/);
-  assert.match(csv, /cancellation/);
-  assert.doesNotMatch(csv, /"999"/);
+  assert.equal(values[headers.indexOf("ATK transaction ID")], "123");
+  assert.equal(values[headers.indexOf("Correction transaction ID")], "999");
+  assert.equal(values[headers.indexOf("Correction type")], "cancellation");
   assert.deepEqual(getCorrectionDocumentsBySale(documents, [sale]).get("sale-1")?.document_type, 2);
 });
 
