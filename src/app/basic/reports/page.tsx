@@ -1,0 +1,335 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { createClient } from "@/lib/supabase/client";
+import {
+  buildSalesReport,
+  buildSalesReportCsv,
+  formatSalePaymentAllocations,
+  localDateRangeToIso,
+  resolveFiscalReportState,
+  type ReportFiscalDocument,
+  type ReportSale,
+  type ReportSaleItem,
+} from "@/lib/reports/sales-report";
+
+type Business = { id: string; name: string; nui: string };
+type AccessState = "loading" | "owner" | "signed_out" | "forbidden" | "unconfigured" | "error";
+const MAX_SALES = 5000;
+
+function dateInputValue(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find(part => part.type === type)?.value ?? "";
+  return get("year") + "-" + get("month") + "-" + get("day");
+}
+
+function kosovoCalendarDate(date: Date): { year: number; month: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Belgrade", year: "numeric", month: "2-digit",
+  }).formatToParts(date);
+  return {
+    year: Number(parts.find(part => part.type === "year")?.value ?? 0),
+    month: Number(parts.find(part => part.type === "month")?.value ?? 0),
+  };
+}
+
+function formatMoney(cents: number): string {
+  return new Intl.NumberFormat("sq-XK", { style: "currency", currency: "EUR" }).format(cents / 100);
+}
+
+function fiscalStatusLabel(state: ReturnType<typeof resolveFiscalReportState>): string {
+  switch (state) {
+    case "accepted": return "Pranuar nga ATK";
+    case "queued": return "Në radhë / në dërgim";
+    case "rejected": return "Refuzuar nga ATK";
+    case "needs_reconciliation": return "Kërkon reconciliim";
+    default: return "Pa konfirmim";
+  }
+}
+
+function paymentStatusLabel(status: string): string {
+  switch (status) {
+    case "fiscalized": return "Fiskalizuar";
+    case "paid": return "Paguar";
+    case "needs_reconciliation": return "Kërkon reconciliim";
+    case "failed": return "Dështoi";
+    case "draft": return "Draft";
+    default: return status;
+  }
+}
+
+const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 13 };
+const headerCell: CSSProperties = {
+  textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--line)",
+  color: "var(--muted)", fontWeight: 700, whiteSpace: "nowrap",
+};
+const bodyCell: CSSProperties = { padding: "10px 8px", borderBottom: "1px solid var(--line)", verticalAlign: "top" };
+
+export default function ReportsPage() {
+  const supabase = useMemo(() => {
+    try {
+      return createClient();
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const initialRange = useMemo(() => {
+    const today = new Date();
+    const todayInKosovo = kosovoCalendarDate(today);
+    const firstOfMonth = new Date(Date.UTC(todayInKosovo.year, todayInKosovo.month - 1, 1, 12));
+    return { startDate: dateInputValue(firstOfMonth), endDate: dateInputValue(today) };
+  }, []);
+
+  const [startDate, setStartDate] = useState(initialRange.startDate);
+  const [endDate, setEndDate] = useState(initialRange.endDate);
+  const [appliedRange, setAppliedRange] = useState(initialRange);
+  const [access, setAccess] = useState<AccessState>("loading");
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [sales, setSales] = useState<ReportSale[]>([]);
+  const [items, setItems] = useState<ReportSaleItem[]>([]);
+  const [documents, setDocuments] = useState<ReportFiscalDocument[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const loadReport = useCallback(async () => {
+    if (!supabase) {
+      setAccess("unconfigured");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!authData.user) {
+        setAccess("signed_out");
+        setBusiness(null);
+        setSales([]);
+        setItems([]);
+        setDocuments([]);
+        return;
+      }
+
+      const { data: member, error: memberError } = await supabase
+        .from("fiskalo_basic_members")
+        .select("business_id,role")
+        .eq("user_id", authData.user.id)
+        .limit(1)
+        .maybeSingle();
+      if (memberError) throw memberError;
+      if (!member || member.role !== "owner") {
+        setAccess("forbidden");
+        setBusiness(null);
+        setSales([]);
+        setItems([]);
+        setDocuments([]);
+        return;
+      }
+
+      const { data: businessRow, error: businessError } = await supabase
+        .from("fiskalo_basic_businesses")
+        .select("id,name,nui")
+        .eq("id", member.business_id)
+        .single();
+      if (businessError) throw businessError;
+
+      const range = localDateRangeToIso(appliedRange.startDate, appliedRange.endDate);
+      const { data: reportData, error: reportError } = await supabase.rpc("fiskalo_basic_sales_report", {
+        p_business_id: businessRow.id,
+        p_from: range.from,
+        p_to: range.to,
+        p_limit: MAX_SALES,
+      });
+      if (reportError) throw reportError;
+      const payload = (reportData ?? {}) as {
+        sales?: ReportSale[];
+        items?: ReportSaleItem[];
+        documents?: ReportFiscalDocument[];
+        truncated?: boolean;
+      };
+      setBusiness(businessRow as Business);
+      setSales(Array.isArray(payload.sales) ? payload.sales : []);
+      setItems(Array.isArray(payload.items) ? payload.items : []);
+      setDocuments(Array.isArray(payload.documents) ? payload.documents : []);
+      setTruncated(Boolean(payload.truncated));
+      setAccess("owner");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Raporti nuk u ngarkua.");
+      setAccess("error");
+    } finally {
+      setBusy(false);
+    }
+  }, [supabase, appliedRange]);
+
+  useEffect(() => {
+    void loadReport();
+  }, [loadReport]);
+
+  const report = useMemo(() => buildSalesReport(sales, items, documents), [sales, items, documents]);
+  const documentsBySale = useMemo(() => {
+    const result = new Map<string, ReportFiscalDocument>();
+    for (const item of documents) {
+      if (item.document_type != null && Number(item.document_type) !== 1) continue;
+      const current = result.get(item.sale_id);
+      if (!current || (
+        resolveFiscalReportState(item) === "accepted" &&
+        resolveFiscalReportState(current) !== "accepted"
+      )) result.set(item.sale_id, item);
+    }
+    return result;
+  }, [documents]);
+
+  const exportCsv = useCallback(() => {
+    if (!sales.length) return;
+    const csv = buildSalesReportCsv(sales, items, documents);
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fiskalo-raporti-i-shitjeve-" + appliedRange.startDate + "-deri-" + appliedRange.endDate + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [sales, items, documents, appliedRange]);
+
+  function applyDateRange(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      localDateRangeToIso(startDate, endDate);
+      setAppliedRange({ startDate, endDate });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Periudha e zgjedhur nuk është e vlefshme.");
+    }
+  }
+
+  if (access === "loading") {
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/basic">fiskalo<span>.</span></Link></header><section className="panel"><p className="sub">Duke verifikuar qasjen dhe duke ngarkuar raportin…</p></section></main>;
+  }
+  if (access === "unconfigured") {
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/basic">fiskalo<span>.</span></Link></header><section className="panel"><h1>Konfigurimi kërkohet</h1><p className="sub">Supabase nuk është konfiguruar në këtë mjedis.</p></section></main>;
+  }
+  if (access === "signed_out") {
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/basic">fiskalo<span>.</span></Link></header><section className="panel"><h1>Hyr në llogari</h1><p className="sub">Hyr në panelin e Fiskalo dhe hape përsëri raportin.</p><Link className="btn" href="/basic">Shko te hyrja</Link></section></main>;
+  }
+  if (access === "forbidden") {
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/basic">fiskalo<span>.</span></Link></header><section className="panel"><h1>Qasje e kufizuar</h1><p className="sub">Raportet financiare janë të disponueshme vetëm për pronarin e biznesit.</p><Link className="btn secondary" href="/basic">Kthehu në panel</Link></section></main>;
+  }
+  if (access === "error") {
+    return <main className="shell"><header className="topbar"><Link className="brand" href="/basic">fiskalo<span>.</span></Link><Link className="btn secondary" href="/basic">Kthehu në panel</Link></header><section className="panel"><h1>Raporti nuk u ngarkua</h1><p className="notice" role="alert">{message}</p><button className="btn" disabled={busy} onClick={() => void loadReport()}>Provo përsëri</button></section></main>;
+  }
+
+  return (
+    <main className="shell">
+      <header className="topbar">
+        <div>
+          <Link className="brand" href="/basic">fiskalo<span>.</span></Link>
+          {business && <span className="eyebrow">{business.name} · NUI {business.nui}</span>}
+        </div>
+        <Link className="btn secondary" href="/basic">Kthehu në panel</Link>
+      </header>
+
+      <div className="eyebrow">RAPORTET E BIZNESIT</div>
+      <h1>Raportet e shitjeve dhe TVSH-së.</h1>
+      <p className="sub">Regjistër menaxherial i shitjeve, pagesave, TVSH-së dhe statusit të fiskalizimit për periudhën e zgjedhur.</p>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <form className="row" style={{ alignItems: "end", flexWrap: "wrap" }} onSubmit={applyDateRange}>
+          <div className="field" style={{ minWidth: 170, margin: 0 }}>
+            <label htmlFor="report-start">Nga data (Kosovë)</label>
+            <input id="report-start" type="date" required value={startDate} onChange={event => setStartDate(event.target.value)} />
+          </div>
+          <div className="field" style={{ minWidth: 170, margin: 0 }}>
+            <label htmlFor="report-end">Deri më (Kosovë)</label>
+            <input id="report-end" type="date" required value={endDate} onChange={event => setEndDate(event.target.value)} />
+          </div>
+          <button className="btn" disabled={busy}>{busy ? "Duke ngarkuar…" : "Apliko periudhën"}</button>
+          <button type="button" className="btn secondary" disabled={busy || !sales.length} onClick={exportCsv}>Eksporto CSV</button>
+        </form>
+        {message && <p className="notice" role="alert" style={{ marginBottom: 0 }}>{message}</p>}
+        {truncated && <p className="notice" role="status" style={{ marginBottom: 0 }}>Ky raport përfshin maksimumi 5,000 shitje. Ngushto periudhën për të marrë një raport të plotë.</p>}
+      </section>
+
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", marginTop: 16 }}>
+        <div className="stat-card"><span className="eyebrow">Shitje</span><strong className="stat">{report.count}</strong></div>
+        <div className="stat-card"><span className="eyebrow">Neto</span><strong className="stat">{formatMoney(report.netCents)}</strong></div>
+        <div className="stat-card"><span className="eyebrow">TVSH</span><strong className="stat">{formatMoney(report.vatCents)}</strong></div>
+        <div className="stat-card"><span className="eyebrow">Bruto</span><strong className="stat">{formatMoney(report.grossCents)}</strong></div>
+        <div className="stat-card"><span className="eyebrow">Mesatarja / shitje</span><strong className="stat">{formatMoney(report.averageCents)}</strong></div>
+      </div>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <h2>Statusi i fiskalizimit</h2>
+        <p className="sub">Një shitje numërohet si e pranuar vetëm kur dokumenti origjinal ka statusin accepted dhe Transaction ID pozitiv të ruajtur.</p>
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))" }}>
+          <div className="stat-card"><span className="eyebrow">Pranuar nga ATK</span><strong className="stat">{report.acceptedCount}</strong></div>
+          <div className="stat-card"><span className="eyebrow">Në radhë</span><strong className="stat">{report.queuedCount}</strong></div>
+          <div className="stat-card"><span className="eyebrow">Refuzuar</span><strong className="stat">{report.rejectedCount}</strong></div>
+          <div className="stat-card"><span className="eyebrow">Reconciliim</span><strong className="stat">{report.reconciliationCount}</strong></div>
+          <div className="stat-card"><span className="eyebrow">Pa konfirmim</span><strong className="stat">{report.unconfirmedCount}</strong></div>
+        </div>
+      </section>
+
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginTop: 16 }}>
+        <section className="panel">
+          <h2>Pagesat sipas metodës</h2>
+          {report.payments.length === 0 ? <p className="sub">Nuk ka shitje në këtë periudhë.</p> : <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead><tr><th style={headerCell}>Metoda</th><th style={headerCell}>Shitje</th><th style={{ ...headerCell, textAlign: "right" }}>Shuma</th></tr></thead>
+              <tbody>{report.payments.map(row => <tr key={row.method}><td style={bodyCell}>{row.label}</td><td style={bodyCell}>{row.count}</td><td style={{ ...bodyCell, textAlign: "right", whiteSpace: "nowrap" }}>{formatMoney(row.amountCents)}</td></tr>)}</tbody>
+            </table>
+          </div>}
+        </section>
+        <section className="panel">
+          <h2>TVSH sipas kodit ATK</h2>
+          {report.vatGroups.length === 0 ? <p className="sub">Nuk ka ndarje të artikujve për këtë periudhë.</p> : <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead><tr><th style={headerCell}>Kodi</th><th style={headerCell}>Norma</th><th style={{ ...headerCell, textAlign: "right" }}>Rreshta</th><th style={{ ...headerCell, textAlign: "right" }}>Baza</th><th style={{ ...headerCell, textAlign: "right" }}>TVSH</th></tr></thead>
+              <tbody>{report.vatGroups.map(row => <tr key={row.code + ":" + row.rate}><td style={bodyCell}>{row.code}</td><td style={bodyCell}>{row.rate}%</td><td style={{ ...bodyCell, textAlign: "right" }}>{row.lineCount}</td><td style={{ ...bodyCell, textAlign: "right", whiteSpace: "nowrap" }}>{formatMoney(row.netCents)}</td><td style={{ ...bodyCell, textAlign: "right", whiteSpace: "nowrap" }}>{formatMoney(row.vatCents)}</td></tr>)}</tbody>
+            </table>
+          </div>}
+        </section>
+      </div>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <h2>Qarkullimi ditor</h2>
+        {report.days.length === 0 ? <p className="sub">Nuk ka shitje në këtë periudhë.</p> : <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead><tr><th style={headerCell}>Data (Kosovë)</th><th style={headerCell}>Shitje</th><th style={{ ...headerCell, textAlign: "right" }}>Qarkullimi bruto</th></tr></thead>
+            <tbody>{report.days.map(row => <tr key={row.date}><td style={bodyCell}>{row.date}</td><td style={bodyCell}>{row.count}</td><td style={{ ...bodyCell, textAlign: "right", whiteSpace: "nowrap" }}>{formatMoney(row.grossCents)}</td></tr>)}</tbody>
+          </table>
+        </div>}
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+          <div><h2>Regjistri i shitjeve</h2><p className="sub">Çdo shitje, mënyra e pagesës dhe gjendja e dokumentit origjinal në ATK.</p></div>
+          <button className="btn secondary" disabled={busy || !sales.length} onClick={exportCsv}>Eksporto CSV</button>
+        </div>
+        {sales.length === 0 ? <p className="sub">Nuk ka shitje në periudhën e zgjedhur.</p> : <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead><tr><th style={headerCell}>Kuponi</th><th style={headerCell}>Data</th><th style={headerCell}>Pagesa</th><th style={headerCell}>ATK</th><th style={{ ...headerCell, textAlign: "right" }}>Bruto</th></tr></thead>
+            <tbody>{sales.map(sale => {
+              const document = documentsBySale.get(sale.id);
+              const fiscalState = resolveFiscalReportState(document);
+              return <tr key={sale.id}>
+                <td style={bodyCell}>#{sale.coupon_id}<div className="sub">{paymentStatusLabel(sale.status)}</div></td>
+                <td style={bodyCell}>{new Date(sale.created_at).toLocaleString("sq-XK", { timeZone: "Europe/Belgrade" })}</td>
+                <td style={bodyCell}>{formatSalePaymentAllocations(sale)}</td>
+                <td style={bodyCell}>{fiscalStatusLabel(fiscalState)}{fiscalState === "accepted" && <div className="sub">ID {document?.atk_transaction_id}</div>}</td>
+                <td style={{ ...bodyCell, textAlign: "right", whiteSpace: "nowrap" }}>{formatMoney(Math.round(Number(sale.total) * 100))}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>}
+      </section>
+
+      <p className="footer">Ky është raport menaxherial nga regjistrat e Fiskalo. Nuk është deklaratë tatimore ose raport zyrtar i ATK-së dhe nuk zëvendëson dorëzimet në EDI.</p>
+    </main>
+  );
+}
