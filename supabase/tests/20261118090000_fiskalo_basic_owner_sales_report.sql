@@ -74,10 +74,11 @@ begin
     id,business_id,name,price,stock,atk_unit_code,atk_item_category_code,atk_vat_code,vat_rate
   ) values(report_product,owner_business,'Report item',10,1,'CP','TT','E',18);
   insert into public.fiskalo_basic_sales(
-    id,business_id,pos_id,coupon_id,operator_id,status,subtotal,vat_total,total,payment_method,created_at
+    id,business_id,pos_id,coupon_id,operator_id,operator_name,operator_identifier,
+    status,subtotal,vat_total,total,payment_method,created_at
   ) values(
-    report_sale,owner_business,report_pos,900001,owner_id,'fiscalized',10,1.80,11.80,'cash',
-    '2026-11-18T08:00:00Z'::timestamptz
+    report_sale,owner_business,report_pos,900001,owner_id,'Report Operator','REPORT-OP-1',
+    'fiscalized',10,1.80,11.80,'cash','2026-11-18T08:00:00Z'::timestamptz
   );
   insert into public.fiskalo_basic_sale_items(
     sale_id,product_id,description,quantity,unit_price,vat_rate,atk_unit_code,
