@@ -5,6 +5,7 @@ import {
   createHeartbeatCanonicalMessage,
   handleHeartbeat,
 } from "../src/lib/pos/server-heartbeat.ts";
+import { createPosHeartbeatCanonicalMessage } from "../src/lib/pos/heartbeat-canonical.ts";
 
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 
@@ -77,6 +78,20 @@ function mockSupabaseFetch(originalFetch, options = {}) {
   };
   return () => rpcCalls;
 }
+
+test("uses one LF-delimited canonical message across browser and server verification", () => {
+  const expected = [
+    "fiskalo-atk-heartbeat-v1",
+    "ATK TEST",
+    businessId,
+    posUuid,
+    nonce,
+    "1794916800000",
+  ].join("\n");
+  assert.equal(createPosHeartbeatCanonicalMessage(businessId, posUuid, nonce, 1794916800000), expected);
+  assert.equal(createHeartbeatCanonicalMessage(businessId, posUuid, nonce, 1794916800000), expected);
+  assert.equal(expected.includes("\\n"), false);
+});
 
 test("issues a server-signed heartbeat only after authenticating business membership and POS", async () => {
   const originalFetch = globalThis.fetch;
