@@ -459,7 +459,7 @@ async function performServerSignedPosHeartbeat(
     ["verify"],
   );
   const canonical = createPosHeartbeatCanonicalMessage(
-    businessId, posRecordId, nonce, payload.issuedAtUnixMs,
+    businessId, posRecordId, nonce, payload.issuedAtUnixMs!,
   );
   const signatureBinary = atob(payload.signatureBase64);
   const signature = Uint8Array.from(signatureBinary, char => char.charCodeAt(0));
