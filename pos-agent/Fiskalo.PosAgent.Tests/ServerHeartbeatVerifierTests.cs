@@ -18,10 +18,10 @@ public sealed class ServerHeartbeatVerifierTests
         const long issuedAt = 1794916800000;
         var canonical = ServerHeartbeatVerifier.CreateCanonicalMessage(businessId, posUuid, nonce, issuedAt);
         Assert.Equal(
-            "fiskalo-atk-heartbeat-v1\\nATK TEST\\n" +
-            "22222222-2222-4222-8222-222222222222\\n" +
-            "33333333-3333-4333-8333-333333333333\\n" +
-            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n1794916800000",
+            "fiskalo-atk-heartbeat-v1\nATK TEST\n" +
+            "22222222-2222-4222-8222-222222222222\n" +
+            "33333333-3333-4333-8333-333333333333\n" +
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n1794916800000",
             canonical);
         var signature = Convert.ToBase64String(signingKey.SignData(
             Encoding.UTF8.GetBytes(canonical),
