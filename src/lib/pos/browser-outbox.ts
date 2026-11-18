@@ -1,5 +1,6 @@
 import { decryptBrowserFiscalData, encryptBrowserFiscalData } from "../atk/browser-key-vault.ts";
 import type { EncryptedBrowserPayload } from "../atk/local-storage-crypto.ts";
+import { createPosHeartbeatCanonicalMessage } from "./heartbeat-canonical.ts";
 
 const DB_NAME = "fiskalo-fiscal-outbox";
 const STORE_NAME = "signed-documents";
@@ -309,11 +310,9 @@ async function verifyTrustedHeartbeatSignature(heartbeat: TrustedPosHeartbeat): 
       false,
       ["verify"],
     );
-    const canonical = [
-      "fiskalo-atk-heartbeat-v1", "ATK TEST",
-      heartbeat.businessId.toLowerCase(), heartbeat.posRecordId.toLowerCase(),
-      heartbeat.nonce, String(heartbeat.issuedAtUnixMs),
-    ].join("\\n");
+    const canonical = createPosHeartbeatCanonicalMessage(
+      heartbeat.businessId, heartbeat.posRecordId, heartbeat.nonce, heartbeat.issuedAtUnixMs,
+    );
     const signatureBinary = atob(heartbeat.signatureBase64);
     const signature = Uint8Array.from(signatureBinary, char => char.charCodeAt(0));
     return signature.length === 64 && await crypto.subtle.verify(
@@ -459,14 +458,9 @@ async function performServerSignedPosHeartbeat(
     false,
     ["verify"],
   );
-  const canonical = [
-    "fiskalo-atk-heartbeat-v1",
-    "ATK TEST",
-    businessId.toLowerCase(),
-    posRecordId.toLowerCase(),
-    nonce,
-    String(payload.issuedAtUnixMs),
-  ].join("\\n");
+  const canonical = createPosHeartbeatCanonicalMessage(
+    businessId, posRecordId, nonce, payload.issuedAtUnixMs,
+  );
   const signatureBinary = atob(payload.signatureBase64);
   const signature = Uint8Array.from(signatureBinary, char => char.charCodeAt(0));
   if (signature.length !== 64 || !await crypto.subtle.verify(
