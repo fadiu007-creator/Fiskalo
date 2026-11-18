@@ -33,9 +33,9 @@ test("heartbeat key provisioning pins a self-tested pair and refuses to overwrit
     const publicBase64 = publicDer.toString("base64");
     const fingerprint = createHash("sha256").update(publicDer).digest("hex");
 
-    assert.match(readFileSync(join(root, "src/lib/pos/server-heartbeat.ts"), "utf8"), new RegExp(publicBase64));
-    assert.match(readFileSync(join(root, "src/lib/pos/browser-outbox.ts"), "utf8"), new RegExp(publicBase64));
-    assert.match(readFileSync(join(root, "pos-agent/Fiskalo.PosAgent.Core/Atk/ServerHeartbeatVerifier.cs"), "utf8"), new RegExp(publicBase64));
+    assert.ok(readFileSync(join(root, "src/lib/pos/server-heartbeat.ts"), "utf8").includes(publicBase64));
+    assert.ok(readFileSync(join(root, "src/lib/pos/browser-outbox.ts"), "utf8").includes(publicBase64));
+    assert.ok(readFileSync(join(root, "pos-agent/Fiskalo.PosAgent.Core/Atk/ServerHeartbeatVerifier.cs"), "utf8").includes(publicBase64));
     assert.match(readFileSync(join(root, "docs/ATK-ARTICLE-44.md"), "utf8"), new RegExp(fingerprint));
     assert.match(firstRun.stdout, /self-verified a P-256 heartbeat key pair/);
 
