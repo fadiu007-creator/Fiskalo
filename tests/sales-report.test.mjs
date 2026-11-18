@@ -95,7 +95,7 @@ test("correction documents do not replace the original sale fiscal status or tra
   };
   const documents = [
     { sale_id: "sale-1", document_type: 1, submission_state: "accepted", atk_transaction_id: "123" },
-    { sale_id: "sale-1", document_type: 2, submission_state: "accepted", atk_transaction_id: "999" },
+    { sale_id: "sale-1", document_type: 2, reference_coupon_id: "10", submission_state: "accepted", atk_transaction_id: "999" },
   ];
   const report = buildSalesReport([sale], [], documents);
   const csv = buildSalesReportCsv([sale], [], documents);
@@ -106,7 +106,7 @@ test("correction documents do not replace the original sale fiscal status or tra
   assert.match(csv, /"123"/);
   assert.match(csv, /cancellation/);
   assert.doesNotMatch(csv, /"999"/);
-  assert.deepEqual(getCorrectionDocumentsBySale(documents).get("sale-1")?.document_type, 2);
+  assert.deepEqual(getCorrectionDocumentsBySale(documents, [sale]).get("sale-1")?.document_type, 2);
 });
 
 test("pending or unconfirmed corrections do not reduce sales totals", () => {
@@ -117,7 +117,7 @@ test("pending or unconfirmed corrections do not reduce sales totals", () => {
   };
   const report = buildSalesReport([sale], [], [
     { sale_id: "sale-1", document_type: 1, submission_state: "accepted", atk_transaction_id: "123" },
-    { sale_id: "sale-1", document_type: 3, submission_state: "needs_reconciliation", atk_transaction_id: null },
+    { sale_id: "sale-1", document_type: 3, reference_coupon_id: "40", submission_state: "needs_reconciliation", atk_transaction_id: null },
   ]);
   assert.equal(report.correctionCount, 0);
   assert.equal(report.adjustedNetCents, 1000);

@@ -58,6 +58,7 @@ begin
     where d.document_type in (2,3)
       and d.submission_state = 'accepted'
       and d.atk_transaction_id > 0
+      and d.reference_coupon_id = s.coupon_id
     group by d.sale_id
   ),
   grouped_items as (
@@ -116,6 +117,7 @@ begin
         pg_catalog.jsonb_build_object(
           'sale_id', d.sale_id,
           'document_type', d.document_type,
+          'reference_coupon_id', d.reference_coupon_id::text,
           'submission_state', d.submission_state,
           'atk_transaction_id', d.atk_transaction_id::text
         ) order by d.sale_id, d.id

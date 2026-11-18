@@ -181,7 +181,7 @@ export default function ReportsPage() {
 
   const report = useMemo(() => buildSalesReport(sales, items, documents), [sales, items, documents]);
   const documentsBySale = useMemo(() => getOriginalSaleDocumentsBySale(documents), [documents]);
-  const correctionDocumentsBySale = useMemo(() => getCorrectionDocumentsBySale(documents), [documents]);
+  const correctionDocumentsBySale = useMemo(() => getCorrectionDocumentsBySale(documents, sales), [documents, sales]);
 
   const exportCsv = useCallback(() => {
     if (!sales.length) return;

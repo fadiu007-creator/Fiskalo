@@ -26,6 +26,7 @@ export type ReportFiscalDocument = {
   submission_state: string;
   atk_transaction_id: string | null;
   document_type?: number | string;
+  reference_coupon_id?: string | null;
 };
 
 export type FiscalReportState =
@@ -185,10 +186,18 @@ export function getOriginalSaleDocumentsBySale(documents: ReportFiscalDocument[]
   );
 }
 
-export function getCorrectionDocumentsBySale(documents: ReportFiscalDocument[]): Map<string, ReportFiscalDocument> {
-  return indexDocuments(documents, document =>
-    Number(document.document_type) === 2 || Number(document.document_type) === 3
-  );
+export function getCorrectionDocumentsBySale(
+  documents: ReportFiscalDocument[],
+  sales?: ReportSale[],
+): Map<string, ReportFiscalDocument> {
+  const couponBySale = sales ? new Map(sales.map(sale => [sale.id, String(sale.coupon_id)])) : null;
+  return indexDocuments(documents, document => {
+    if (Number(document.document_type) !== 2 && Number(document.document_type) !== 3) return false;
+    if (!couponBySale) return true;
+    const originalCoupon = couponBySale.get(document.sale_id);
+    return originalCoupon != null && document.reference_coupon_id != null &&
+      String(document.reference_coupon_id) === originalCoupon;
+  });
 }
 
 export function buildSalesReport(
@@ -197,7 +206,7 @@ export function buildSalesReport(
   documents: ReportFiscalDocument[],
 ): SalesReport {
   const documentsBySale = getOriginalSaleDocumentsBySale(documents);
-  const correctionsBySale = getCorrectionDocumentsBySale(documents);
+  const correctionsBySale = getCorrectionDocumentsBySale(documents, sales);
   const payments = new Map<string, { method: string; label: string; count: number; amountCents: number }>();
   const days = new Map<string, { date: string; count: number; grossCents: number }>();
   const vatGroups = new Map<string, { code: string; rate: number; lineCount: number; netCents: number; vatCents: number; grossCents: number }>();
@@ -319,7 +328,7 @@ export function buildSalesReportCsv(
     itemCounts.set(item.sale_id, (itemCounts.get(item.sale_id) ?? 0) + positiveCount(item.line_count));
   }
   const documentsBySale = getOriginalSaleDocumentsBySale(documents);
-  const correctionsBySale = getCorrectionDocumentsBySale(documents);
+  const correctionsBySale = getCorrectionDocumentsBySale(documents, sales);
   const headers = [
     "Coupon ID", "Date", "Payment status", "Payment allocations", "Original net EUR",
     "Original VAT EUR", "Original gross EUR", "ATK status", "ATK transaction ID", "Item lines",
