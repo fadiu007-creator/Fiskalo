@@ -11,6 +11,9 @@ declare
   other_id uuid := '22222222-2222-4222-8222-222222222222';
   owner_business uuid := '33333333-3333-4333-8333-333333333333';
   other_business uuid := '44444444-4444-4444-8444-444444444444';
+  report_pos uuid := '55555555-5555-4555-8555-555555555555';
+  report_product uuid := '66666666-6666-4666-8666-666666666666';
+  report_sale uuid := '77777777-7777-4777-8777-777777777777';
   report_result jsonb;
 begin
   private_oid := to_regprocedure(
@@ -65,16 +68,49 @@ begin
     (owner_business,owner_id,'owner'),
     (other_business,other_id,'owner');
 
+  insert into public.fiskalo_basic_pos(id,business_id,label,location,branch_id,pos_id,fiscalization_number)
+  values(report_pos,owner_business,'Report POS','Prishtinë',1,1,'REPORT-TEST');
+  insert into public.fiskalo_basic_products(
+    id,business_id,name,price,stock,atk_unit_code,atk_item_category_code,atk_vat_code,vat_rate
+  ) values(report_product,owner_business,'Report item',10,1,'CP','TT','E',18);
+  insert into public.fiskalo_basic_sales(
+    id,business_id,pos_id,coupon_id,operator_id,status,subtotal,vat_total,total,payment_method,created_at
+  ) values(
+    report_sale,owner_business,report_pos,900001,owner_id,'fiscalized',10,1.80,11.80,'cash',
+    '2026-11-18T08:00:00Z'::timestamptz
+  );
+  insert into public.fiskalo_basic_sale_items(
+    sale_id,product_id,description,quantity,unit_price,vat_rate,atk_unit_code,
+    atk_item_category_code,atk_vat_code,line_net,line_vat,line_total
+  ) values(
+    report_sale,report_product,'Report item',1,10,18,'CP','TT','E',10,1.80,11.80
+  );
+  insert into public.fiskalo_basic_fiscal_documents(
+    business_id,sale_id,coupon_id,idempotency_key,document_type,reference_coupon_id,
+    signed_payload,signature,atk_transaction_id,submission_state
+  ) values
+    (owner_business,report_sale,900001,'report-test-original',1,null,'original-payload','original-signature',1000,'accepted'),
+    (owner_business,report_sale,900002,'report-test-return',3,900001,'return-payload','return-signature',1001,'accepted');
+
   perform set_config('request.jwt.claim.sub', owner_id::text, true);
   report_result := public.fiskalo_basic_sales_report(
     owner_business, '2026-11-01T00:00:00Z'::timestamptz,
     '2026-12-01T00:00:00Z'::timestamptz, 5000
   );
-  if report_result->'sales' <> '[]'::jsonb or
-     report_result->'items' <> '[]'::jsonb or
-     report_result->'documents' <> '[]'::jsonb or
+  if pg_catalog.jsonb_array_length(report_result->'sales') <> 1 or
+     pg_catalog.jsonb_array_length(report_result->'items') <> 1 or
+     pg_catalog.jsonb_array_length(report_result->'documents') <> 2 or
      report_result->>'truncated' <> 'false' then
-    raise exception 'Empty owner report must return bounded empty arrays and a false truncation flag';
+    raise exception 'Owner report must return the selected sale, VAT group, fiscal documents and truncation state';
+  end if;
+  if (report_result->'items'->0->>'line_net')::numeric <> -10.00 or
+     (report_result->'items'->0->>'line_vat')::numeric <> -1.80 or
+     (report_result->'items'->0->>'line_total')::numeric <> -11.80 then
+    raise exception 'Accepted full ATK returns must reverse the original VAT-code group amounts';
+  end if;
+  if (report_result->'sales'->0->>'total')::numeric <> 11.80 or
+     (report_result->'sales'->0->>'item_count')::integer <> 1 then
+    raise exception 'Original sale record and line count must remain intact for audit';
   end if;
 
   perform set_config('request.jwt.claim.sub', other_id::text, true);
