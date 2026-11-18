@@ -1,4 +1,6 @@
 
+import { createPosHeartbeatCanonicalMessage } from "./heartbeat-canonical.ts";
+
 const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHwziGBcgBfjbJ120yQ93+B+0Yqe1iP3C0ZDOaFxyMN6du4G0pCEI7AwYrHpIMkxRwV2/nNSdVZHsLt7Cwmlcww==";
 const MAX_BODY_BYTES = 4096;
 
@@ -55,11 +57,7 @@ export function createHeartbeatCanonicalMessage(
       !Number.isSafeInteger(issuedAtUnixMilliseconds) || issuedAtUnixMilliseconds <= 0) {
     throw new Error("Invalid canonical POS heartbeat fields.");
   }
-  return [
-    "fiskalo-atk-heartbeat-v1", "ATK TEST",
-    businessId.toLowerCase(), posUuid.toLowerCase(), nonce,
-    String(issuedAtUnixMilliseconds),
-  ].join("\n");
+  return createPosHeartbeatCanonicalMessage(businessId, posUuid, nonce, issuedAtUnixMilliseconds);
 }
 async function readJsonArray(response: Response): Promise<JsonRecord[]> {
   if (!response.ok) throw new Error("Supabase request failed with HTTP " + response.status + ".");
