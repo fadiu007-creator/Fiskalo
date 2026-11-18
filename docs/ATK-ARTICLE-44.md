@@ -40,13 +40,17 @@ The export is scoped to one POS and requires that POS's paired Agent on the devi
 
 The Cloudflare-hosted `/api/pos/heartbeat` endpoint requires a valid Supabase access token and membership in the business, checks the POS belongs to that business, and signs a fresh server timestamp with a pinned P-256 key. The browser verifies the signature before storing the heartbeat in encrypted IndexedDB; a paired Windows Agent also verifies it and persists the timestamp with DPAPI. The service-role-only database RPC stores the original nonce and its hash, actor, POS identity, signature, server timestamp and gap in an append-only table so the signature can be independently verified later. The database trigger links new offline fiscal documents to the matching heartbeat interval, rejects issue timestamps outside its two-minute tolerance, and overwrites the client-supplied recovery deadline with the server-anchored 48-hour deadline. It does not discard or block synchronization after that deadline; overdue documents remain available for recovery and Article 44 escalation.
 
-Configure the matching private key as a Cloudflare Worker secret:
+Provision the signing pair from the repository root:
 
 ```bash
-npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo
+node scripts/provision-atk-heartbeat-key.mjs
 ```
 
-The public key is pinned in the server/browser code. Its SHA-256 SPKI fingerprint is `f2d0ca6c8f7aa480d9bbbaf766212f2043c296b791bccc16a41f69f9c1a0ff87`. A missing or mismatched private key fails closed; the endpoint never accepts a browser timestamp as trusted time. Keep the PKCS#8 private key out of Git and out of all `NEXT_PUBLIC_` variables.
+The script generates a fresh P-256 PKCS#8 key pair, cryptographically self-tests it, updates the pinned public key in the server, browser and Windows Agent, updates this document's SPKI fingerprint, and writes the private key to `.secrets/atk-heartbeat-private-key.pem`. The `.secrets/` directory is git-ignored. Review and commit only the public-key source/documentation changes; never add the private-key file.
+
+Upload the generated private key as a Cloudflare Worker secret named `ATK_HEARTBEAT_PRIVATE_KEY_PEM` for Worker `fiskalo`. On macOS/Linux, run `npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo < .secrets/atk-heartbeat-private-key.pem`. In PowerShell, run `Get-Content -Raw .secrets/atk-heartbeat-private-key.pem | npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo`. Deploy the commit containing the matching public key and then verify the live endpoint returns a valid signature. The endpoint fails closed if the Worker secret is missing or mismatched. Never commit the private key or expose it through a `NEXT_PUBLIC_` variable.
+
+The current source pin is a bootstrap key only. Run the provisioning script in a trusted checkout before enabling the endpoint in a deployed environment; it deliberately refuses to overwrite an existing local private-key file.
 
 ## Database implementation
 
