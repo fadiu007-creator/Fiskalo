@@ -41,6 +41,13 @@ export type SalesReport = {
   vatCents: number;
   grossCents: number;
   averageCents: number;
+  correctionCount: number;
+  correctionNetCents: number;
+  correctionVatCents: number;
+  correctionGrossCents: number;
+  adjustedNetCents: number;
+  adjustedVatCents: number;
+  adjustedGrossCents: number;
   acceptedCount: number;
   queuedCount: number;
   rejectedCount: number;
@@ -147,19 +154,41 @@ export function formatSalePaymentAllocations(sale: ReportSale): string {
     .join(" + ");
 }
 
-function originalSaleDocuments(documents: ReportFiscalDocument[]): Map<string, ReportFiscalDocument> {
+function documentPriority(document: ReportFiscalDocument): number {
+  switch (resolveFiscalReportState(document)) {
+    case "accepted": return 5;
+    case "needs_reconciliation": return 4;
+    case "queued": return 3;
+    case "rejected": return 2;
+    default: return 1;
+  }
+}
+
+function indexDocuments(
+  documents: ReportFiscalDocument[],
+  predicate: (document: ReportFiscalDocument) => boolean,
+): Map<string, ReportFiscalDocument> {
   const result = new Map<string, ReportFiscalDocument>();
   for (const document of documents) {
-    if (document.document_type != null && Number(document.document_type) !== 1) continue;
+    if (!predicate(document)) continue;
     const current = result.get(document.sale_id);
-    if (!current || (
-      resolveFiscalReportState(document) === "accepted" &&
-      resolveFiscalReportState(current) !== "accepted"
-    )) {
+    if (!current || documentPriority(document) > documentPriority(current)) {
       result.set(document.sale_id, document);
     }
   }
   return result;
+}
+
+export function getOriginalSaleDocumentsBySale(documents: ReportFiscalDocument[]): Map<string, ReportFiscalDocument> {
+  return indexDocuments(documents, document =>
+    document.document_type == null || Number(document.document_type) === 1
+  );
+}
+
+export function getCorrectionDocumentsBySale(documents: ReportFiscalDocument[]): Map<string, ReportFiscalDocument> {
+  return indexDocuments(documents, document =>
+    Number(document.document_type) === 2 || Number(document.document_type) === 3
+  );
 }
 
 export function buildSalesReport(
@@ -167,7 +196,8 @@ export function buildSalesReport(
   items: ReportSaleItem[],
   documents: ReportFiscalDocument[],
 ): SalesReport {
-  const documentsBySale = originalSaleDocuments(documents);
+  const documentsBySale = getOriginalSaleDocumentsBySale(documents);
+  const correctionsBySale = getCorrectionDocumentsBySale(documents);
   const payments = new Map<string, { method: string; label: string; count: number; amountCents: number }>();
   const days = new Map<string, { date: string; count: number; grossCents: number }>();
   const vatGroups = new Map<string, { code: string; rate: number; lineCount: number; netCents: number; vatCents: number; grossCents: number }>();
@@ -175,6 +205,10 @@ export function buildSalesReport(
   let netCents = 0;
   let vatCents = 0;
   let grossCents = 0;
+  let correctionCount = 0;
+  let correctionNetCents = 0;
+  let correctionVatCents = 0;
+  let correctionGrossCents = 0;
   let acceptedCount = 0;
   let queuedCount = 0;
   let rejectedCount = 0;
@@ -188,6 +222,14 @@ export function buildSalesReport(
     netCents += saleNet;
     vatCents += saleVat;
     grossCents += saleGross;
+
+    const correction = correctionsBySale.get(sale.id);
+    if (correction && resolveFiscalReportState(correction) === "accepted") {
+      correctionCount += 1;
+      correctionNetCents += saleNet;
+      correctionVatCents += saleVat;
+      correctionGrossCents += saleGross;
+    }
 
     for (const allocation of resolveSalePaymentAllocations(sale, saleGross)) {
       const payment = payments.get(allocation.method) ?? {
@@ -242,6 +284,13 @@ export function buildSalesReport(
     vatCents,
     grossCents,
     averageCents: sales.length ? Math.round(grossCents / sales.length) : 0,
+    correctionCount,
+    correctionNetCents,
+    correctionVatCents,
+    correctionGrossCents,
+    adjustedNetCents: netCents - correctionNetCents,
+    adjustedVatCents: vatCents - correctionVatCents,
+    adjustedGrossCents: grossCents - correctionGrossCents,
     acceptedCount,
     queuedCount,
     rejectedCount,
@@ -269,28 +318,43 @@ export function buildSalesReportCsv(
     if (!item.sale_id) continue;
     itemCounts.set(item.sale_id, (itemCounts.get(item.sale_id) ?? 0) + positiveCount(item.line_count));
   }
-  const documentsBySale = originalSaleDocuments(documents);
+  const documentsBySale = getOriginalSaleDocumentsBySale(documents);
+  const correctionsBySale = getCorrectionDocumentsBySale(documents);
   const headers = [
-    "Coupon ID", "Date", "Payment status", "Payment allocations", "Net EUR",
-    "VAT EUR", "Gross EUR", "ATK status", "ATK transaction ID", "Item lines",
+    "Coupon ID", "Date", "Payment status", "Payment allocations", "Original net EUR",
+    "Original VAT EUR", "Original gross EUR", "ATK status", "ATK transaction ID", "Item lines",
+    "Correction type", "Correction status", "Correction transaction ID",
+    "Adjusted net EUR", "Adjusted VAT EUR", "Adjusted gross EUR",
   ];
   const rows = sales.map(sale => {
     const document = documentsBySale.get(sale.id);
+    const correction = correctionsBySale.get(sale.id);
     const state = resolveFiscalReportState(document);
+    const correctionState = correction ? resolveFiscalReportState(correction) : "unconfirmed";
+    const correctionAccepted = correctionState === "accepted";
     const itemCount = sale.item_count == null
       ? itemCounts.get(sale.id) ?? 0
       : positiveCount(sale.item_count, 0);
+    const net = toCents(sale.subtotal);
+    const vat = toCents(sale.vat_total);
+    const gross = toCents(sale.total);
     return [
       sale.coupon_id,
       sale.created_at,
       sale.status,
       formatSalePaymentAllocations(sale),
-      (toCents(sale.subtotal) / 100).toFixed(2),
-      (toCents(sale.vat_total) / 100).toFixed(2),
-      (toCents(sale.total) / 100).toFixed(2),
+      (net / 100).toFixed(2),
+      (vat / 100).toFixed(2),
+      (gross / 100).toFixed(2),
       state,
       state === "accepted" ? String(document?.atk_transaction_id ?? "") : "",
       itemCount,
+      correction ? (Number(correction.document_type) === 2 ? "cancellation" : "full return") : "",
+      correction ? correctionState : "",
+      correctionAccepted ? String(correction?.atk_transaction_id ?? "") : "",
+      ((correctionAccepted ? 0 : net) / 100).toFixed(2),
+      ((correctionAccepted ? 0 : vat) / 100).toFixed(2),
+      ((correctionAccepted ? 0 : gross) / 100).toFixed(2),
     ];
   });
   return "\uFEFF" + [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");

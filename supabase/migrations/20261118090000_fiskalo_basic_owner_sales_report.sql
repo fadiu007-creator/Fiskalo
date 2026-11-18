@@ -51,16 +51,26 @@ begin
     join selected_sales s on s.id = i.sale_id
     group by i.sale_id
   ),
+  accepted_corrections as (
+    select d.sale_id
+    from public.fiskalo_basic_fiscal_documents d
+    join selected_sales s on s.id = d.sale_id
+    where d.document_type in (2,3)
+      and d.submission_state = 'accepted'
+      and d.atk_transaction_id > 0
+    group by d.sale_id
+  ),
   grouped_items as (
     select
       i.atk_vat_code,
       i.vat_rate,
       count(*)::integer as line_count,
-      sum(i.line_net) as line_net,
-      sum(i.line_vat) as line_vat,
-      sum(i.line_total) as line_total
+      sum(case when accepted_corrections.sale_id is null then i.line_net else -i.line_net end) as line_net,
+      sum(case when accepted_corrections.sale_id is null then i.line_vat else -i.line_vat end) as line_vat,
+      sum(case when accepted_corrections.sale_id is null then i.line_total else -i.line_total end) as line_total
     from public.fiskalo_basic_sale_items i
     join selected_sales s on s.id = i.sale_id
+    left join accepted_corrections on accepted_corrections.sale_id = s.id
     group by i.atk_vat_code, i.vat_rate
   ),
   sales_payload as (

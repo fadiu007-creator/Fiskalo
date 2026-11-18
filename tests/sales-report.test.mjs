@@ -4,6 +4,7 @@ import {
   buildSalesReport,
   buildSalesReportCsv,
   hasPositiveUint64,
+  getCorrectionDocumentsBySale,
   localDateRangeToIso,
   resolveFiscalReportState,
 } from "../src/lib/reports/sales-report.ts";
@@ -99,8 +100,29 @@ test("correction documents do not replace the original sale fiscal status or tra
   const report = buildSalesReport([sale], [], documents);
   const csv = buildSalesReportCsv([sale], [], documents);
   assert.equal(report.acceptedCount, 1);
+  assert.equal(report.correctionCount, 1);
+  assert.equal(report.correctionGrossCents, 118);
+  assert.equal(report.adjustedGrossCents, 0);
   assert.match(csv, /"123"/);
+  assert.match(csv, /cancellation/);
   assert.doesNotMatch(csv, /"999"/);
+  assert.deepEqual(getCorrectionDocumentsBySale(documents).get("sale-1")?.document_type, 2);
+});
+
+test("pending or unconfirmed corrections do not reduce sales totals", () => {
+  const sale = {
+    id: "sale-1", coupon_id: "40", created_at: "2026-11-12T12:00:00.000Z",
+    status: "fiscalized", subtotal: "10.00", vat_total: "1.80", total: "11.80",
+    payment_method: "cash",
+  };
+  const report = buildSalesReport([sale], [], [
+    { sale_id: "sale-1", document_type: 1, submission_state: "accepted", atk_transaction_id: "123" },
+    { sale_id: "sale-1", document_type: 3, submission_state: "needs_reconciliation", atk_transaction_id: null },
+  ]);
+  assert.equal(report.correctionCount, 0);
+  assert.equal(report.adjustedNetCents, 1000);
+  assert.equal(report.adjustedVatCents, 180);
+  assert.equal(report.adjustedGrossCents, 1180);
 });
 
 test("reports split tenders by their actual allocations and falls back for legacy sales", () => {

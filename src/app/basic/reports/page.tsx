@@ -7,6 +7,8 @@ import {
   buildSalesReport,
   buildSalesReportCsv,
   formatSalePaymentAllocations,
+  getCorrectionDocumentsBySale,
+  getOriginalSaleDocumentsBySale,
   localDateRangeToIso,
   resolveFiscalReportState,
   type ReportFiscalDocument,
@@ -59,6 +61,12 @@ function paymentStatusLabel(status: string): string {
     case "draft": return "Draft";
     default: return status;
   }
+}
+
+function correctionStatusLabel(document: ReportFiscalDocument | undefined): string {
+  if (!document) return "—";
+  const kind = Number(document.document_type) === 2 ? "Anulim" : "Kthim i plotë";
+  return kind + " · " + fiscalStatusLabel(resolveFiscalReportState(document));
 }
 
 const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 13 };
@@ -172,18 +180,8 @@ export default function ReportsPage() {
   }, [loadReport]);
 
   const report = useMemo(() => buildSalesReport(sales, items, documents), [sales, items, documents]);
-  const documentsBySale = useMemo(() => {
-    const result = new Map<string, ReportFiscalDocument>();
-    for (const item of documents) {
-      if (item.document_type != null && Number(item.document_type) !== 1) continue;
-      const current = result.get(item.sale_id);
-      if (!current || (
-        resolveFiscalReportState(item) === "accepted" &&
-        resolveFiscalReportState(current) !== "accepted"
-      )) result.set(item.sale_id, item);
-    }
-    return result;
-  }, [documents]);
+  const documentsBySale = useMemo(() => getOriginalSaleDocumentsBySale(documents), [documents]);
+  const correctionDocumentsBySale = useMemo(() => getCorrectionDocumentsBySale(documents), [documents]);
 
   const exportCsv = useCallback(() => {
     if (!sales.length) return;
@@ -256,12 +254,14 @@ export default function ReportsPage() {
       </section>
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", marginTop: 16 }}>
-        <div className="stat-card"><span className="eyebrow">Shitje</span><strong className="stat">{report.count}</strong></div>
-        <div className="stat-card"><span className="eyebrow">Neto</span><strong className="stat">{formatMoney(report.netCents)}</strong></div>
-        <div className="stat-card"><span className="eyebrow">TVSH</span><strong className="stat">{formatMoney(report.vatCents)}</strong></div>
-        <div className="stat-card"><span className="eyebrow">Bruto</span><strong className="stat">{formatMoney(report.grossCents)}</strong></div>
-        <div className="stat-card"><span className="eyebrow">Mesatarja / shitje</span><strong className="stat">{formatMoney(report.averageCents)}</strong></div>
+        <div className="stat-card"><span className="eyebrow">Shitje origjinale</span><strong className="stat">{report.count}</strong></div>
+        <div className="stat-card"><span className="eyebrow">Bruto origjinale</span><strong className="stat">{formatMoney(report.grossCents)}</strong></div>
+        <div className="stat-card"><span className="eyebrow">Korrigjime të pranuara</span><strong className="stat">{report.correctionCount}</strong><span className="sub">{formatMoney(report.correctionGrossCents)}</span></div>
+        <div className="stat-card"><span className="eyebrow">Neto pas korrigjimeve</span><strong className="stat">{formatMoney(report.adjustedNetCents)}</strong></div>
+        <div className="stat-card"><span className="eyebrow">TVSH pas korrigjimeve</span><strong className="stat">{formatMoney(report.adjustedVatCents)}</strong></div>
+        <div className="stat-card"><span className="eyebrow">Bruto pas korrigjimeve</span><strong className="stat">{formatMoney(report.adjustedGrossCents)}</strong></div>
       </div>
+      <p className="sub">Anulimet dhe kthimet e plota zbriten vetëm kur dokumenti korrigjues ka statusin accepted dhe Transaction ID pozitiv nga ATK. Korrigjimet i atribuohen periudhës së shitjes origjinale; pagesat dhe qarkullimi ditor paraqiten veçmas sipas shitjes fillestare.</p>
 
       <section className="panel" style={{ marginTop: 16 }}>
         <h2>Statusi i fiskalizimit</h2>
@@ -277,7 +277,7 @@ export default function ReportsPage() {
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginTop: 16 }}>
         <section className="panel">
-          <h2>Pagesat sipas metodës</h2>
+          <h2>Pagesat sipas metodës (shitjet origjinale)</h2>
           {report.payments.length === 0 ? <p className="sub">Nuk ka shitje në këtë periudhë.</p> : <div style={{ overflowX: "auto" }}>
             <table style={tableStyle}>
               <thead><tr><th style={headerCell}>Metoda</th><th style={headerCell}>Shitje</th><th style={{ ...headerCell, textAlign: "right" }}>Shuma</th></tr></thead>
@@ -286,7 +286,7 @@ export default function ReportsPage() {
           </div>}
         </section>
         <section className="panel">
-          <h2>TVSH sipas kodit ATK</h2>
+          <h2>TVSH neto sipas kodit ATK</h2>
           {report.vatGroups.length === 0 ? <p className="sub">Nuk ka ndarje të artikujve për këtë periudhë.</p> : <div style={{ overflowX: "auto" }}>
             <table style={tableStyle}>
               <thead><tr><th style={headerCell}>Kodi</th><th style={headerCell}>Norma</th><th style={{ ...headerCell, textAlign: "right" }}>Rreshta</th><th style={{ ...headerCell, textAlign: "right" }}>Baza</th><th style={{ ...headerCell, textAlign: "right" }}>TVSH</th></tr></thead>
@@ -297,7 +297,7 @@ export default function ReportsPage() {
       </div>
 
       <section className="panel" style={{ marginTop: 16 }}>
-        <h2>Qarkullimi ditor</h2>
+        <h2>Qarkullimi ditor (para korrigjimeve)</h2>
         {report.days.length === 0 ? <p className="sub">Nuk ka shitje në këtë periudhë.</p> : <div style={{ overflowX: "auto" }}>
           <table style={tableStyle}>
             <thead><tr><th style={headerCell}>Data (Kosovë)</th><th style={headerCell}>Shitje</th><th style={{ ...headerCell, textAlign: "right" }}>Qarkullimi bruto</th></tr></thead>
@@ -313,15 +313,18 @@ export default function ReportsPage() {
         </div>
         {sales.length === 0 ? <p className="sub">Nuk ka shitje në periudhën e zgjedhur.</p> : <div style={{ overflowX: "auto" }}>
           <table style={tableStyle}>
-            <thead><tr><th style={headerCell}>Kuponi</th><th style={headerCell}>Data</th><th style={headerCell}>Pagesa</th><th style={headerCell}>ATK</th><th style={{ ...headerCell, textAlign: "right" }}>Bruto</th></tr></thead>
+            <thead><tr><th style={headerCell}>Kuponi</th><th style={headerCell}>Data</th><th style={headerCell}>Pagesa</th><th style={headerCell}>ATK</th><th style={headerCell}>Korrigjimi</th><th style={{ ...headerCell, textAlign: "right" }}>Bruto origjinale</th></tr></thead>
             <tbody>{sales.map(sale => {
               const document = documentsBySale.get(sale.id);
+              const correctionDocument = correctionDocumentsBySale.get(sale.id);
               const fiscalState = resolveFiscalReportState(document);
+              const correctionState = correctionDocument ? resolveFiscalReportState(correctionDocument) : "unconfirmed";
               return <tr key={sale.id}>
                 <td style={bodyCell}>#{sale.coupon_id}<div className="sub">{paymentStatusLabel(sale.status)}</div></td>
                 <td style={bodyCell}>{new Date(sale.created_at).toLocaleString("sq-XK", { timeZone: "Europe/Belgrade" })}</td>
                 <td style={bodyCell}>{formatSalePaymentAllocations(sale)}</td>
                 <td style={bodyCell}>{fiscalStatusLabel(fiscalState)}{fiscalState === "accepted" && <div className="sub">ID {document?.atk_transaction_id}</div>}</td>
+                <td style={bodyCell}>{correctionStatusLabel(correctionDocument)}{correctionState === "accepted" && <div className="sub">ID {correctionDocument?.atk_transaction_id}</div>}</td>
                 <td style={{ ...bodyCell, textAlign: "right", whiteSpace: "nowrap" }}>{formatMoney(Math.round(Number(sale.total) * 100))}</td>
               </tr>;
             })}</tbody>
@@ -329,7 +332,7 @@ export default function ReportsPage() {
         </div>}
       </section>
 
-      <p className="footer">Ky është raport menaxherial nga regjistrat e Fiskalo. Nuk është deklaratë tatimore ose raport zyrtar i ATK-së dhe nuk zëvendëson dorëzimet në EDI.</p>
+      <p className="footer">Ky është raport menaxherial nga regjistrat e Fiskalo. Kthimet/anulimet e plota zbriten nga netoja vetëm pas pranimit nga ATK; pagesat dhe qarkullimi ditor mbeten sipas shitjeve origjinale. Nuk është deklaratë tatimore ose raport zyrtar i ATK-së dhe nuk zëvendëson dorëzimet në EDI.</p>
     </main>
   );
 }
