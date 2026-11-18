@@ -13,29 +13,25 @@ const targets = [
   {
     path: "src/lib/pos/server-heartbeat.ts",
     pattern: /(const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = ")[^"]+(")/,
-    replacement: (_match, before, after, key) => before + key + after,
   },
   {
     path: "src/lib/pos/browser-outbox.ts",
     pattern: /(const HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = ")[^"]+(")/,
-    replacement: (_match, before, after, key) => before + key + after,
   },
   {
     path: "pos-agent/Fiskalo.PosAgent.Core/Atk/ServerHeartbeatVerifier.cs",
     pattern: /(private const string TestPublicKeyBase64 =\s*")[^"]+(")/,
-    replacement: (_match, before, after, key) => before + key + after,
   },
 ];
 
 const sourceFiles = targets.map((target) => {
   const filePath = join(root, target.path);
   if (!existsSync(filePath)) throw new Error("Required public-key pin file is missing: " + target.path);
-  const original = readFileSync(filePath, "utf8");
-  const matches = original.match(target.pattern);
-  if (!matches || original.match(new RegExp(target.pattern.source, "g"))?.length !== 1) {
+  const content = readFileSync(filePath, "utf8");
+  if (!target.pattern.test(content) || content.match(new RegExp(target.pattern.source, "g"))?.length !== 1) {
     throw new Error("Expected exactly one public-key pin in " + target.path);
   }
-  return { ...target, filePath, content: original };
+  return { ...target, filePath, content };
 });
 
 const article44Path = join(root, "docs/ATK-ARTICLE-44.md");
@@ -45,13 +41,11 @@ if (!fingerprintPattern.test(article44) || article44.match(new RegExp(fingerprin
   throw new Error("Expected exactly one documented heartbeat public-key fingerprint.");
 }
 
-const { privateKey, publicKey } = generateKeyPairSync("ec", {
-  namedCurve: "prime256v1",
-  publicKeyEncoding: { type: "spki", format: "der" },
-  privateKeyEncoding: { type: "pkcs8", format: "pem" },
-});
-const publicKeyBase64 = publicKey.toString("base64");
-const fingerprint = createHash("sha256").update(publicKey).digest("hex");
+const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+const privatePem = privateKey.export({ type: "pkcs8", format: "pem" });
+const publicDer = publicKey.export({ type: "spki", format: "der" });
+const publicKeyBase64 = publicDer.toString("base64");
+const fingerprint = createHash("sha256").update(publicDer).digest("hex");
 const probe = Buffer.from("fiskalo-atk-heartbeat-key-pair-self-test-v1");
 const signature = sign("sha256", probe, privateKey);
 if (!verify("sha256", probe, publicKey, signature)) {
@@ -60,12 +54,12 @@ if (!verify("sha256", probe, publicKey, signature)) {
 
 const updatedSources = sourceFiles.map((source) => ({
   ...source,
-  content: source.content.replace(source.pattern, (...args) => source.replacement(...args, publicKeyBase64)),
+  content: source.content.replace(source.pattern, (_match, before, after) => before + publicKeyBase64 + after),
 }));
 const updatedArticle44 = article44.replace(fingerprintPattern, (_match, before, after) => before + fingerprint + after);
 
 mkdirSync(secretDirectory, { recursive: true });
-writeFileSync(privateKeyPath, privateKey, { encoding: "utf8", flag: "wx", mode: 0o600 });
+writeFileSync(privateKeyPath, privatePem, { encoding: "utf8", flag: "wx", mode: 0o600 });
 try {
   chmodSync(privateKeyPath, 0o600);
 } catch {
