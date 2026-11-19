@@ -32,9 +32,9 @@ Current route map:
 
 ## Verified against the live Supabase project
 
-The connected live Supabase project (`saavqlbwffrwxingbnri`) has the two signed-heartbeat migrations recorded in its migration ledger. The earlier Basic/Full feature and offline-fiscalization migration history is documented separately; do not assume it is identical to the connected project without checking its ledger.
+The connected Supabase project (`saavqlbwffrwxingbnri`) was verified to contain the two signed-heartbeat migrations in its migration ledger. The earlier Basic/Full and offline-fiscalization migrations below are historical project documentation; their presence in this connected project's ledger has not been re-verified in this release check. Do not treat this list as proof that a fresh database is fully provisioned.
 
-The following migrations have been applied to the connected live project:
+Migrations documented by the project include:
 
 - `0025_fiskalo_revoke_trigger_function_api_execute.sql` — removes direct API execution from trigger-only helper functions.
 - `0026_fiskalo_basic_article44_incident_register.sql` — owner-only Article 44 incident and private evidence register.
@@ -45,8 +45,8 @@ The following migrations have been applied to the connected live project:
 - `0031_fiskalo_article44_deadline_boundary.sql` — fixes the exact midnight boundary after the 10th day.
 - `0032_fiskalo_article44_monthly_export_proof_guard.sql` — enforces both the JSON/CSV export and actual ATK filing proof at the database boundary.
 - `0033_fiskalo_basic_complete_atk_item_categories.sql` — expands the product category constraint to all 52 unique 2026 ATK codes.
-- `20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql` — creates the append-only server heartbeat evidence ledger and service-role-only recording RPC.
-- `20261117160100_fiskalo_basic_offline_heartbeat_binding.sql` — binds offline fiscal document timestamps and recovery deadlines to trusted server heartbeat intervals.
+- `20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql` — verified in the connected project's migration ledger; creates the append-only server heartbeat evidence ledger and service-role-only recording RPC.
+- `20261117160100_fiskalo_basic_offline_heartbeat_binding.sql` — verified in the connected project's migration ledger; binds offline fiscal document timestamps and recovery deadlines to trusted server heartbeat intervals.
 
 Temporary, rolled-back Supabase integration checks exercised online and offline split tender, idempotent retries, rejection of changed payment allocations, Article 44 incident creation, export authorization, deadline enforcement and evidence requirements. No test business or sale records were retained.
 
