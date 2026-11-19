@@ -323,6 +323,44 @@ export default function Home(){
   },[agentSessionToken,business,selectedPos,supabase,user]);
 
   useEffect(()=>{
+    if(!business)return;
+    let active=true;
+    const refreshQueueSummary=async()=>{
+      try{
+        const items=await listFiscalOutboxItems(business.id);
+        if(!active)return;
+        const now=Date.now();
+        const summary:QueueSummary={
+          prepared:items.filter(item=>item.state==="prepared").length,
+          queued:items.filter(item=>item.state==="queued").length,
+          cloudQueued:items.filter(item=>item.state==="cloud_queued").length,
+          reconciliation:items.filter(item=>item.state==="needs_reconciliation").length,
+          rejected:items.filter(item=>item.state==="rejected").length,
+          overdue:items.filter(item=>item.state!=="accepted"&&Date.parse(item.recoveryDeadlineUtc)<=now).length,
+          total:items.filter(item=>item.state!=="accepted").length
+        };
+        setQueueSummary(summary);
+        setQueueOverdueCount(summary.overdue);
+        setQueueSummaryError("");
+      }catch(error){
+        if(!active)return;
+        setQueueSummary(null);
+        setQueueSummaryError(error instanceof Error?error.message:"Radha lokale nuk mund të lexohet në këtë shfletues.");
+      }
+    };
+    void refreshQueueSummary();
+    const timer=setInterval(()=>void refreshQueueSummary(),15_000);
+    window.addEventListener("online",refreshQueueSummary);
+    window.addEventListener("offline",refreshQueueSummary);
+    return()=>{
+      active=false;
+      clearInterval(timer);
+      window.removeEventListener("online",refreshQueueSummary);
+      window.removeEventListener("offline",refreshQueueSummary);
+    };
+  },[business]);
+
+  useEffect(()=>{
     if(!business||!supabase||!user)return;
     let running=false;
     let active=true;
@@ -1004,6 +1042,24 @@ export default function Home(){
         </div>)}
       </div>
     </section>}
+    <section className="panel" aria-label="Gjendja operative e fiskalizimit" style={{marginBottom:16}}>
+      <div className="row" style={{justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+        <div><div className="eyebrow">MONITORIMI I FISKALIZIMIT</div><h2>Gjendja operative</h2><p className="sub">Statuset lexohen nga ky shfletues dhe nga heartbeat-i i nënshkruar i serverit. Nuk janë provë e pranimit nga ATK.</p></div>
+        <span className="status">{navigator.onLine?"SHFLETUESI ONLINE":"SHFLETUESI OFFLINE"}</span>
+      </div>
+      <div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",marginTop:12}}>
+        <div className="stat-card"><span className="eyebrow">Heartbeat serveri</span><strong className="stat" style={{fontSize:17}}>{heartbeatState==="online"?"I VERIFIKUAR":heartbeatState==="checking"?"DUKE KONTROLLUAR":heartbeatState==="offline"?"OFFLINE":"I PAVERIFIKUAR"}</strong><small className="sub">{heartbeatServerTime?new Date(heartbeatServerTime).toLocaleString("sq-XK"):"Nuk ka heartbeat të konfirmuar në këtë sesion"}</small></div>
+        <div className="stat-card"><span className="eyebrow">Windows POS Agent</span><strong className="stat" style={{fontSize:17}}>{agentStatus==="paired"?"I ÇIFTUAR":agentStatus==="unavailable"?"I PAAKSUESHËM":"I PALIDHUR"}</strong><small className="sub">Çiftimi nuk provon vetvetiu certifikimin ATK.</small></div>
+        <div className="stat-card"><span className="eyebrow">Dokumente lokale aktive</span><strong className="stat">{queueSummary?queueSummary.total:"—"}</strong><small className="sub">Outbox i enkriptuar në këtë shfletues</small></div>
+        <div className="stat-card"><span className="eyebrow">Në pritje të sinkronizimit</span><strong className="stat">{queueSummary?queueSummary.queued+queueSummary.cloudQueued:"—"}</strong><small className="sub">Lokale + radhë cloud</small></div>
+        <div className="stat-card"><span className="eyebrow">Reconciliim i nevojshëm</span><strong className="stat">{queueSummary?queueSummary.reconciliation:"—"}</strong><small className="sub">Mos ridërgo pa kontrolluar statusin ATK</small></div>
+        <div className="stat-card"><span className="eyebrow">Afati 48-orësh i kaluar</span><strong className="stat" style={{color:queueSummary?.overdue?"#b91c1c":"inherit"}}>{queueSummary?queueSummary.overdue:"—"}</strong><small className="sub">Afat eskalimi, jo fshirjeje</small></div>
+      </div>
+      {heartbeatError&&<p className="notice" role="status" style={{marginTop:12}}>Heartbeat: {heartbeatError}</p>}
+      {queueSummaryError&&<p className="notice" role="alert" style={{marginTop:12}}>Outbox: {queueSummaryError} Numrat nuk paraqiten si zero kur ruajtja lokale nuk mund të lexohet.</p>}
+      {queueSummary&&queueSummary.prepared>0&&<p className="notice" role="alert" style={{marginTop:12}}>{queueSummary.prepared} dokument(e) të përgatitur kërkojnë verifikim/reconciliim; mos i ridërgo verbërisht.</p>}
+      {queueSummary&&queueSummary.rejected>0&&<p className="notice" role="alert" style={{marginTop:12}}>{queueSummary.rejected} dokument(e) janë refuzuar. Kontrollo përgjigjen e ATK-së para veprimit korrigjues.</p>}
+    </section>
     {queueOverdueCount>0&&<p className="notice" role="alert">KUJDES: {queueOverdueCount} dokument(e) në outbox kanë kaluar afatin 48-orësh. Mos i ridërgo automatikisht; kërkohet reconciliim me regjistrin e ATK-së.</p>}
     <div className="row" style={{margin:"22px 0"}}><button className={tab==="pos"?"btn":"btn secondary"} onClick={()=>setTab("pos")}>Arka / POS</button>{memberRole==="owner"&&<><button className={tab==="products"?"btn":"btn secondary"} onClick={()=>setTab("products")}>Produktet dhe stoku</button><button className={tab==="purchases"?"btn":"btn secondary"} onClick={()=>setTab("purchases")}>Blerjet &amp; shpenzimet</button><button className={tab==="atk"?"btn":"btn secondary"} onClick={()=>setTab("atk")}>ATK / POS</button><button className={tab==="sales"?"btn":"btn secondary"} onClick={()=>{setTab("sales");void loadSales();}}>Shitjet</button></>}</div>
     {message&&<p className="notice" role="status">{message}</p>}
