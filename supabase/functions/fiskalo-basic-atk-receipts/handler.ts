@@ -458,7 +458,7 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
           numeric(attestation.branchId) !== pos.branchId || numeric(attestation.posNumber) !== pos.posNumber ||
           numeric(attestation.applicationId) !== numeric(pos.applicationId) ||
           idempotencyKey !== `${attestation.businessNui}:${attestation.branchId}:${attestation.posNumber}:${attestation.couponId}` ||
-          (attestation.checkoutIdempotencyKey !== null && attestation.checkoutIdempotencyKey !== sale.checkoutIdempotencyKey) ||
+          attestation.checkoutIdempotencyKey !== sale.checkoutIdempotencyKey ||
           attestation.nuiKf !== attestation.verificationNo || !NUIKF.test(attestation.nuiKf) ||
           !attestation.citizenPayloadBase64 || !attestation.citizenSignatureBase64 ||
           attestation.qrSvgBase64.length === 0 || attestation.certificateThumbprint.length < 8 ||
