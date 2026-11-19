@@ -92,7 +92,7 @@ test("legacy correction mapping fails closed when original coupon items do not m
   );
 });
 
-function makeCitizenPayload(overrides = {}) {
+function makeCitizenPayload() {
   return encodeAtkBase64(encodeAtkCitizenCoupon({
     businessId: "123456789",
     couponId: 100,
@@ -105,7 +105,6 @@ function makeCitizenPayload(overrides = {}) {
     taxGroups: [{ taxRate: "E", totalForTaxCents: 100, totalTaxCents: 18 }],
     totalTaxCents: 18,
     totalNoTaxCents: 100,
-    ...overrides,
   }));
 }
 
@@ -128,9 +127,87 @@ test("official CitizenCoupon validation accepts the signed receipt QR payload", 
   assert.equal(readAtkPosCouponVerificationNo(makePayload()), citizenContext.verificationNo);
 });
 
-test("CitizenCoupon validation rejects totals or verification numbers that differ from POS Coupon", () => {
-  const invalid = makeCitizenPayload({ totalCents: 117 });
+function readVarint(bytes, start) {
+  let value = 0n;
+  let shift = 0n;
+  let cursor = start;
+  while (cursor < bytes.length && shift < 70n) {
+    const byte = bytes[cursor++];
+    value |= BigInt(byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) return { value, next: cursor };
+    shift += 7n;
+  }
+  throw new Error("Malformed test Protobuf varint.");
+}
+
+function encodeVarint(value) {
+  let remaining = BigInt(value);
+  const bytes = [];
+  do {
+    let byte = Number(remaining & 0x7fn);
+    remaining >>= 7n;
+    if (remaining > 0n) byte |= 0x80;
+    bytes.push(byte);
+  } while (remaining > 0n);
+  return bytes;
+}
+
+function replaceProtoField(base64, targetField, replacement, wireType) {
+  const binary = atob(base64);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  let cursor = 0;
+  while (cursor < bytes.length) {
+    const tag = readVarint(bytes, cursor);
+    cursor = tag.next;
+    const field = Number(tag.value >> 3n);
+    const wire = Number(tag.value & 7n);
+    if (wire === 0) {
+      const value = readVarint(bytes, cursor);
+      if (field === targetField && wireType === 0) {
+        const updated = [
+          ...bytes.slice(0, cursor),
+          ...encodeVarint(replacement),
+          ...bytes.slice(value.next),
+        ];
+        return encodeAtkBase64(Uint8Array.from(updated));
+      }
+      cursor = value.next;
+    } else if (wire === 1) {
+      cursor += 8;
+    } else if (wire === 2) {
+      const length = readVarint(bytes, cursor);
+      cursor = length.next + Number(length.value);
+      if (field === targetField && wireType === 2) {
+        const replacementBytes = new TextEncoder().encode(String(replacement));
+        const updated = [
+          ...bytes.slice(0, tag.next),
+          ...encodeVarint((BigInt(field) << 3n) | 2n),
+          ...encodeVarint(replacementBytes.length),
+          ...replacementBytes,
+          ...bytes.slice(cursor),
+        ];
+        return encodeAtkBase64(Uint8Array.from(updated));
+      }
+    } else if (wire === 5) {
+      cursor += 4;
+    } else {
+      throw new Error("Unsupported test Protobuf wire type.");
+    }
+    if (cursor > bytes.length) throw new Error("Truncated test Protobuf payload.");
+  }
+  throw new Error("Target Protobuf field was not found.");
+}
+
+test("CitizenCoupon validation rejects totals that differ from the POS Coupon", () => {
+  const invalid = replaceProtoField(makeCitizenPayload(), 8, 117, 0);
   const result = validateAtkCitizenCouponPayload(invalid, citizenContext);
   assert.equal(result.ok, false);
   assert.match(result.detail, /identifiers or totals/);
+});
+
+test("CitizenCoupon validation rejects verification numbers that differ from the POS Coupon", () => {
+  const invalid = replaceProtoField(makeCitizenPayload(), 5, "DIFFERENT", 2);
+  const result = validateAtkCitizenCouponPayload(invalid, citizenContext);
+  assert.equal(result.ok, false);
+  assert.match(result.detail, /verification number/);
 });
