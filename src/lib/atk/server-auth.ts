@@ -1,6 +1,5 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createCookieClient } from "@/lib/supabase/server";
-import { positiveInteger } from "./positive-integer";
 
 export { positiveInteger } from "./positive-integer";
 
