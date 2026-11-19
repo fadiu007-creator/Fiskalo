@@ -107,4 +107,11 @@ while IFS= read -r migration; do
   esac
 done < <(find "$ROOT_DIR/supabase/migrations" -maxdepth 1 -type f -name '*.sql' -print | sort)
 
+echo "Bootstrapping disposable Full-schema ATK category fixture"
+"${PSQL[@]}" --file "$ROOT_DIR/supabase/full-tests/bootstrap_atk_category_constraints.sql"
+
+echo "Applying Full-schema ATK category expansion migration"
+"${PSQL[@]}" --file "$ROOT_DIR/supabase/full-migrations/fiskalo_full_complete_atk_item_categories.sql"
+"${PSQL[@]}" --file "$ROOT_DIR/supabase/full-tests/fiskalo_full_complete_atk_item_categories.sql"
+
 echo "All Fiskalo migrations and version-matched SQL contracts passed."
