@@ -2,7 +2,7 @@ export type FiscalLedgerWriteResult = { error?: { message?: string } | null } | 
 
 export type FiscalSubmissionStartStep = {
   label: string;
-  run: () => Promise<FiscalLedgerWriteResult>;
+  run: () => PromiseLike<FiscalLedgerWriteResult>;
 };
 
 /**
