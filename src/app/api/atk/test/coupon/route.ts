@@ -2,6 +2,7 @@ import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient
 import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
 import { readAtkPosCouponVerificationNo, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 import { recordFiscalSubmissionStartBestEffort } from "@/lib/atk/submission-start";
+import { parseAtkTransactionId } from "@/lib/atk/transaction-id";
 
 export const runtime = "nodejs";
 
@@ -52,17 +53,7 @@ function readableProviderMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
-function parseATKTransactionId(raw: string): string | null {
-  // Preserve the exact uint64 decimal digits: JavaScript Number loses precision above 2^53-1.
-  const match = raw.match(/"transaction_id"\s*:\s*(?:"([0-9]+)"|([0-9]+))/);
-  const value = match?.[1] ?? match?.[2];
-  if (!value) return null;
-  try {
-    const parsed = BigInt(value);
-    if (parsed <= BigInt(0) || parsed > BigInt("18446744073709551615")) return null;
-    return parsed.toString();
-  } catch { return null; }
-}
+
 
 function isBase64(value: string): boolean {
   if (!value || value.length > 2_000_000 || value.length % 4 !== 0) return false;
@@ -317,7 +308,7 @@ export async function POST(request: Request) {
         detail, atkStatus: response.status, fiscalDocumentId: fiscalDocument.id,
       }, { status: 502 });
     }
-    const transactionId = parseATKTransactionId(raw);
+    const transactionId = parseAtkTransactionId(raw);
     if (!transactionId) {
       const detail = "ATK returned HTTP success but its response did not contain a valid uint64 transaction_id. Check ATK before retrying.";
       await service.from("fiskalo_atk_fiscal_documents").update({ status: "offline_pending", last_error: detail, atk_response: result }).eq("id", fiscalDocument.id);
