@@ -10,7 +10,9 @@ const field: React.CSSProperties = { width: "100%", border: "1px solid var(--lin
 const button: React.CSSProperties = { border: 0, borderRadius: 10, padding: "12px 16px", background: "var(--brand)", color: "white", fontWeight: 750, cursor: "pointer" };
 
 export default function AccountProfilePage() {
-  const supabase = useMemo(() => createClient(), []);
+  const supabase = useMemo(() => {
+    try { return createClient(); } catch { return null; }
+  }, []);
   const router = useRouter();
   const [name,setName] = useState("");
   const [phone,setPhone] = useState("");
@@ -22,6 +24,11 @@ export default function AccountProfilePage() {
   const [notice,setNotice] = useState("");
 
   useEffect(() => {
+    if (!supabase) {
+      setError("Lidhja me Supabase nuk është konfiguruar. Kontakto administratorin e Fiskalo.");
+      setLoading(false);
+      return;
+    }
     let active = true;
     void supabase.auth.getUser().then(({data,error}) => {
       if (!active) return;
@@ -37,13 +44,16 @@ export default function AccountProfilePage() {
   },[supabase,router]);
 
   async function signOut() {
+    if (!supabase) return;
     await supabase.auth.signOut();
     router.replace("/login");
     router.refresh();
   }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setNotice("");
+    event.preventDefault();
+    if (!supabase) { setError("Lidhja me Supabase nuk është konfiguruar."); return; }
+    setBusy(true); setError(""); setNotice("");
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) { setError("Sesioni ka skaduar. Hyr përsëri."); setBusy(false); return; }
     const updates: { data: Record<string, unknown>; email?: string; password?: string } = {
@@ -77,7 +87,7 @@ export default function AccountProfilePage() {
       <div style={{borderTop:"1px solid var(--line)",paddingTop:14}}>
         <label style={{fontSize:13,fontWeight:700}}>Fjalëkalim i ri (opsional)<input type="password" minLength={8} autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} disabled={loading} placeholder="Së paku 8 karaktere" style={{...field,display:"block",marginTop:6}}/></label>
       </div>
-      <button type="submit" disabled={busy||loading} style={button}>{busy?"Duke ruajtur…":"Ruaj ndryshimet"}</button>
+      <button type="submit" disabled={busy||loading||!supabase} style={button}>{busy?"Duke ruajtur…":"Ruaj ndryshimet"}</button>
     </form>
   </main>;
 }
