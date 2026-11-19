@@ -39,7 +39,6 @@ export default function WebPosSetupPage() {
   const [canManage, setCanManage] = useState(false);
 
   const selected = positions.find((p) => p.id === selectedId);
-  const keyId = selected ? organizationId + ":" + selected.id : "";
 
   const load = useCallback(async () => {
     setError("");
@@ -104,7 +103,7 @@ export default function WebPosSetupPage() {
       } else setVerification(null);
     });
     return () => { cancelled = true; };
-  }, [organizationId, selectedId, selected?.id, org?.nui, org?.legal_name, applicationId, supabase]);
+  }, [organizationId, selected, org?.nui, org?.legal_name, applicationId, supabase]);
 
   async function saveProfile() {
     setBusy(true); setError(""); setNotice("");
