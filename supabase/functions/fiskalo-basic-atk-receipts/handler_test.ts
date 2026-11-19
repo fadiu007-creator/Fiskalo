@@ -47,7 +47,7 @@ function dateOf(timestamp:string){
   const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(timestamp));
   const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));return `${values.year}-${values.month}-${values.day}`;
 }
-async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
+async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10,transactionId="987654321"){
   const keyPair=await testKeyPair();
   const spki=TEST_SPKI;
   const now=new Date();
@@ -77,7 +77,7 @@ async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
     businessDate:dateOf(createdAt),documentType:"Sale",
     signedPayloadBase64:b64(posPayload),signatureBase64:b64(posSignature),
     payloadSha256:await hash(posPayload),signatureSha256:await hash(posSignature),couponSnapshotSha256,
-    status,transactionId:status==="accepted"?"987654321":null,
+    status,transactionId:status==="accepted"?transactionId:null,
     atkResponseMessage:status==="accepted"?"Accepted by ATK TEST":null,
     nuiKf:"0123456789ABCDEF",verificationNo:"0123456789ABCDEF",
     citizenPayloadBase64:b64(citizenPayload),citizenSignatureBase64:b64(citizenSignature),
@@ -220,4 +220,13 @@ Deno.test("keeps an offline fiscal document synchronizable after the 48-hour dea
   assert(response.status===200,"overdue offline receipts must remain persistable");
   assert(result.state==="queued"&&result.overdue===true,"the server must mark the 48-hour deadline as overdue without discarding the receipt");
   assert(typeof result.recoveryDeadlineAt==="string","the original recovery deadline must be retained");
+});
+
+Deno.test("rejects zero and overflowing ATK uint64 transaction IDs before persistence",async()=>{
+  for (const transactionId of ["0","18446744073709551616"]) {
+    const fixture=await setup("accepted",10,transactionId);
+    const response=await fixture.handler(fixture.request());
+    assert(response.status===409,`invalid transaction ID ${transactionId} must be rejected`);
+    assert(fixture.recorded()===null,"invalid ATK transaction IDs must never reach the database writer");
+  }
 });

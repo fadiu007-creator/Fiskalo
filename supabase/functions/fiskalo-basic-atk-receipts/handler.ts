@@ -512,9 +512,11 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
       }
 
       if (attestation.status !== "accepted" || !attestation.transactionId ||
-          !/^\d{1,20}$/.test(attestation.transactionId) || BigInt(attestation.transactionId) <= 0n ||
+          !/^\d{1,20}$/.test(attestation.transactionId) ||
+          BigInt(attestation.transactionId) <= BigInt("0") ||
+          BigInt(attestation.transactionId) > BigInt("18446744073709551615") ||
           !attestation.atkResponseMessage) {
-        return json(409, { error: "ATK acceptance attestation is incomplete." }, headers);
+        return json(409, { error: "ATK acceptance attestation is incomplete or has an invalid uint64 transaction ID." }, headers);
       }
       const atkResponse = {
         status: "accepted",
