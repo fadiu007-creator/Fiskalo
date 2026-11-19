@@ -7,7 +7,7 @@ namespace Fiskalo.PosAgent.Core.Atk;
 public sealed class ServerHeartbeatVerifier
 {
     private const string TestPublicKeyBase64 =
-        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHwziGBcgBfjbJ120yQ93+B+0Yqe1iP3C0ZDOaFxyMN6du4G0pCEI7AwYrHpIMkxRwV2/nNSdVZHsLt7Cwmlcww==";
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/91jk1axO5ADKK0odht23M6AHgzF7b0ZnYzNQUbiYEL4DoscsAMMbMtDgXdimHdtBppXE6c3F+rUl+y17X9BEw==";
     private readonly byte[] _publicKey;
 
     public ServerHeartbeatVerifier() : this(Convert.FromBase64String(TestPublicKeyBase64)) { }

@@ -68,3 +68,5 @@ The owner UI is available at `/article-44`.
 ## Local clock rollback handling
 
 The POS Agent preserves the last successful local probe timestamp as a high-water mark. If the Windows wall clock moves backwards, a healthy probe cannot overwrite that anchor or close an active outage with a restoration time earlier than the outage start. The operational ATK probe outage remains open until the clock catches up. This prevents internally inconsistent local deadlines; it does not make device time trustworthy or prove an ISP interruption. Server-signed heartbeat evidence is stored separately from the ATK probe state.
+
+Bootstrap public-key SHA-256 SPKI fingerprint is `86da5bb521b4c6660f942385b79d2b53243038df33b0b43399e57c7646504cd9`.

@@ -1,7 +1,7 @@
 
 import { createPosHeartbeatCanonicalMessage } from "./heartbeat-canonical.ts";
 
-const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHwziGBcgBfjbJ120yQ93+B+0Yqe1iP3C0ZDOaFxyMN6du4G0pCEI7AwYrHpIMkxRwV2/nNSdVZHsLt7Cwmlcww==";
+const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/91jk1axO5ADKK0odht23M6AHgzF7b0ZnYzNQUbiYEL4DoscsAMMbMtDgXdimHdtBppXE6c3F+rUl+y17X9BEw==";
 const MAX_BODY_BYTES = 4096;
 
 type HeartbeatEnvironment = {
