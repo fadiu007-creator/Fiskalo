@@ -2,6 +2,7 @@ import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient
 import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
 import { readAtkPosCouponVerificationNo, recoverAtkMappingsFromOriginalCoupon, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 import { isPaymentMethod } from "@/lib/atk/payment-allocation";
+import { recordFiscalSubmissionStartBestEffort } from "@/lib/atk/submission-start";
 
 export const runtime = "nodejs";
 
@@ -335,20 +336,28 @@ export async function POST(request: Request) {
   // The signed coupon is now durably stored and uniquely linked to this adjustment.
   // Audit/status writes must not prevent the actual ATK request: otherwise a saved
   // coupon can become permanently stuck without ever reaching ATK.
-  const { error: eventError } = await service.from("fiskalo_atk_fiscal_events").insert({
-    organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
-    event_type: "submission_started",
-    details: { environment: "TEST", adjustmentId, adjustmentType: adjustment.adjustment_type, originalCouponId: original.coupon_id },
-  });
-  if (eventError) console.error("Fiskalo ATK adjustment audit event failed", eventError.message);
-  const { error: submittingError } = await service.from("fiskalo_atk_fiscal_documents").update({
-    status: "submitted", submission_attempts: 1, last_submitted_at: new Date().toISOString(),
-  }).eq("id", fiscalDocument.id).eq("organization_id", organizationId);
-  if (submittingError) console.error("Fiskalo ATK adjustment submission status update failed", submittingError.message);
-  const { error: adjustmentSubmitError } = await supabase.rpc("fiskalo_set_invoice_adjustment_atk_status", {
-    target_adjustment: adjustmentId, target_status: "submitted",
-  });
-  if (adjustmentSubmitError) console.error("Fiskalo ATK adjustment ledger submission status update failed", adjustmentSubmitError.message);
+  await recordFiscalSubmissionStartBestEffort([
+    {
+      label: "Fiskalo ATK adjustment audit event failed",
+      run: () => service.from("fiskalo_atk_fiscal_events").insert({
+        organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
+        event_type: "submission_started",
+        details: { environment: "TEST", adjustmentId, adjustmentType: adjustment.adjustment_type, originalCouponId: original.coupon_id },
+      }),
+    },
+    {
+      label: "Fiskalo ATK adjustment fiscal-document status update failed",
+      run: () => service.from("fiskalo_atk_fiscal_documents").update({
+        status: "submitted", submission_attempts: 1, last_submitted_at: new Date().toISOString(),
+      }).eq("id", fiscalDocument.id).eq("organization_id", organizationId),
+    },
+    {
+      label: "Fiskalo ATK adjustment ledger status update failed",
+      run: () => supabase.rpc("fiskalo_set_invoice_adjustment_atk_status", {
+        target_adjustment: adjustmentId, target_status: "submitted",
+      }),
+    },
+  ]);
 
   try {
     const response = await fetch("https://fiskalizimi-test.atk-ks.org/pos/coupon", {
