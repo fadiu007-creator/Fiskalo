@@ -1,6 +1,7 @@
 import { authorizeAtkOrganization, getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
 import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk/certificate-crypto";
 import { readAtkPosCouponVerificationNo, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
+import { recordFiscalSubmissionStartBestEffort } from "@/lib/atk/submission-start";
 
 export const runtime = "nodejs";
 
@@ -266,15 +267,25 @@ export async function POST(request: Request) {
     return Response.json({ error: "fiscal_document_save_failed", detail: insertError?.message ?? "Could not save the ATK TEST document." }, { status: 500 });
   }
 
-  const { error: startedEventError } = await service.from("fiskalo_atk_fiscal_events").insert({
-    organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
-    event_type: "submission_started", details: { environment: "TEST", invoiceNumber: invoice.invoice_number },
-  });
-  if (startedEventError) return Response.json({ error: "fiscal_event_save_failed", fiscalDocumentId: fiscalDocument.id }, { status: 500 });
-  const { error: submittedStateError } = await service.from("fiskalo_atk_fiscal_documents").update({
-    status: "submitted", submission_attempts: 1, last_submitted_at: new Date().toISOString(),
-  }).eq("id", fiscalDocument.id).eq("organization_id", organizationId);
-  if (submittedStateError) return Response.json({ error: "fiscal_state_save_failed", fiscalDocumentId: fiscalDocument.id }, { status: 500 });
+  // The signed coupon is durably stored and uniquely linked to this invoice.
+  // Audit/status bookkeeping must not strand a queued document before the ATK
+  // request: if either write fails, continue with the single submission attempt
+  // and preserve the resulting provider response for later reconciliation.
+  await recordFiscalSubmissionStartBestEffort([
+    {
+      label: "Fiskalo ATK sale submission audit event failed",
+      run: () => service.from("fiskalo_atk_fiscal_events").insert({
+        organization_id: organizationId, fiscal_document_id: fiscalDocument.id,
+        event_type: "submission_started", details: { environment: "TEST", invoiceNumber: invoice.invoice_number },
+      }),
+    },
+    {
+      label: "Fiskalo ATK sale submission status update failed",
+      run: () => service.from("fiskalo_atk_fiscal_documents").update({
+        status: "submitted", submission_attempts: 1, last_submitted_at: new Date().toISOString(),
+      }).eq("id", fiscalDocument.id).eq("organization_id", organizationId),
+    },
+  ]);
 
   try {
     const response = await fetch("https://fiskalizimi-test.atk-ks.org/pos/coupon", {
