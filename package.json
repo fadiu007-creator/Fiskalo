@@ -12,7 +12,8 @@
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs tests/product-categories.test.mjs tests/unique-fiscalization-code.test.mjs",
     "test:offline": "node --experimental-strip-types --test tests/offline-ledger.test.mjs tests/atk-protobuf.test.mjs tests/offline-outage-time.test.mjs",
-    "test:payments": "node --experimental-strip-types --test tests/payment-allocation.test.mjs tests/correction-idempotency.test.mjs"
+    "test:payments": "node --experimental-strip-types --test tests/payment-allocation.test.mjs tests/correction-idempotency.test.mjs",
+    "test:full-atk": "node --experimental-strip-types --test tests/atk-certificate-crypto.test.mjs tests/atk-coupon-validation.test.mjs tests/full-local-storage-crypto.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
@@ -21,7 +22,8 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "lucide-react": "0.468.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "qrcode-generator": "2.0.4"
   },
   "devDependencies": {
     "@types/node": "22.18.0",

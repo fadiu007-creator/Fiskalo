@@ -50,6 +50,7 @@ jobs:
       - run: npm run test:products
       - run: npm run test:offline
       - run: npm run test:payments
+      - run: npm run test:full-atk
       - run: npm run lint
       - run: npm run build
       - uses: actions/setup-dotnet@v4

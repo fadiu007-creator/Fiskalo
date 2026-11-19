@@ -1,17 +1,27 @@
-# Fiskalo — Basic ATK MVP
+# Fiskalo — Basic + Full Kosovo fiscalization platform
 
-Kosovo fiscalization software focused on owner/cashier workflows, ATK TEST coupons, signed receipts, online/offline checkout, reconciliation and reporting.
+Fiskalo is the Kosovo fiscalization application in this repository (not Fiskalo1). The existing Basic Agent and Basic Cloud implementations remain intact. The Full business workspace is restored as a separate authenticated application, with explicit navigation between editions.
 
-## Product and repository status
+## Product routes
 
-This repository's current `main` application is the **Basic MVP**. It remains separate from `Fiskalo1`; no files or deployment settings in `Fiskalo1` are modified.
+- `/` — **Basic Agent**: the existing Windows POS Agent runtime and local fiscal queue.
+- `/basic` — **Basic Cloud**: the existing browser-based Basic POS and ATK TEST gateway.
+- `/app` — **Fiskalo Full** workspace picker.
+- `/app/[organizationId]` — Full business dashboard and modules: invoices, customers, products, POS, cashier shifts, purchases, expenses, inventory, team, and reports.
+- `/login`, `/register`, `/onboarding`, `/account` — Full edition authentication and account workflows.
 
-The Full application UI is not yet integrated into `main`. A substantial Full/Basic release-candidate branch exists, but it cannot be merged blindly because it removes or replaces the current Windows POS Agent and offline implementation. The Full UI must be reconciled with the current Basic implementation before a selectable Full/Basic launcher can be considered complete.
+The Full and Basic editions use separate data models: `fiskalo_*` for Full and `fiskalo_basic_*` for Basic. They share the existing Supabase project only as isolated tables/functions; there is no implicit cross-edition record synchronization. Links in both Basic headers and the Full workspace navigation make the editions selectable without replacing the existing Basic routes.
 
-Current route map:
-- `/` — **Basic Agent**: the local Windows POS Agent runtime with DPAPI-protected signing key and local fiscal queue.
-- `/basic` — **Basic Cloud**: the browser-based signing runtime using the Cloudflare ATK TEST gateway. It is a second Basic implementation, not the Full edition.
-- The Full application UI is still absent from `main`; navigation between these two Basic routes does not complete the Full/Basic release selector.
+## Full edition security and release boundaries
+
+- Full ATK routes under `/api/atk/test/*` target the ATK TEST service only. A successful local build or TEST response is not certification or production acceptance.
+- Full sale and adjustment routes authenticate the caller, check organization membership/role and taxpayer NUI, validate the signed payload against the registered POS certificate, and write fiscal acceptance through the server-only service-role client.
+- Configure `SUPABASE_SERVICE_ROLE_KEY` only as a server-side secret. Never expose it through a `NEXT_PUBLIC_*` variable. The routes fail closed when it is missing.
+- Full POS keys are non-exportable browser CryptoKeys persisted in IndexedDB. This is not equivalent to an OS/hardware-backed keystore and remains a certification/security review item.
+- Full checkout does **not** issue fiscal receipts while disconnected. It can retain an order draft, but the UI blocks treating an offline payment as an accepted fiscal sale. The Basic edition has its own offline implementation.
+- The connected `zikos` project already contains the Full schema and the server-trusted fiscal-write, invoice-line snapshot, certificate-binding, CitizenCoupon QR and correction migrations. This repository still does not contain the complete historical Full schema baseline; a clean, empty-project Full installation is not yet reproducible from this repository alone.
+- The Full ATK category-constraint expansion to the current catalogue is included in this change set but must be applied through the reviewed additive migration before using newly added category codes in the connected Full database. Existing data is preserved.
+- Provider/developer registration, ATK software certification, the unique SEF code, production credentials, and real ATK TEST acceptance remain external release gates. Production fiscalization is not enabled by this source change.
 
 ## Implemented in source
 
