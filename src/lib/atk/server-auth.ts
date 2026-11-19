@@ -1,5 +1,8 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createCookieClient } from "@/lib/supabase/server";
+import { positiveInteger } from "./positive-integer";
+
+export { positiveInteger } from "./positive-integer";
 
 export function getAtkServiceRoleClient() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -57,7 +60,3 @@ export async function authorizeAtkOrganization(
   return { ok: true as const, organization };
 }
 
-export function positiveInteger(value: unknown): number | null {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
