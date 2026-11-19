@@ -61,6 +61,7 @@ export default function PosProductsPage() {
     if (!scanning) return;
     let active = true;
     let controls: { stop: () => void } | null = null;
+    const video = videoRef.current;
     const startScanner = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
         setScanMessage("Kamera nuk është e disponueshme. Hape Fiskalo në Chrome përmes HTTPS dhe lejo qasjen në kamerë.");
@@ -69,11 +70,11 @@ export default function PosProductsPage() {
       }
       try {
         const { BrowserMultiFormatReader } = await import("@zxing/browser");
-        if (!active || !videoRef.current) return;
+        if (!active || !video) return;
         const reader = new BrowserMultiFormatReader();
         const scannerControls = await reader.decodeFromConstraints(
           { audio: false, video: { facingMode: { ideal: "environment" } } },
-          videoRef.current,
+          video,
           (result) => {
             if (!active || !result) return;
             const value = result.getText().trim();
@@ -98,7 +99,6 @@ export default function PosProductsPage() {
     return () => {
       active = false;
       controls?.stop();
-      const video = videoRef.current;
       if (video) {
         const stream = video.srcObject;
         if (stream instanceof MediaStream) stream.getTracks().forEach(track => track.stop());
