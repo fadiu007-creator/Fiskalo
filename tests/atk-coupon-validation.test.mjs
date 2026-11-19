@@ -157,6 +157,7 @@ function replaceProtoField(base64, targetField, replacement, wireType) {
   const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
   let cursor = 0;
   while (cursor < bytes.length) {
+    const tagStart = cursor;
     const tag = readVarint(bytes, cursor);
     cursor = tag.next;
     const field = Number(tag.value >> 3n);
@@ -180,7 +181,7 @@ function replaceProtoField(base64, targetField, replacement, wireType) {
       if (field === targetField && wireType === 2) {
         const replacementBytes = new TextEncoder().encode(String(replacement));
         const updated = [
-          ...bytes.slice(0, tag.next),
+          ...bytes.slice(0, tagStart),
           ...encodeVarint((BigInt(field) << 3n) | 2n),
           ...encodeVarint(replacementBytes.length),
           ...replacementBytes,
