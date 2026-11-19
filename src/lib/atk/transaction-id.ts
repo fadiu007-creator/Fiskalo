@@ -106,7 +106,7 @@ export function parseAtkTransactionId(raw: string): string | null {
   if (!found || !candidate || !/^[0-9]+$/.test(candidate)) return null;
   try {
     const value = BigInt(candidate);
-    if (value <= 0n || value > 18446744073709551615n) return null;
+    if (value <= BigInt("0") || value > BigInt("18446744073709551615")) return null;
     return value.toString();
   } catch {
     return null;
