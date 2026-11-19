@@ -1,4 +1,5 @@
 import { getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
+import { canManageAtkPos } from "@/lib/atk/pos-authorization";
 import { certificateSpkiFingerprint, equalBytes, getCertificateSpki, getCsrSpki } from "@/lib/atk/certificate-crypto";
 
 export async function POST(request: Request) {
@@ -30,8 +31,8 @@ export async function POST(request: Request) {
   const { data: membership, error: membershipError } = await supabase
     .from("fiskalo_organization_users").select("role")
     .eq("organization_id", organizationId).eq("user_id", user.id).maybeSingle();
-  if (membershipError || !membership || !["owner", "administrator", "manager", "cashier"].includes(membership.role)) {
-    return Response.json({ error: "organization_not_authorized", detail: "This account cannot provision an ATK POS certificate." }, { status: 403 });
+  if (membershipError || !membership || !canManageAtkPos(membership.role)) {
+    return Response.json({ error: "organization_not_authorized", detail: "Only the business owner or administrator can provision an ATK POS certificate." }, { status: 403 });
   }
   const [{ data: organization, error: organizationError }, { data: pos, error: posError }, { data: verification, error: verificationError }] = await Promise.all([
     supabase.from("fiskalo_organizations").select("nui").eq("id", organizationId).single(),
