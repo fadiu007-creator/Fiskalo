@@ -24,6 +24,7 @@ type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;
 type CartLine={product:Product;quantity:number};
 type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;payment_allocations?:Array<{method:string;amount_cents:number}>|null;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string;atk_item_category_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;correction_type?:string|null;correction_state?:string|null;correction_transaction_id?:string|null;reference_coupon_id?:number|null;reference_transaction_id?:string|null;correction_coupon_id?:number|null;correction_nui_kf?:string|null;correction_daily_number?:number|null;correction_qr_svg_base64?:string|null;correction_offline_issued_at?:string|null;correction_recovery_deadline_at?:string|null;correction_reference_coupon_id?:number|null;correction_document_type?:number|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
+type QueueSummary={prepared:number;queued:number;cloudQueued:number;reconciliation:number;rejected:number;overdue:number;total:number};
 type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
 
@@ -60,6 +61,12 @@ export default function Home(){
   const [sales,setSales]=useState<SaleRecord[]>([]);
   const [receipt,setReceipt]=useState<SaleRecord|null>(null);
   const [queueOverdueCount,setQueueOverdueCount]=useState(0);
+  const [queueSummary,setQueueSummary]=useState<QueueSummary|null>(null);
+  const [queueSummaryError,setQueueSummaryError]=useState("");
+  const [heartbeatState,setHeartbeatState]=useState<"checking"|"online"|"offline"|"unavailable">("checking");
+  const [heartbeatServerTime,setHeartbeatServerTime]=useState<string|null>(null);
+  const [heartbeatError,setHeartbeatError]=useState("");
+  const [browserOnline,setBrowserOnline]=useState(true);
   const [agentSessionToken,setAgentSessionToken]=useState<string|null>(null);
   const [agentStatus,setAgentStatus]=useState("not_paired");
   const [agentPairingCode,setAgentPairingCode]=useState("");
@@ -97,6 +104,14 @@ export default function Home(){
   const [isPosFullscreen,setIsPosFullscreen]=useState(false);
 
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
+
+  useEffect(()=>{
+    const updateOnline=()=>setBrowserOnline(navigator.onLine);
+    updateOnline();
+    window.addEventListener("online",updateOnline);
+    window.addEventListener("offline",updateOnline);
+    return()=>{window.removeEventListener("online",updateOnline);window.removeEventListener("offline",updateOnline);};
+  },[]);
 
   useEffect(()=>{
     let active=true;
@@ -270,6 +285,9 @@ export default function Home(){
         const heartbeat=await requestServerSignedPosHeartbeat(
           business.id,selectedPos,accessToken,agentChallengeNonce
         );
+        setHeartbeatState("online");
+        setHeartbeatServerTime(heartbeat.serverTimeUtc);
+        setHeartbeatError("");
         if(agentSessionToken&&agentChallengeNonce&&heartbeat.nonce===agentChallengeNonce){
           try{
             await persistVerifiedPosHeartbeat(agentSessionToken,{
@@ -296,6 +314,10 @@ export default function Home(){
           if(!pending)await clearPosConnectivityOutage(business.id,selectedPos);
         }
       }catch(error){
+        if(active){
+          setHeartbeatState(!navigator.onLine?"offline":error instanceof TypeError?"offline":"unavailable");
+          setHeartbeatError(error instanceof Error?error.message:"Heartbeat-i nuk u verifikua.");
+        }
         // A transport failure starts a local-only observation. Authentication,
         // key mismatch and server-evidence failures must not fabricate a trusted time.
         if(error instanceof TypeError&&navigator.onLine){
@@ -306,10 +328,10 @@ export default function Home(){
       }
     };
 
-    const onOffline=()=>{void recordOutage().catch(error=>
+    const onOffline=()=>{setHeartbeatState("offline");void recordOutage().catch(error=>
       setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
     );};
-    const onOnline=()=>{void refreshHeartbeat();};
+    const onOnline=()=>{setHeartbeatState("checking");void refreshHeartbeat();};
     window.addEventListener("offline",onOffline);
     window.addEventListener("online",onOnline);
     void refreshHeartbeat();
@@ -1045,10 +1067,10 @@ export default function Home(){
     <section className="panel" aria-label="Gjendja operative e fiskalizimit" style={{marginBottom:16}}>
       <div className="row" style={{justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
         <div><div className="eyebrow">MONITORIMI I FISKALIZIMIT</div><h2>Gjendja operative</h2><p className="sub">Statuset lexohen nga ky shfletues dhe nga heartbeat-i i nënshkruar i serverit. Nuk janë provë e pranimit nga ATK.</p></div>
-        <span className="status">{navigator.onLine?"SHFLETUESI ONLINE":"SHFLETUESI OFFLINE"}</span>
+        <span className="status">{browserOnline?"SHFLETUESI ONLINE":"SHFLETUESI OFFLINE"}</span>
       </div>
       <div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",marginTop:12}}>
-        <div className="stat-card"><span className="eyebrow">Heartbeat serveri</span><strong className="stat" style={{fontSize:17}}>{heartbeatState==="online"?"I VERIFIKUAR":heartbeatState==="checking"?"DUKE KONTROLLUAR":heartbeatState==="offline"?"OFFLINE":"I PAVERIFIKUAR"}</strong><small className="sub">{heartbeatServerTime?new Date(heartbeatServerTime).toLocaleString("sq-XK"):"Nuk ka heartbeat të konfirmuar në këtë sesion"}</small></div>
+        <div className="stat-card"><span className="eyebrow">Heartbeat serveri</span><strong className="stat" style={{fontSize:17}}>{!selectedPos?"PA POS TË ZGJEDHUR":heartbeatState==="online"?"I VERIFIKUAR":heartbeatState==="checking"?"DUKE KONTROLLUAR":heartbeatState==="offline"?"OFFLINE":"I PAVERIFIKUAR"}</strong><small className="sub">{heartbeatServerTime?new Date(heartbeatServerTime).toLocaleString("sq-XK"):"Nuk ka heartbeat të konfirmuar në këtë sesion"}</small></div>
         <div className="stat-card"><span className="eyebrow">Windows POS Agent</span><strong className="stat" style={{fontSize:17}}>{agentStatus==="paired"?"I ÇIFTUAR":agentStatus==="unavailable"?"I PAAKSUESHËM":"I PALIDHUR"}</strong><small className="sub">Çiftimi nuk provon vetvetiu certifikimin ATK.</small></div>
         <div className="stat-card"><span className="eyebrow">Dokumente lokale aktive</span><strong className="stat">{queueSummary?queueSummary.total:"—"}</strong><small className="sub">Outbox i enkriptuar në këtë shfletues</small></div>
         <div className="stat-card"><span className="eyebrow">Në pritje të sinkronizimit</span><strong className="stat">{queueSummary?queueSummary.queued+queueSummary.cloudQueued:"—"}</strong><small className="sub">Lokale + radhë cloud</small></div>
