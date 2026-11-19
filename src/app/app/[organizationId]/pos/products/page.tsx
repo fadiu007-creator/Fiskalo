@@ -71,7 +71,7 @@ export default function PosProductsPage() {
         const { BrowserMultiFormatReader } = await import("@zxing/browser");
         if (!active || !videoRef.current) return;
         const reader = new BrowserMultiFormatReader();
-        controls = await reader.decodeFromConstraints(
+        const scannerControls = await reader.decodeFromConstraints(
           { audio: false, video: { facingMode: { ideal: "environment" } } },
           videoRef.current,
           (result) => {
@@ -83,7 +83,8 @@ export default function PosProductsPage() {
             setScanning(false);
           }
         );
-        if (!active) controls.stop();
+        controls = scannerControls;
+        if (!active) scannerControls.stop();
       } catch (cameraError) {
         const message = cameraError instanceof Error ? cameraError.message : "";
         const permissionDenied = /denied|permission|notallowed/i.test(message);
