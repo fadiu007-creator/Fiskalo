@@ -32,9 +32,9 @@ Current route map:
 
 ## Verified against the live Supabase project
 
-The existing Supabase project `zikos` was inspected directly. Its migration ledger contains the earlier Fiskalo Basic/Full feature migrations and the offline fiscalization migrations.
+The connected live Supabase project (`saavqlbwffrwxingbnri`) has the two signed-heartbeat migrations recorded in its migration ledger. The earlier Basic/Full feature and offline-fiscalization migration history is documented separately; do not assume it is identical to the connected project without checking its ledger.
 
-The following new migrations have also been applied to the live project and their SQL regression scripts executed:
+The following migrations have been applied to the connected live project:
 
 - `0025_fiskalo_revoke_trigger_function_api_execute.sql` — removes direct API execution from trigger-only helper functions.
 - `0026_fiskalo_basic_article44_incident_register.sql` — owner-only Article 44 incident and private evidence register.
@@ -44,8 +44,9 @@ The following new migrations have also been applied to the live project and thei
 - `0030_fiskalo_article44_scope_and_offline_payment_integrity.sql` — limits Article 44 exports to eligible internet interruptions and hardens offline payment retry checks.
 - `0031_fiskalo_article44_deadline_boundary.sql` — fixes the exact midnight boundary after the 10th day.
 - `0032_fiskalo_article44_monthly_export_proof_guard.sql` — enforces both the JSON/CSV export and actual ATK filing proof at the database boundary.
-- `0033_fiskalo_basic_complete_atk_item_categories.sql` — enforces all 52 unique codes from the 53-row 2026 ATK category annex.
 - `0033_fiskalo_basic_complete_atk_item_categories.sql` — expands the product category constraint to all 52 unique 2026 ATK codes.
+- `20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql` — creates the append-only server heartbeat evidence ledger and service-role-only recording RPC.
+- `20261117160100_fiskalo_basic_offline_heartbeat_binding.sql` — binds offline fiscal document timestamps and recovery deadlines to trusted server heartbeat intervals.
 
 Temporary, rolled-back Supabase integration checks exercised online and offline split tender, idempotent retries, rejection of changed payment allocations, Article 44 incident creation, export authorization, deadline enforcement and evidence requirements. No test business or sale records were retained.
 
@@ -56,11 +57,11 @@ The repository's older numbered migration files do not all share the timestamp/v
 - Confirm the unit, VAT and category catalogues against every subsequent ATK publication and run representative product/coupon scenarios in the official ATK TEST environment.
 - Cancellation and return POS screens, with end-to-end ATK TEST correction/return scenarios.
 - Full application UI restoration and a safe selectable Full/Basic launcher.
-- Server-signed POS heartbeat source implementation is present in PR #48; merge, key provisioning, Cloudflare deployment and live signed-heartbeat verification remain release gates. A heartbeat gap proves missing POS check-ins, not by itself an ISP outage or an Article 44-qualifying cause.
+- Server-signed POS heartbeat implementation is merged to `main` (merge commit `35f5fa9448ba1cf20f4fe7734939e893caa5ec33`). The P-256 public key is pinned in the browser, server and Windows Agent; the private signing key must remain a Cloudflare secret. CI and Windows Agent checks passed on this commit. Live Cloudflare deployment and authenticated heartbeat/evidence verification remain unverified. A heartbeat gap proves missing POS check-ins, not by itself an ISP outage or an Article 44-qualifying cause.
 - Actual ATK TEST acceptance using ATK-issued certificates and registered POS devices, including QR scan/verification and exactly-once transaction confirmation.
 - Certificate-chain trust anchor, expiry, renewal and revocation validation against ATK's current process.
 - Physical printer testing across supported thermal widths, offline receipt verification and restart/recovery tests.
-- Cloudflare production deployment and live smoke tests for the exact latest commit.
+- Cloudflare production deployment and live smoke tests for the exact latest commit. The repository CI builds the Cloudflare Worker but does not deploy it.
 - Clean-database migration replay, authenticated owner/cashier RLS tests and tenant-isolation tests.
 - Provider/software certification and production authorization.
 
