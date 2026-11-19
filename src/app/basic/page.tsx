@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateCorrectionIdempotencyKey } from "@/lib/pos/correction-idempotency";
@@ -9,7 +9,8 @@ import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, g
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
 import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, reserveCloudCorrection, submitCloudCorrection, queueCloudCorrection, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
-import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline } from "@/lib/pos/browser-outbox";
+import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline, requestServerSignedPosHeartbeat } from "@/lib/pos/browser-outbox";
+import { getAgentToken, getLocalAgentStatus, pairLocalAgent, persistVerifiedPosHeartbeat, requestPosHeartbeatChallenge } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { normalizeUniqueFiscalizationCode } from "@/lib/atk/unique-fiscalization-code";
@@ -59,6 +60,10 @@ export default function Home(){
   const [sales,setSales]=useState<SaleRecord[]>([]);
   const [receipt,setReceipt]=useState<SaleRecord|null>(null);
   const [queueOverdueCount,setQueueOverdueCount]=useState(0);
+  const [agentSessionToken,setAgentSessionToken]=useState<string|null>(null);
+  const [agentStatus,setAgentStatus]=useState("not_paired");
+  const [agentPairingCode,setAgentPairingCode]=useState("");
+  const [agentPairingBusy,setAgentPairingBusy]=useState(false);
   const [businessName,setBusinessName]=useState("");
   const [nui,setNui]=useState("");
   const [vatNumber,setVatNumber]=useState("");
@@ -92,6 +97,40 @@ export default function Home(){
   const [isPosFullscreen,setIsPosFullscreen]=useState(false);
 
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
+
+  useEffect(()=>{
+    let active=true;
+    void getAgentToken().then(async token=>{
+      if(!active||!token)return;
+      setAgentSessionToken(token);
+      try{
+        const status=await getLocalAgentStatus(token);
+        if(active)setAgentStatus(status.paired?"paired":"not_paired");
+      }catch{
+        if(active)setAgentStatus("unavailable");
+      }
+    });
+    return()=>{active=false;};
+  },[]);
+
+  async function pairAgent(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();
+    if(!agentPairingCode.trim()||agentPairingBusy)return;
+    setAgentPairingBusy(true);
+    try{
+      const paired=await pairLocalAgent(agentPairingCode.trim());
+      setAgentSessionToken(paired.sessionToken);
+      const status=await getLocalAgentStatus(paired.sessionToken);
+      setAgentStatus(status.paired?"paired":"not_paired");
+      setAgentPairingCode("");
+      setMessage(status.paired?"POS Agent u lidh me sukses.":"POS Agent nuk konfirmoi çiftimin.");
+    }catch(error){
+      setMessage(error instanceof Error?error.message:"Lidhja me POS Agent dështoi.");
+    }finally{
+      setAgentPairingBusy(false);
+    }
+  }
+
   const loadWorkspace=useCallback(async(uid:string)=>{
     if(!supabase)return;
     const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name,operator_identifier").eq("user_id",uid).limit(1).maybeSingle();
@@ -192,16 +231,96 @@ export default function Home(){
 
 
   useEffect(()=>{
-    if(!business||!selectedPos)return;
-    const recordOutage=()=>{
-      void getOrStartPosConnectivityOutage(business.id,selectedPos).catch(error=>
-        setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
+    if(!business||!selectedPos||!supabase||!user)return;
+    let active=true;
+    let running=false;
+    let timer:ReturnType<typeof setInterval>|null=null;
+
+    const recordOutage=async(trustedStart?:string|null)=>{
+      if(!active)return;
+      await getOrStartPosConnectivityOutage(
+        business.id,
+        selectedPos,
+        new Date().toISOString(),
+        trustedStart,
       );
     };
-    window.addEventListener("offline",recordOutage);
-    if(!navigator.onLine)recordOutage();
-    return()=>window.removeEventListener("offline",recordOutage);
-  },[business,selectedPos]);
+
+    const refreshHeartbeat=async()=>{
+      if(!active||running)return;
+      running=true;
+      try{
+        if(!navigator.onLine){
+          await recordOutage();
+          return;
+        }
+        const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+        if(sessionError)throw sessionError;
+        const accessToken=sessionData.session?.access_token;
+        if(!accessToken)return;
+        let agentChallengeNonce:string|undefined;
+        if(agentSessionToken){
+          try{
+            const challenge=await requestPosHeartbeatChallenge(agentSessionToken,business.id,selectedPos);
+            agentChallengeNonce=challenge.nonce;
+          }catch{
+            setAgentStatus("unavailable");
+          }
+        }
+        const heartbeat=await requestServerSignedPosHeartbeat(
+          business.id,selectedPos,accessToken,agentChallengeNonce
+        );
+        if(agentSessionToken&&agentChallengeNonce&&heartbeat.nonce===agentChallengeNonce){
+          try{
+            await persistVerifiedPosHeartbeat(agentSessionToken,{
+              businessId:business.id,
+              posUuid:selectedPos,
+              nonce:heartbeat.nonce,
+              issuedAtUnixMs:heartbeat.issuedAtUnixMs,
+              signatureBase64:heartbeat.signatureBase64,
+            });
+            setAgentStatus("paired");
+          }catch{
+            setAgentStatus("unavailable");
+          }
+        }
+        if(!active)return;
+
+        if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
+          await recordOutage(heartbeat.previousHeartbeatAtUtc);
+        }else{
+          const pending=(await listFiscalOutboxItems(business.id)).some(item=>
+            item.posRecordId===selectedPos&&
+            (item.state==="queued"||item.state==="needs_reconciliation")
+          );
+          if(!pending)await clearPosConnectivityOutage(business.id,selectedPos);
+        }
+      }catch(error){
+        // A transport failure starts a local-only observation. Authentication,
+        // key mismatch and server-evidence failures must not fabricate a trusted time.
+        if(error instanceof TypeError&&navigator.onLine){
+          await recordOutage().catch(()=>undefined);
+        }
+      }finally{
+        running=false;
+      }
+    };
+
+    const onOffline=()=>{void recordOutage().catch(error=>
+      setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
+    );};
+    const onOnline=()=>{void refreshHeartbeat();};
+    window.addEventListener("offline",onOffline);
+    window.addEventListener("online",onOnline);
+    void refreshHeartbeat();
+    timer=setInterval(()=>{void refreshHeartbeat();},60_000);
+    return()=>{
+      active=false;
+      if(timer)clearInterval(timer);
+      window.removeEventListener("offline",onOffline);
+      window.removeEventListener("online",onOnline);
+    };
+  },[agentSessionToken,business,selectedPos,supabase,user]);
 
   useEffect(()=>{
     if(!business||!supabase||!user)return;
@@ -212,9 +331,23 @@ export default function Home(){
       running=true;
       try{
         const queued=(await listFiscalOutboxItems(business.id)).filter(item=>item.state==="queued");
-        const touchedPosIds=new Set<string>();
+        const touchedPosIds=new Set(queued.map(item=>item.posRecordId));
+        if(queued.length){
+          const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+          if(sessionError)throw sessionError;
+          const accessToken=sessionData.session?.access_token;
+          if(!accessToken)throw new Error("Hyr përsëri për të sinkronizuar dokumentet offline.");
+          for(const posRecordId of touchedPosIds){
+            if(!active||!navigator.onLine)break;
+            const heartbeat=await requestServerSignedPosHeartbeat(business.id,posRecordId,accessToken);
+            if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
+              await getOrStartPosConnectivityOutage(
+                business.id,posRecordId,new Date().toISOString(),heartbeat.previousHeartbeatAtUtc
+              );
+            }
+          }
+        }
         for(const item of queued){
-          touchedPosIds.add(item.posRecordId);
           if(!active||!navigator.onLine)break;
           const recoveryOverdue=Date.parse(item.recoveryDeadlineUtc)<=Date.now();
           // The 48-hour point is an escalation/notification deadline, not permission
@@ -852,7 +985,7 @@ export default function Home(){
   if(!business)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></header><section className="panel" style={{maxWidth:560,margin:"5vh auto"}}><div className="eyebrow">Konfigurimi fillestar</div><h1>Regjistro biznesin</h1><p className="sub">Krijo hapësirën e biznesit. NUI duhet të jetë numri real i biznesit.</p><form onSubmit={createBusiness}><div className="field"><label>Emri i biznesit</label><input required value={businessName} onChange={e=>setBusinessName(e.target.value)}/></div><div className="field"><label>NUI (9 shifra)</label><input required inputMode="numeric" pattern="[0-9]{9}" value={nui} onChange={e=>setNui(e.target.value)}/></div>{message&&<p className="notice">{message}</p>}<button className="btn" disabled={busy}>{busy?"Duke ruajtur…":"Krijo biznesin"}</button></form></section></main>;
 
   return <main className="shell">
-    <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui} · {memberRole==="owner"?"Pronari":"Arkëtari"}</span></div><div className="row">{memberRole==="owner"&&<Link href="/basic/reports" className="btn secondary">Raportet</Link>}<Link href="/" className="btn secondary">Basic Agent</Link><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
+    <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui} · {memberRole==="owner"?"Pronari":"Arkëtari"}</span></div><div className="row">{memberRole==="owner"&&<Link href="/basic/reports" className="btn secondary">Raportet</Link>}<details><summary className="btn secondary">POS Agent · {agentStatus==="paired"?"Lidhur":agentSessionToken?"Offline":"Pa lidhur"}</summary><section className="panel" style={{position:"absolute",right:16,top:72,zIndex:30,width:320,boxShadow:"0 12px 32px rgba(0,0,0,.18)"}}>{agentSessionToken?<><p className="sub">{agentStatus==="paired"?"POS Agent është çiftuar. Heartbeat-et e nënshkruara ruhen edhe në journal-in DPAPI të Windows.":"Tokeni i çiftimit është ruajtur i enkriptuar, por POS Agent nuk po përgjigjet. Kontrollo që shërbimi Windows të jetë aktiv."}</p><p className="sub">Çiftimi ruhet i enkriptuar në këtë shfletues dhe ndahet mes përdoruesve të autorizuar të së njëjtës arkë.</p></>:<form onSubmit={pairAgent}><div className="field"><label>Kodi njëpërdorimësh i POS Agent</label><input value={agentPairingCode} onChange={event=>setAgentPairingCode(event.target.value)} autoComplete="off" required/></div><p className="sub">Nise POS Agent në Windows dhe vendos kodin e çiftimit që shfaqet në terminal.</p><button className="btn" disabled={agentPairingBusy}>{agentPairingBusy?"Duke lidhur…":"Lidh POS Agent"}</button></form>}</section></details><Link href="/" className="btn secondary">Basic Agent</Link><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
     <div className="eyebrow">Paneli i biznesit</div><h1>Arka dhe fiskalizimi.</h1><p className="sub">Version i thjeshtuar: produkte, POS dhe shitje. Shitjet e paguara nënshkruhen në këtë shfletues dhe dërgohen në ATK TEST përmes Cloudflare. Çelësi privat qëndron në pajisje. Production mbetet i çaktivizuar.</p>
     <section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Operatori i arkës</h3><p className="sub">Emri dhe identifikuesi i operatorit ruhen në çdo shitje dhe shtypen në kupon. Përdor kodin identifikues të punonjësit, jo ID-në e llogarisë së brendshme.</p><form onSubmit={saveOperatorIdentity}><div className="field"><label>Emri dhe mbiemri i operatorit</label><input required minLength={2} maxLength={100} value={operatorName} onChange={e=>setOperatorName(e.target.value)} placeholder="Emri i operatorit"/></div><div className="field"><label>Numri identifikues i operatorit</label><input required minLength={1} maxLength={32} value={operatorIdentifier} onChange={e=>setOperatorIdentifier(e.target.value)} placeholder="ID e punonjësit"/></div><button className="btn secondary" disabled={busy}>Ruaj identitetin e operatorit</button></form></section>
     {memberRole==="owner"&&<section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Të dhënat në kupon</h3><p className="sub">Numri i TVSH-së shtypet vetëm nëse biznesi është i regjistruar për TVSH. Adresa e kuponit merret nga lokacioni i POS-it.</p><form onSubmit={saveTaxProfile}><div className="field"><label>Numri i TVSH-së (9 shifra, opsional)</label><input inputMode="numeric" pattern="[0-9]{9}" maxLength={9} value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Lëre bosh nëse nuk je i regjistruar"/></div><button className="btn secondary" disabled={busy}>Ruaj të dhënat tatimore</button></form></section>}

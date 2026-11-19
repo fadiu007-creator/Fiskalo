@@ -98,6 +98,12 @@ while IFS= read -r migration; do
       run_test "20261117113528_fiskalo_server_atk_corrections_20261117.sql"
       run_test "20261117110216_fiskalo_prevent_duplicate_full_atk_returns.sql"
       ;;
+    20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql)
+      run_test "20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql"
+      ;;
+    20261117160100_fiskalo_basic_offline_heartbeat_binding.sql)
+      run_test "20261117160100_fiskalo_basic_offline_heartbeat_binding.sql"
+      ;;
   esac
 done < <(find "$ROOT_DIR/supabase/migrations" -maxdepth 1 -type f -name '*.sql' -print | sort)
 

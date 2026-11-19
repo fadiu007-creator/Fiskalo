@@ -49,6 +49,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:products
       - run: npm run test:offline
+      - run: npm run test:atk-heartbeat
       - run: npm run test:payments
       - run: npm run lint
       - run: npm run build

@@ -56,7 +56,7 @@ The repository's older numbered migration files do not all share the timestamp/v
 - Confirm the unit, VAT and category catalogues against every subsequent ATK publication and run representative product/coupon scenarios in the official ATK TEST environment.
 - Cancellation and return POS screens, with end-to-end ATK TEST correction/return scenarios.
 - Full application UI restoration and a safe selectable Full/Basic launcher.
-- Server-signed connectivity heartbeat so outage start and the 48-hour clock are independently verifiable; the Article 44 page currently records the owner-reported start time.
+- Server-signed POS heartbeat source implementation is present in PR #48; merge, key provisioning, Cloudflare deployment and live signed-heartbeat verification remain release gates. A heartbeat gap proves missing POS check-ins, not by itself an ISP outage or an Article 44-qualifying cause.
 - Actual ATK TEST acceptance using ATK-issued certificates and registered POS devices, including QR scan/verification and exactly-once transaction confirmation.
 - Certificate-chain trust anchor, expiry, renewal and revocation validation against ATK's current process.
 - Physical printer testing across supported thermal widths, offline receipt verification and restart/recovery tests.
