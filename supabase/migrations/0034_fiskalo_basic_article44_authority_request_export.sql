@@ -108,7 +108,9 @@ begin
   where left(coalesce(e->>'storage_path',''), length(request_prefix)) = request_prefix
     and coalesce(e->>'sha256','') ~ '^[a-f0-9]{64}$'
     and coalesce(e->>'mime_type','') in ('application/pdf','image/jpeg','image/png','text/plain')
-    and case when coalesce(e->>'size_bytes','') ~ '^[0-9]+  if manifest_count <> jsonb_array_length(p_authority_request_evidence_manifest) or
+    and case when coalesce(e->>'size_bytes','') ~ '^[0-9]+$'
+      then (e->>'size_bytes')::bigint between 1 and 10485760 else false end;
+  if manifest_count <> jsonb_array_length(p_authority_request_evidence_manifest) or
      unique_path_count <> manifest_count then
     raise exception 'Every authority request file must have a unique private path, SHA-256 hash, allowed MIME type and valid size';
   end if;
