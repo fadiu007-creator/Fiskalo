@@ -30,7 +30,7 @@ public sealed record FiscalQueueItem
     public long? DailyNumber { get; init; }
     /// <summary>The signed coupon's actual issuance time; never the start of an internet outage.</summary>
     public DateTimeOffset? OfflineIssuedAtUtc { get; init; }
-    /// <summary>Local operational estimate of the connectivity outage start. Not legal proof without a trusted time anchor.</summary>
+    /// <summary>Server-signed previous heartbeat when available; otherwise a local operational estimate that is not legal proof.</summary>
     public DateTimeOffset? OutageStartedAtUtc { get; init; }
     /// <summary>Version 2 separates coupon issue time from outage start; null marks legacy queue rows.</summary>
     public int? TimestampSemanticsVersion { get; init; }

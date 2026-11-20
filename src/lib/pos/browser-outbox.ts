@@ -1,11 +1,15 @@
 import { decryptBrowserFiscalData, encryptBrowserFiscalData } from "../atk/browser-key-vault.ts";
 import type { EncryptedBrowserPayload } from "../atk/local-storage-crypto.ts";
+import { createPosHeartbeatCanonicalMessage } from "./heartbeat-canonical.ts";
 
 const DB_NAME = "fiskalo-fiscal-outbox";
 const STORE_NAME = "signed-documents";
 const OUTAGE_STORE_NAME = "connectivity-outages";
+const HEARTBEAT_STORE_NAME = "trusted-heartbeats";
 const OUTBOX_ENCRYPTION_SCOPE = "basic-fiscal-outbox";
 const OUTAGE_ENCRYPTION_SCOPE = "basic-pos-connectivity-outage";
+const HEARTBEAT_ENCRYPTION_SCOPE = "basic-pos-trusted-heartbeat";
+const HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/91jk1axO5ADKK0odht23M6AHgzF7b0ZnYzNQUbiYEL4DoscsAMMbMtDgXdimHdtBppXE6c3F+rUl+y17X9BEw==";
 
 export type BrowserFiscalOutboxItem = {
   idempotencyKey: string;
@@ -46,20 +50,38 @@ export type PosConnectivityOutage = {
   businessId: string;
   posRecordId: string;
   startedAt: string;
+  timeEvidence?: "server_signed_heartbeat" | "browser_local_untrusted";
 };
+
+export type TrustedPosHeartbeat = {
+  id: string;
+  businessId: string;
+  posRecordId: string;
+  serverTimeUtc: string;
+  previousHeartbeatAtUtc: string | null;
+  gapSeconds: number | null;
+  gapDetected: boolean;
+  nonce: string;
+  issuedAtUnixMs: number;
+  signatureBase64: string;
+};
+type EncryptedHeartbeatRecord = EncryptedRecord & { id: string; serverTimeUnixMs: number };
 
 function openDb(): Promise<IDBDatabase> {
   if (typeof window === "undefined" || !globalThis.indexedDB) {
     throw new Error("This browser does not support a durable offline fiscal outbox.");
   }
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 2);
+    const request = indexedDB.open(DB_NAME, 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE_NAME)) {
         request.result.createObjectStore(STORE_NAME, { keyPath: "idempotencyKey" });
       }
       if (!request.result.objectStoreNames.contains(OUTAGE_STORE_NAME)) {
         request.result.createObjectStore(OUTAGE_STORE_NAME, { keyPath: "id" });
+      }
+      if (!request.result.objectStoreNames.contains(HEARTBEAT_STORE_NAME)) {
+        request.result.createObjectStore(HEARTBEAT_STORE_NAME, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -212,11 +234,258 @@ export function resolvePosOutageStart(existingStart: string | null | undefined, 
   return existingStart && Number.isFinite(Date.parse(existingStart)) ? existingStart : detectedAt;
 }
 
+export function resolvePosOutageEvidence(
+  existing: PosConnectivityOutage | null,
+  trustedLastHeartbeatAt: string | null,
+  detectedAt: string,
+): Pick<PosConnectivityOutage, "startedAt" | "timeEvidence"> {
+  if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
+  if (trustedLastHeartbeatAt && Number.isFinite(Date.parse(trustedLastHeartbeatAt))) {
+    const preserveEarlierTrusted = existing?.timeEvidence === "server_signed_heartbeat" &&
+      Number.isFinite(Date.parse(existing.startedAt)) &&
+      Date.parse(existing.startedAt) <= Date.parse(trustedLastHeartbeatAt);
+    return {
+      startedAt: preserveEarlierTrusted ? existing!.startedAt : trustedLastHeartbeatAt,
+      timeEvidence: "server_signed_heartbeat",
+    };
+  }
+  return {
+    startedAt: resolvePosOutageStart(existing?.startedAt ?? null, detectedAt),
+    timeEvidence: existing?.timeEvidence ?? "browser_local_untrusted",
+  };
+}
+
 /** The 48-hour recovery deadline is measured from the first observed outage time. */
 export function outageRecoveryDeadline(startedAt: string): string {
   const timestamp = Date.parse(startedAt);
   if (!Number.isFinite(timestamp)) throw new Error("Invalid POS connectivity outage timestamp.");
   return new Date(timestamp + 48 * 60 * 60 * 1000).toISOString();
+}
+
+async function heartbeatRecordId(businessId: string, posRecordId: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(businessId + ":" + posRecordId),
+  ));
+  return "heartbeat-" + Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function getLastTrustedPosHeartbeat(
+  businessId: string,
+  posRecordId: string,
+): Promise<TrustedPosHeartbeat | null> {
+  const id = await heartbeatRecordId(businessId, posRecordId);
+  const db = await openDb();
+  let raw: unknown;
+  try {
+    raw = await new Promise((resolve, reject) => {
+      const request = db.transaction(HEARTBEAT_STORE_NAME, "readonly").objectStore(HEARTBEAT_STORE_NAME).get(id);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error ?? new Error("Could not read the trusted POS heartbeat."));
+    });
+  } finally { db.close(); }
+  if (!raw) return null;
+  if (!isEncryptedRecord(raw)) throw new Error("Trusted POS heartbeat is not encrypted. Preserve the fiscal browser storage.");
+  const heartbeat = await decryptBrowserFiscalData<TrustedPosHeartbeat>(HEARTBEAT_ENCRYPTION_SCOPE, raw.encrypted);
+  const timestamp = Date.parse(heartbeat.serverTimeUtc);
+  if (heartbeat.id !== id || heartbeat.businessId !== businessId || heartbeat.posRecordId !== posRecordId ||
+      !Number.isFinite(timestamp) || timestamp !== (raw as EncryptedHeartbeatRecord).serverTimeUnixMs ||
+      !await verifyTrustedHeartbeatSignature(heartbeat)) {
+    throw new Error("Stored trusted POS heartbeat identity, timestamp or signature is invalid.");
+  }
+  return heartbeat;
+}
+
+async function verifyTrustedHeartbeatSignature(heartbeat: TrustedPosHeartbeat): Promise<boolean> {
+  if (!Number.isSafeInteger(heartbeat.issuedAtUnixMs) ||
+      heartbeat.serverTimeUtc !== new Date(heartbeat.issuedAtUnixMs).toISOString() ||
+      !/^[A-Za-z0-9_-]{43}$/.test(heartbeat.nonce)) return false;
+  try {
+    const keyBinary = atob(HEARTBEAT_PUBLIC_KEY_SPKI_BASE64);
+    const keyBytes = Uint8Array.from(keyBinary, char => char.charCodeAt(0));
+    const publicKey = await crypto.subtle.importKey(
+      "spki",
+      keyBytes.buffer.slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    const canonical = createPosHeartbeatCanonicalMessage(
+      heartbeat.businessId, heartbeat.posRecordId, heartbeat.nonce, heartbeat.issuedAtUnixMs,
+    );
+    const signatureBinary = atob(heartbeat.signatureBase64);
+    const signature = Uint8Array.from(signatureBinary, char => char.charCodeAt(0));
+    return signature.length === 64 && await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      signature.buffer.slice(signature.byteOffset, signature.byteOffset + signature.byteLength),
+      new TextEncoder().encode(canonical),
+    );
+  } catch { return false; }
+}
+
+async function saveTrustedPosHeartbeat(heartbeat: TrustedPosHeartbeat): Promise<void> {
+  const timestamp = Date.parse(heartbeat.serverTimeUtc);
+  if (!Number.isFinite(timestamp) || timestamp !== heartbeat.issuedAtUnixMs ||
+      !await verifyTrustedHeartbeatSignature(heartbeat)) {
+    throw new Error("Cannot persist an unverified server heartbeat.");
+  }
+  const encrypted = await encryptBrowserFiscalData(HEARTBEAT_ENCRYPTION_SCOPE, heartbeat);
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = strictTransaction(db, HEARTBEAT_STORE_NAME);
+      const store = tx.objectStore(HEARTBEAT_STORE_NAME);
+      let stale = false;
+      const request = store.get(heartbeat.id);
+      request.onsuccess = () => {
+        const current = request.result as EncryptedHeartbeatRecord | undefined;
+        if (current && Number.isFinite(current.serverTimeUnixMs) && current.serverTimeUnixMs >= timestamp) {
+          stale = true;
+          tx.abort();
+          return;
+        }
+        store.put({
+          id: heartbeat.id,
+          revision: (current?.revision ?? 0) + 1,
+          serverTimeUnixMs: timestamp,
+          encrypted,
+        } satisfies EncryptedHeartbeatRecord);
+      };
+      request.onerror = () => reject(request.error ?? new Error("Could not read trusted POS heartbeat metadata."));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => {
+        if (!stale) reject(tx.error ?? new Error("Could not persist the trusted POS heartbeat."));
+      };
+      tx.onabort = () => reject(new Error(stale
+        ? "A replayed or out-of-order server heartbeat was rejected."
+        : "Trusted POS heartbeat write was aborted."));
+    });
+  } finally { db.close(); }
+}
+
+const heartbeatInFlight = new Map<string, Promise<TrustedPosHeartbeat>>();
+const recentHeartbeatCache = new Map<string, { completedAt: number; value: TrustedPosHeartbeat }>();
+
+export function requestServerSignedPosHeartbeat(
+  businessId: string,
+  posRecordId: string,
+  accessToken: string,
+  nonceOverride?: string,
+): Promise<TrustedPosHeartbeat> {
+  // A POS Agent challenge nonce must never be satisfied by a concurrent
+  // browser-only heartbeat for the same POS. Keep challenge-bound and periodic
+  // requests in separate idempotency lanes.
+  const key = businessId + ":" + posRecordId + ":" + (nonceOverride ? "challenge:" + nonceOverride : "periodic");
+  const inFlight = heartbeatInFlight.get(key);
+  if (inFlight) return inFlight;
+  if (!nonceOverride) {
+    const now = performance.now();
+    const recent = recentHeartbeatCache.get(key);
+    if (recent && now - recent.completedAt < 5_000) return Promise.resolve(recent.value);
+  }
+  const request = performServerSignedPosHeartbeat(businessId, posRecordId, accessToken, nonceOverride);
+  heartbeatInFlight.set(key, request);
+  request.then(value => {
+    recentHeartbeatCache.set(key, { completedAt: performance.now(), value });
+    heartbeatInFlight.delete(key);
+  }, () => {
+    heartbeatInFlight.delete(key);
+  });
+  return request;
+}
+
+async function performServerSignedPosHeartbeat(
+  businessId: string,
+  posRecordId: string,
+  accessToken: string,
+  nonceOverride?: string,
+): Promise<TrustedPosHeartbeat> {
+  if (!accessToken) throw new Error("An authenticated session is required for a trusted POS heartbeat.");
+  if (!globalThis.crypto?.subtle || !globalThis.crypto.getRandomValues) {
+    throw new Error("Secure browser cryptography is required for trusted POS heartbeat verification.");
+  }
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
+  const nonceBinary = Array.from(nonceBytes, byte => String.fromCharCode(byte)).join("");
+  const generatedNonce = btoa(nonceBinary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const nonce = nonceOverride ?? generatedNonce;
+  if (!/^[A-Za-z0-9_-]{43}$/.test(nonce)) throw new Error("POS Agent heartbeat challenge nonce is invalid.");
+  const response = await fetch("/api/pos/heartbeat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
+    body: JSON.stringify({ businessId, posUuid: posRecordId, nonce }),
+    cache: "no-store",
+    credentials: "same-origin",
+    referrerPolicy: "same-origin",
+  });
+  const payload = await response.json().catch(() => null) as null | {
+    version?: number;
+    businessId?: string;
+    posUuid?: string;
+    nonce?: string;
+    issuedAtUnixMs?: number;
+    serverTimeUtc?: string;
+    previousHeartbeatAtUtc?: string | null;
+    gapSeconds?: number | null;
+    gapDetected?: boolean;
+    signatureBase64?: string;
+    environment?: string;
+    productionEnabled?: boolean;
+  };
+  if (!response.ok || !payload || payload.version !== 1 ||
+      payload.businessId !== businessId || payload.posUuid !== posRecordId ||
+      payload.nonce !== nonce || payload.environment !== "ATK TEST" ||
+      payload.productionEnabled !== false || !Number.isSafeInteger(payload.issuedAtUnixMs) ||
+      typeof payload.signatureBase64 !== "string" ||
+      payload.serverTimeUtc !== new Date(payload.issuedAtUnixMs!).toISOString()) {
+    throw new Error("The server did not return a valid signed POS heartbeat.");
+  }
+  if (payload.previousHeartbeatAtUtc !== null &&
+      (typeof payload.previousHeartbeatAtUtc !== "string" || !Number.isFinite(Date.parse(payload.previousHeartbeatAtUtc)))) {
+    throw new Error("The signed heartbeat contains an invalid previous server timestamp.");
+  }
+  if (payload.gapSeconds !== null && payload.gapSeconds !== undefined &&
+      (!Number.isSafeInteger(payload.gapSeconds) || payload.gapSeconds < 0)) {
+    throw new Error("The heartbeat gap is invalid.");
+  }
+
+  const keyBinary = atob(HEARTBEAT_PUBLIC_KEY_SPKI_BASE64);
+  const publicKeyBytes = Uint8Array.from(keyBinary, char => char.charCodeAt(0));
+  const publicKey = await crypto.subtle.importKey(
+    "spki",
+    publicKeyBytes.buffer.slice(publicKeyBytes.byteOffset, publicKeyBytes.byteOffset + publicKeyBytes.byteLength),
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["verify"],
+  );
+  const canonical = createPosHeartbeatCanonicalMessage(
+    businessId, posRecordId, nonce, payload.issuedAtUnixMs!,
+  );
+  const signatureBinary = atob(payload.signatureBase64);
+  const signature = Uint8Array.from(signatureBinary, char => char.charCodeAt(0));
+  if (signature.length !== 64 || !await crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    publicKey,
+    signature.buffer.slice(signature.byteOffset, signature.byteOffset + signature.byteLength),
+    new TextEncoder().encode(canonical),
+  )) {
+    throw new Error("The server-signed POS heartbeat signature is invalid.");
+  }
+
+  const heartbeat: TrustedPosHeartbeat = {
+    id: await heartbeatRecordId(businessId, posRecordId),
+    businessId,
+    posRecordId,
+    serverTimeUtc: payload.serverTimeUtc!,
+    previousHeartbeatAtUtc: payload.previousHeartbeatAtUtc ?? null,
+    gapSeconds: payload.gapSeconds ?? null,
+    gapDetected: payload.gapDetected === true,
+    nonce,
+    issuedAtUnixMs: payload.issuedAtUnixMs!,
+    signatureBase64: payload.signatureBase64,
+  };
+  await saveTrustedPosHeartbeat(heartbeat);
+  return heartbeat;
 }
 
 async function outageKey(businessId: string, posRecordId: string): Promise<string> {
@@ -275,6 +544,7 @@ export async function getOrStartPosConnectivityOutage(
   businessId: string,
   posRecordId: string,
   detectedAt = new Date().toISOString(),
+  trustedLastHeartbeatAt?: string | null,
 ): Promise<PosConnectivityOutage> {
   if (!Number.isFinite(Date.parse(detectedAt))) throw new Error("Invalid POS connectivity outage timestamp.");
   const id = await outageKey(businessId, posRecordId);
@@ -288,13 +558,18 @@ export async function getOrStartPosConnectivityOutage(
         existing = raw as PosConnectivityOutage;
       }
     }
-    const startedAt = resolvePosOutageStart(
-      existing && existing.businessId === businessId && existing.posRecordId === posRecordId
-        ? existing.startedAt : null,
+    const lastTrusted = trustedLastHeartbeatAt === undefined
+      ? await getLastTrustedPosHeartbeat(businessId, posRecordId).catch(() => null)
+      : null;
+    const trustedStart = trustedLastHeartbeatAt ??
+      (lastTrusted && Number.isFinite(Date.parse(lastTrusted.serverTimeUtc)) ? lastTrusted.serverTimeUtc : null);
+    const evidence = resolvePosOutageEvidence(
+      existing && existing.businessId === businessId && existing.posRecordId === posRecordId ? existing : null,
+      trustedStart,
       detectedAt,
     );
-    const result: PosConnectivityOutage = { id, businessId, posRecordId, startedAt };
-    if (existing && existing.startedAt === startedAt && isEncryptedRecord(raw)) return existing;
+    const result: PosConnectivityOutage = { id, businessId, posRecordId, ...evidence };
+    if (existing && existing.startedAt === evidence.startedAt && existing.timeEvidence === evidence.timeEvidence && isEncryptedRecord(raw)) return existing;
     const encrypted = await encryptBrowserFiscalData(OUTAGE_ENCRYPTION_SCOPE, result);
     if (raw) {
       const revision = isEncryptedRecord(raw) ? raw.revision : 0;

@@ -708,6 +708,104 @@ public sealed class FiscalQueueStoreTests
     }
 
     [Fact]
+    public async Task TrustedHeartbeatPersistsAndAnchorsOutageUsingServerTime()
+    {
+        using var fixture = new QueueFixture();
+        var first = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        var second = first.AddMinutes(1);
+        var restored = second.AddMinutes(5);
+
+        Assert.Equal(first, await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", first));
+        Assert.Equal(second, await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", second));
+        Assert.Null(await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+
+        Assert.Equal(restored, await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", restored));
+        Assert.Equal(second, await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+        Assert.Equal(restored, await fixture.Store.GetLastTrustedServerTimeAsync());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", restored));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", DateTimeOffset.UnixEpoch));
+
+        var reopened = new FiscalQueueStore(fixture.Path, fixture.Protector);
+        Assert.Equal(restored, await reopened.GetLastTrustedServerTimeAsync());
+        Assert.Equal(second, await reopened.GetConnectivityOutageStartedAtUtcAsync());
+    }
+
+    [Fact]
+    public async Task TrustedHeartbeatJournalRejectsASecondPosIdentity()
+    {
+        using var fixture = new QueueFixture();
+        var first = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        await fixture.Store.RecordTrustedHeartbeatAsync(
+            "22222222-2222-4222-8222-222222222222",
+            "33333333-3333-4333-8333-333333333333",
+            first);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync(
+                "22222222-2222-4222-8222-222222222222",
+                "44444444-4444-4444-8444-444444444444",
+                first.AddMinutes(1)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.RecordTrustedHeartbeatAsync(
+                "55555555-5555-4555-8555-555555555555",
+                "33333333-3333-4333-8333-333333333333",
+                first.AddMinutes(1)));
+    }
+
+    [Fact]
+    public async Task AtkProbeQueueDeadlineUsesLastTrustedServerTimeWhenAvailable()
+    {
+        using var fixture = new QueueFixture();
+        var trusted = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", trusted);
+
+        var localClock = trusted.AddHours(12);
+        Assert.Equal(trusted, await fixture.Store.MarkConnectivityUnavailableAsync(localClock));
+        Assert.Equal(trusted, await fixture.Store.GetLastTrustedServerTimeAsync());
+    }
+
+    [Fact]
+    public async Task ServerHeartbeatGapReanchorsExistingOfflineQueueDeadline()
+    {
+        using var fixture = new QueueFixture();
+        var firstHeartbeat = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat);
+        var issuedAt = firstHeartbeat.AddMinutes(5);
+        await fixture.Store.EnqueueAsync("heartbeat-gap-queue", "Sale", "cG9z", "c2ln", issuedAt, businessUuid: "22222222-2222-4222-8222-222222222222", posUuid: "33333333-3333-4333-8333-333333333333");
+        await fixture.Store.MarkSubmittingAsync("heartbeat-gap-queue");
+        await fixture.Store.RequeueDefinitelyNotSentAsync("heartbeat-gap-queue", "network unavailable", issuedAt);
+
+        var restoredHeartbeat = firstHeartbeat.AddMinutes(10);
+        await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", restoredHeartbeat);
+
+        var item = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(issuedAt, item.OfflineIssuedAtUtc);
+        Assert.Equal(firstHeartbeat, item.OutageStartedAtUtc);
+        Assert.Equal(firstHeartbeat.AddHours(48), item.RecoveryDeadlineUtc);
+        Assert.Equal(firstHeartbeat, await fixture.Store.GetConnectivityOutageStartedAtUtcAsync());
+    }
+
+    [Fact]
+    public async Task RegularHeartbeatIntervalDoesNotCreateAnInternetOutage()
+    {
+        using var fixture = new QueueFixture();
+        var firstHeartbeat = DateTimeOffset.Parse("2026-11-17T10:00:00Z");
+        await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat);
+        await fixture.Store.EnqueueAsync("heartbeat-normal-queue", "Sale", "cG9z", "c2ln", firstHeartbeat.AddSeconds(30), businessUuid: "22222222-2222-4222-8222-222222222222", posUuid: "33333333-3333-4333-8333-333333333333");
+        await fixture.Store.MarkSubmittingAsync("heartbeat-normal-queue");
+        await fixture.Store.RequeueDefinitelyNotSentAsync("heartbeat-normal-queue", "ATK endpoint unavailable", firstHeartbeat.AddSeconds(30));
+
+        await fixture.Store.RecordTrustedHeartbeatAsync("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", firstHeartbeat.AddSeconds(60));
+
+        var item = Assert.Single(await fixture.Store.GetAllAsync());
+        Assert.Equal(firstHeartbeat.AddSeconds(30), item.OutageStartedAtUtc);
+        Assert.Equal(firstHeartbeat.AddSeconds(30).AddHours(48), item.RecoveryDeadlineUtc);
+    }
+
+    [Fact]
     public async Task DeliveryService_StillAutomaticallySubmitsAfterFortyEightHourRecoveryDeadline()
     {
         using var fixture = new QueueFixture();

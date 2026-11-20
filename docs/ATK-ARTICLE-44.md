@@ -30,11 +30,27 @@ The export is scoped to one POS and requires that POS's paired Agent on the devi
 
 ## Important limitations
 
-- The incident start time is currently entered by the owner. It is not yet independently established by a server-signed connectivity heartbeat.
+- The POS now records a server-signed heartbeat for the authenticated business/POS. When a later heartbeat arrives after a gap, the server evidence ledger records the previous and current server timestamps and measured gap. The browser verifies and stores the signed time in encrypted IndexedDB; a paired Windows Agent independently verifies it and persists it in the DPAPI-protected journal. New cloud-synchronized offline documents are linked to a server heartbeat interval (with a two-minute clock-skew tolerance), and the database derives the 48-hour recovery deadline from the trusted interval start. This proves an absence of POS heartbeat and bounds the local issue timestamp; it does not independently prove that the ISP was unavailable or the exact device issue second. The taxpayer must still retain provider/repair/force-majeure evidence required by Article 44.
 - Local Agent timestamps and server records are separate evidence sources; the export preserves both.
 - Fiskalo does not automatically email, upload or submit the notice/export to ATK. No official public Article 44 notice endpoint has been verified.
 - A generated export or a stored notification reference is not proof that ATK accepted the documents.
 - Actual ATK TEST acceptance, physical POS tests and legal/provider certification remain separate release gates.
+
+## Server-signed heartbeat evidence
+
+The Cloudflare-hosted `/api/pos/heartbeat` endpoint requires a valid Supabase access token and membership in the business, checks the POS belongs to that business, and signs a fresh server timestamp with a pinned P-256 key. The browser verifies the signature before storing the heartbeat in encrypted IndexedDB; a paired Windows Agent also verifies it and persists the timestamp with DPAPI. The service-role-only database RPC stores the original nonce and its hash, actor, POS identity, signature, server timestamp and gap in an append-only table so the signature can be independently verified later. The database trigger links new offline fiscal documents to the matching heartbeat interval, rejects issue timestamps outside its two-minute tolerance, and overwrites the client-supplied recovery deadline with the server-anchored 48-hour deadline. It does not discard or block synchronization after that deadline; overdue documents remain available for recovery and Article 44 escalation.
+
+Provision the signing pair from the repository root:
+
+```bash
+node scripts/provision-atk-heartbeat-key.mjs
+```
+
+The script generates a fresh P-256 PKCS#8 key pair, cryptographically self-tests it, updates the pinned public key in the server, browser and Windows Agent, updates this document's SPKI fingerprint, and writes the private key to `.secrets/atk-heartbeat-private-key.pem`. The `.secrets/` directory is git-ignored. Review and commit only the public-key source/documentation changes; never add the private-key file.
+
+Upload the generated private key as a Cloudflare Worker secret named `ATK_HEARTBEAT_PRIVATE_KEY_PEM` for Worker `fiskalo`. On macOS/Linux, run `npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo < .secrets/atk-heartbeat-private-key.pem`. In PowerShell, run `Get-Content -Raw .secrets/atk-heartbeat-private-key.pem | npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo`. Also provision `SUPABASE_SERVICE_ROLE_KEY` as a separate Worker secret with `npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --name fiskalo`; never place it in browser code or a `NEXT_PUBLIC_` variable. Confirm the Worker has `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` configured as runtime variables. Deploy the commit containing the matching public key and then verify the live endpoint returns a valid signature. The endpoint fails closed if any required server setting is missing or the signing key is mismatched. Never commit or share either private key/secret.
+
+The current source pin is a bootstrap key only. Run the provisioning script in a trusted checkout before enabling the endpoint in a deployed environment; it deliberately refuses to overwrite an existing local private-key file.
 
 ## Database implementation
 
@@ -51,4 +67,6 @@ The owner UI is available at `/article-44`.
 
 ## Local clock rollback handling
 
-The POS Agent preserves the last successful local probe timestamp as a high-water mark. If the Windows wall clock moves backwards, a healthy probe cannot overwrite that anchor or close an active outage with a restoration time earlier than the outage start. The operational outage remains open until the clock catches up. This prevents internally inconsistent local deadlines; it does not make device time trustworthy, prove an ISP interruption, or replace server-signed time evidence.
+The POS Agent preserves the last successful local probe timestamp as a high-water mark. If the Windows wall clock moves backwards, a healthy probe cannot overwrite that anchor or close an active outage with a restoration time earlier than the outage start. The operational ATK probe outage remains open until the clock catches up. This prevents internally inconsistent local deadlines; it does not make device time trustworthy or prove an ISP interruption. Server-signed heartbeat evidence is stored separately from the ATK probe state.
+
+Bootstrap public-key SHA-256 SPKI fingerprint is `86da5bb521b4c6660f942385b79d2b53243038df33b0b43399e57c7646504cd9`.

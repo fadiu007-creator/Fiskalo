@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateCorrectionIdempotencyKey } from "@/lib/pos/correction-idempotency";
@@ -9,7 +9,8 @@ import { createOrLoadPosCsr, installPosCertificate, hasMatchingPosCertificate, g
 import { encodeAtkPosCoupon, encodeAtkCitizenCoupon, encodeAtkBase64 } from "@/lib/atk/protobuf";
 import { verifyCloudTestPos, issueCloudTestCertificate, submitCloudTestCoupon, queueCloudTestCoupon, reserveCloudCorrection, submitCloudCorrection, queueCloudCorrection, CloudAtkError } from "@/lib/pos/cloud-atk";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
-import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline } from "@/lib/pos/browser-outbox";
+import { saveFiscalOutboxItem, listFiscalOutboxItems, updateFiscalOutboxItem, getOrStartPosConnectivityOutage, clearPosConnectivityOutage, outageRecoveryDeadline, requestServerSignedPosHeartbeat } from "@/lib/pos/browser-outbox";
+import { getAgentToken, getLocalAgentStatus, pairLocalAgent, persistVerifiedPosHeartbeat, requestPosHeartbeatChallenge } from "@/lib/pos/local-agent";
 import { ATK_VAT_CLASSIFICATIONS, getAtkVatRate, isAtkVatCode, isValidAtkVatClassification, type AtkVatCode } from "@/lib/atk/product-tax";
 import { ATK_MEASUREMENT_UNITS, isAtkUnitCode, normalizeAtkUnitCode } from "@/lib/atk/product-units";
 import { normalizeUniqueFiscalizationCode } from "@/lib/atk/unique-fiscalization-code";
@@ -23,6 +24,7 @@ type Pos={id:string;label:string;location:string;branch_id:number;pos_id:number;
 type CartLine={product:Product;quantity:number};
 type SaleRecord={id:string;coupon_id:number;status:string;subtotal:number;vat_total:number;total:number;payment_method:string;payment_allocations?:Array<{method:string;amount_cents:number}>|null;created_at:string;pos_id:string;operator_id:string;daily_number:number|null;idempotency_key?:string|null;items:Array<{description:string;quantity:number;unit_price:number;line_total:number;line_net?:number;line_vat?:number;vat_rate?:number;atk_unit_code?:string;atk_vat_code?:string;atk_item_category_code?:string}>;transaction_id:string|null;nui_kf?:string|null;verification_no?:string|null;legacy_nui_kf?:string|null;submission_state?:string|null;offline_issued_at?:string|null;recovery_deadline_at?:string|null;qr_svg_base64?:string|null;pos_identifier?:string|null;business_address?:string|null;unit_name?:string|null;unit_code?:number|null;pos_number?:number|null;unit_number?:string|null;operator_name?:string|null;operator_identifier?:string|null;document_type?:string;is_offline?:boolean;recovery_deadline_exceeded?:boolean;queue_last_error?:string|null;correction_type?:string|null;correction_state?:string|null;correction_transaction_id?:string|null;reference_coupon_id?:number|null;reference_transaction_id?:string|null;correction_coupon_id?:number|null;correction_nui_kf?:string|null;correction_daily_number?:number|null;correction_qr_svg_base64?:string|null;correction_offline_issued_at?:string|null;correction_recovery_deadline_at?:string|null;correction_reference_coupon_id?:number|null;correction_document_type?:number|null;is_copy?:boolean};
 type Tab="pos"|"products"|"purchases"|"atk"|"sales";
+type QueueSummary={prepared:number;queued:number;cloudQueued:number;reconciliation:number;rejected:number;overdue:number;total:number};
 type MemberRole="owner"|"cashier";
 type WorkerMember={userId:string;email:string|null;role:MemberRole;operatorName:string|null;createdAt:string};
 
@@ -59,6 +61,16 @@ export default function Home(){
   const [sales,setSales]=useState<SaleRecord[]>([]);
   const [receipt,setReceipt]=useState<SaleRecord|null>(null);
   const [queueOverdueCount,setQueueOverdueCount]=useState(0);
+  const [queueSummary,setQueueSummary]=useState<QueueSummary|null>(null);
+  const [queueSummaryError,setQueueSummaryError]=useState("");
+  const [heartbeatState,setHeartbeatState]=useState<"checking"|"online"|"offline"|"unavailable">("checking");
+  const [heartbeatServerTime,setHeartbeatServerTime]=useState<string|null>(null);
+  const [heartbeatError,setHeartbeatError]=useState("");
+  const [browserOnline,setBrowserOnline]=useState(true);
+  const [agentSessionToken,setAgentSessionToken]=useState<string|null>(null);
+  const [agentStatus,setAgentStatus]=useState("not_paired");
+  const [agentPairingCode,setAgentPairingCode]=useState("");
+  const [agentPairingBusy,setAgentPairingBusy]=useState(false);
   const [businessName,setBusinessName]=useState("");
   const [nui,setNui]=useState("");
   const [vatNumber,setVatNumber]=useState("");
@@ -92,6 +104,48 @@ export default function Home(){
   const [isPosFullscreen,setIsPosFullscreen]=useState(false);
 
   const supabase=useMemo(()=>{try{return createClient()}catch{return null}},[]);
+
+  useEffect(()=>{
+    const updateOnline=()=>setBrowserOnline(navigator.onLine);
+    updateOnline();
+    window.addEventListener("online",updateOnline);
+    window.addEventListener("offline",updateOnline);
+    return()=>{window.removeEventListener("online",updateOnline);window.removeEventListener("offline",updateOnline);};
+  },[]);
+
+  useEffect(()=>{
+    let active=true;
+    void getAgentToken().then(async token=>{
+      if(!active||!token)return;
+      setAgentSessionToken(token);
+      try{
+        const status=await getLocalAgentStatus(token);
+        if(active)setAgentStatus(status.paired?"paired":"not_paired");
+      }catch{
+        if(active)setAgentStatus("unavailable");
+      }
+    });
+    return()=>{active=false;};
+  },[]);
+
+  async function pairAgent(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();
+    if(!agentPairingCode.trim()||agentPairingBusy)return;
+    setAgentPairingBusy(true);
+    try{
+      const paired=await pairLocalAgent(agentPairingCode.trim());
+      setAgentSessionToken(paired.sessionToken);
+      const status=await getLocalAgentStatus(paired.sessionToken);
+      setAgentStatus(status.paired?"paired":"not_paired");
+      setAgentPairingCode("");
+      setMessage(status.paired?"POS Agent u lidh me sukses.":"POS Agent nuk konfirmoi çiftimin.");
+    }catch(error){
+      setMessage(error instanceof Error?error.message:"Lidhja me POS Agent dështoi.");
+    }finally{
+      setAgentPairingBusy(false);
+    }
+  }
+
   const loadWorkspace=useCallback(async(uid:string)=>{
     if(!supabase)return;
     const {data:member,error:memberError}=await supabase.from("fiskalo_basic_members").select("business_id,role,operator_name,operator_identifier").eq("user_id",uid).limit(1).maybeSingle();
@@ -192,16 +246,141 @@ export default function Home(){
 
 
   useEffect(()=>{
-    if(!business||!selectedPos)return;
-    const recordOutage=()=>{
-      void getOrStartPosConnectivityOutage(business.id,selectedPos).catch(error=>
-        setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
+    if(!business||!selectedPos||!supabase||!user)return;
+    let active=true;
+    let running=false;
+    let timer:ReturnType<typeof setInterval>|null=null;
+
+    const recordOutage=async(trustedStart?:string|null)=>{
+      if(!active)return;
+      await getOrStartPosConnectivityOutage(
+        business.id,
+        selectedPos,
+        new Date().toISOString(),
+        trustedStart,
       );
     };
-    window.addEventListener("offline",recordOutage);
-    if(!navigator.onLine)recordOutage();
-    return()=>window.removeEventListener("offline",recordOutage);
-  },[business,selectedPos]);
+
+    const refreshHeartbeat=async()=>{
+      if(!active||running)return;
+      running=true;
+      try{
+        if(!navigator.onLine){
+          await recordOutage();
+          return;
+        }
+        const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+        if(sessionError)throw sessionError;
+        const accessToken=sessionData.session?.access_token;
+        if(!accessToken)return;
+        let agentChallengeNonce:string|undefined;
+        if(agentSessionToken){
+          try{
+            const challenge=await requestPosHeartbeatChallenge(agentSessionToken,business.id,selectedPos);
+            agentChallengeNonce=challenge.nonce;
+          }catch{
+            setAgentStatus("unavailable");
+          }
+        }
+        const heartbeat=await requestServerSignedPosHeartbeat(
+          business.id,selectedPos,accessToken,agentChallengeNonce
+        );
+        setHeartbeatState("online");
+        setHeartbeatServerTime(heartbeat.serverTimeUtc);
+        setHeartbeatError("");
+        if(agentSessionToken&&agentChallengeNonce&&heartbeat.nonce===agentChallengeNonce){
+          try{
+            await persistVerifiedPosHeartbeat(agentSessionToken,{
+              businessId:business.id,
+              posUuid:selectedPos,
+              nonce:heartbeat.nonce,
+              issuedAtUnixMs:heartbeat.issuedAtUnixMs,
+              signatureBase64:heartbeat.signatureBase64,
+            });
+            setAgentStatus("paired");
+          }catch{
+            setAgentStatus("unavailable");
+          }
+        }
+        if(!active)return;
+
+        if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
+          await recordOutage(heartbeat.previousHeartbeatAtUtc);
+        }else{
+          const pending=(await listFiscalOutboxItems(business.id)).some(item=>
+            item.posRecordId===selectedPos&&
+            (item.state==="queued"||item.state==="needs_reconciliation")
+          );
+          if(!pending)await clearPosConnectivityOutage(business.id,selectedPos);
+        }
+      }catch(error){
+        if(active){
+          setHeartbeatState(!navigator.onLine?"offline":error instanceof TypeError?"offline":"unavailable");
+          setHeartbeatError(error instanceof Error?error.message:"Heartbeat-i nuk u verifikua.");
+        }
+        // A transport failure starts a local-only observation. Authentication,
+        // key mismatch and server-evidence failures must not fabricate a trusted time.
+        if(error instanceof TypeError&&navigator.onLine){
+          await recordOutage().catch(()=>undefined);
+        }
+      }finally{
+        running=false;
+      }
+    };
+
+    const onOffline=()=>{setHeartbeatState("offline");void recordOutage().catch(error=>
+      setMessage(error instanceof Error?error.message:"Nuk u ruajt koha e ndërprerjes së lidhjes.")
+    );};
+    const onOnline=()=>{setHeartbeatState("checking");void refreshHeartbeat();};
+    window.addEventListener("offline",onOffline);
+    window.addEventListener("online",onOnline);
+    void refreshHeartbeat();
+    timer=setInterval(()=>{void refreshHeartbeat();},60_000);
+    return()=>{
+      active=false;
+      if(timer)clearInterval(timer);
+      window.removeEventListener("offline",onOffline);
+      window.removeEventListener("online",onOnline);
+    };
+  },[agentSessionToken,business,selectedPos,supabase,user]);
+
+  useEffect(()=>{
+    if(!business)return;
+    let active=true;
+    const refreshQueueSummary=async()=>{
+      try{
+        const items=await listFiscalOutboxItems(business.id);
+        if(!active)return;
+        const now=Date.now();
+        const summary:QueueSummary={
+          prepared:items.filter(item=>item.state==="prepared").length,
+          queued:items.filter(item=>item.state==="queued").length,
+          cloudQueued:items.filter(item=>item.state==="cloud_queued").length,
+          reconciliation:items.filter(item=>item.state==="needs_reconciliation").length,
+          rejected:items.filter(item=>item.state==="rejected").length,
+          overdue:items.filter(item=>item.state!=="accepted"&&Date.parse(item.recoveryDeadlineUtc)<=now).length,
+          total:items.filter(item=>item.state!=="accepted").length
+        };
+        setQueueSummary(summary);
+        setQueueOverdueCount(summary.overdue);
+        setQueueSummaryError("");
+      }catch(error){
+        if(!active)return;
+        setQueueSummary(null);
+        setQueueSummaryError(error instanceof Error?error.message:"Radha lokale nuk mund të lexohet në këtë shfletues.");
+      }
+    };
+    void refreshQueueSummary();
+    const timer=setInterval(()=>void refreshQueueSummary(),15_000);
+    window.addEventListener("online",refreshQueueSummary);
+    window.addEventListener("offline",refreshQueueSummary);
+    return()=>{
+      active=false;
+      clearInterval(timer);
+      window.removeEventListener("online",refreshQueueSummary);
+      window.removeEventListener("offline",refreshQueueSummary);
+    };
+  },[business]);
 
   useEffect(()=>{
     if(!business||!supabase||!user)return;
@@ -212,9 +391,23 @@ export default function Home(){
       running=true;
       try{
         const queued=(await listFiscalOutboxItems(business.id)).filter(item=>item.state==="queued");
-        const touchedPosIds=new Set<string>();
+        const touchedPosIds=new Set(queued.map(item=>item.posRecordId));
+        if(queued.length){
+          const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
+          if(sessionError)throw sessionError;
+          const accessToken=sessionData.session?.access_token;
+          if(!accessToken)throw new Error("Hyr përsëri për të sinkronizuar dokumentet offline.");
+          for(const posRecordId of touchedPosIds){
+            if(!active||!navigator.onLine)break;
+            const heartbeat=await requestServerSignedPosHeartbeat(business.id,posRecordId,accessToken);
+            if(heartbeat.gapDetected&&heartbeat.previousHeartbeatAtUtc){
+              await getOrStartPosConnectivityOutage(
+                business.id,posRecordId,new Date().toISOString(),heartbeat.previousHeartbeatAtUtc
+              );
+            }
+          }
+        }
         for(const item of queued){
-          touchedPosIds.add(item.posRecordId);
           if(!active||!navigator.onLine)break;
           const recoveryOverdue=Date.parse(item.recoveryDeadlineUtc)<=Date.now();
           // The 48-hour point is an escalation/notification deadline, not permission
@@ -852,7 +1045,7 @@ export default function Home(){
   if(!business)return <main className="shell"><header className="topbar"><div className="brand">fiskalo<span>.</span></div><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></header><section className="panel" style={{maxWidth:560,margin:"5vh auto"}}><div className="eyebrow">Konfigurimi fillestar</div><h1>Regjistro biznesin</h1><p className="sub">Krijo hapësirën e biznesit. NUI duhet të jetë numri real i biznesit.</p><form onSubmit={createBusiness}><div className="field"><label>Emri i biznesit</label><input required value={businessName} onChange={e=>setBusinessName(e.target.value)}/></div><div className="field"><label>NUI (9 shifra)</label><input required inputMode="numeric" pattern="[0-9]{9}" value={nui} onChange={e=>setNui(e.target.value)}/></div>{message&&<p className="notice">{message}</p>}<button className="btn" disabled={busy}>{busy?"Duke ruajtur…":"Krijo biznesin"}</button></form></section></main>;
 
   return <main className="shell">
-    <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui} · {memberRole==="owner"?"Pronari":"Arkëtari"}</span></div><div className="row">{memberRole==="owner"&&<Link href="/basic/reports" className="btn secondary">Raportet</Link>}<Link href="/" className="btn secondary">Basic Agent</Link><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
+    <header className="topbar"><div><div className="brand">fiskalo<span>.</span></div><span className="eyebrow">{business.name} · NUI {business.nui} · {memberRole==="owner"?"Pronari":"Arkëtari"}</span></div><div className="row">{memberRole==="owner"&&<Link href="/basic/reports" className="btn secondary">Raportet</Link>}<details><summary className="btn secondary">POS Agent · {agentStatus==="paired"?"Lidhur":agentSessionToken?"Offline":"Pa lidhur"}</summary><section className="panel" style={{position:"absolute",right:16,top:72,zIndex:30,width:320,boxShadow:"0 12px 32px rgba(0,0,0,.18)"}}>{agentSessionToken?<><p className="sub">{agentStatus==="paired"?"POS Agent është çiftuar. Heartbeat-et e nënshkruara ruhen edhe në journal-in DPAPI të Windows.":"Tokeni i çiftimit është ruajtur i enkriptuar, por POS Agent nuk po përgjigjet. Kontrollo që shërbimi Windows të jetë aktiv."}</p><p className="sub">Çiftimi ruhet i enkriptuar në këtë shfletues dhe ndahet mes përdoruesve të autorizuar të së njëjtës arkë.</p></>:<form onSubmit={pairAgent}><div className="field"><label>Kodi njëpërdorimësh i POS Agent</label><input value={agentPairingCode} onChange={event=>setAgentPairingCode(event.target.value)} autoComplete="off" required/></div><p className="sub">Nise POS Agent në Windows dhe vendos kodin e çiftimit që shfaqet në terminal.</p><button className="btn" disabled={agentPairingBusy}>{agentPairingBusy?"Duke lidhur…":"Lidh POS Agent"}</button></form>}</section></details><Link href="/" className="btn secondary">Basic Agent</Link><span className="sub">{user.email}</span><button className="btn secondary" onClick={()=>supabase!.auth.signOut()}>Dil</button></div></header>
     <div className="eyebrow">Paneli i biznesit</div><h1>Arka dhe fiskalizimi.</h1><p className="sub">Version i thjeshtuar: produkte, POS dhe shitje. Shitjet e paguara nënshkruhen në këtë shfletues dhe dërgohen në ATK TEST përmes Cloudflare. Çelësi privat qëndron në pajisje. Production mbetet i çaktivizuar.</p>
     <section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Operatori i arkës</h3><p className="sub">Emri dhe identifikuesi i operatorit ruhen në çdo shitje dhe shtypen në kupon. Përdor kodin identifikues të punonjësit, jo ID-në e llogarisë së brendshme.</p><form onSubmit={saveOperatorIdentity}><div className="field"><label>Emri dhe mbiemri i operatorit</label><input required minLength={2} maxLength={100} value={operatorName} onChange={e=>setOperatorName(e.target.value)} placeholder="Emri i operatorit"/></div><div className="field"><label>Numri identifikues i operatorit</label><input required minLength={1} maxLength={32} value={operatorIdentifier} onChange={e=>setOperatorIdentifier(e.target.value)} placeholder="ID e punonjësit"/></div><button className="btn secondary" disabled={busy}>Ruaj identitetin e operatorit</button></form></section>
     {memberRole==="owner"&&<section className="panel" style={{marginTop:16,maxWidth:520}}><h3>Të dhënat në kupon</h3><p className="sub">Numri i TVSH-së shtypet vetëm nëse biznesi është i regjistruar për TVSH. Adresa e kuponit merret nga lokacioni i POS-it.</p><form onSubmit={saveTaxProfile}><div className="field"><label>Numri i TVSH-së (9 shifra, opsional)</label><input inputMode="numeric" pattern="[0-9]{9}" maxLength={9} value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="Lëre bosh nëse nuk je i regjistruar"/></div><button className="btn secondary" disabled={busy}>Ruaj të dhënat tatimore</button></form></section>}
@@ -871,6 +1064,24 @@ export default function Home(){
         </div>)}
       </div>
     </section>}
+    <section className="panel" aria-label="Gjendja operative e fiskalizimit" style={{marginBottom:16}}>
+      <div className="row" style={{justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+        <div><div className="eyebrow">MONITORIMI I FISKALIZIMIT</div><h2>Gjendja operative</h2><p className="sub">Statuset lexohen nga ky shfletues dhe nga heartbeat-i i nënshkruar i serverit. Nuk janë provë e pranimit nga ATK.</p></div>
+        <span className="status">{browserOnline?"SHFLETUESI ONLINE":"SHFLETUESI OFFLINE"}</span>
+      </div>
+      <div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",marginTop:12}}>
+        <div className="stat-card"><span className="eyebrow">Heartbeat serveri</span><strong className="stat" style={{fontSize:17}}>{!selectedPos?"PA POS TË ZGJEDHUR":heartbeatState==="online"?"I VERIFIKUAR":heartbeatState==="checking"?"DUKE KONTROLLUAR":heartbeatState==="offline"?"OFFLINE":"I PAVERIFIKUAR"}</strong><small className="sub">{heartbeatServerTime?new Date(heartbeatServerTime).toLocaleString("sq-XK"):"Nuk ka heartbeat të konfirmuar në këtë sesion"}</small></div>
+        <div className="stat-card"><span className="eyebrow">Windows POS Agent</span><strong className="stat" style={{fontSize:17}}>{agentStatus==="paired"?"I ÇIFTUAR":agentStatus==="unavailable"?"I PAAKSUESHËM":"I PALIDHUR"}</strong><small className="sub">Çiftimi nuk provon vetvetiu certifikimin ATK.</small></div>
+        <div className="stat-card"><span className="eyebrow">Dokumente lokale aktive</span><strong className="stat">{queueSummary?queueSummary.total:"—"}</strong><small className="sub">Outbox i enkriptuar në këtë shfletues</small></div>
+        <div className="stat-card"><span className="eyebrow">Në pritje të sinkronizimit</span><strong className="stat">{queueSummary?queueSummary.queued+queueSummary.cloudQueued:"—"}</strong><small className="sub">Lokale + radhë cloud</small></div>
+        <div className="stat-card"><span className="eyebrow">Reconciliim i nevojshëm</span><strong className="stat">{queueSummary?queueSummary.reconciliation:"—"}</strong><small className="sub">Mos ridërgo pa kontrolluar statusin ATK</small></div>
+        <div className="stat-card"><span className="eyebrow">Afati 48-orësh i kaluar</span><strong className="stat" style={{color:queueSummary?.overdue?"#b91c1c":"inherit"}}>{queueSummary?queueSummary.overdue:"—"}</strong><small className="sub">Afat eskalimi, jo fshirjeje</small></div>
+      </div>
+      {heartbeatError&&<p className="notice" role="status" style={{marginTop:12}}>Heartbeat: {heartbeatError}</p>}
+      {queueSummaryError&&<p className="notice" role="alert" style={{marginTop:12}}>Outbox: {queueSummaryError} Numrat nuk paraqiten si zero kur ruajtja lokale nuk mund të lexohet.</p>}
+      {queueSummary&&queueSummary.prepared>0&&<p className="notice" role="alert" style={{marginTop:12}}>{queueSummary.prepared} dokument(e) të përgatitur kërkojnë verifikim/reconciliim; mos i ridërgo verbërisht.</p>}
+      {queueSummary&&queueSummary.rejected>0&&<p className="notice" role="alert" style={{marginTop:12}}>{queueSummary.rejected} dokument(e) janë refuzuar. Kontrollo përgjigjen e ATK-së para veprimit korrigjues.</p>}
+    </section>
     {queueOverdueCount>0&&<p className="notice" role="alert">KUJDES: {queueOverdueCount} dokument(e) në outbox kanë kaluar afatin 48-orësh. Mos i ridërgo automatikisht; kërkohet reconciliim me regjistrin e ATK-së.</p>}
     <div className="row" style={{margin:"22px 0"}}><button className={tab==="pos"?"btn":"btn secondary"} onClick={()=>setTab("pos")}>Arka / POS</button>{memberRole==="owner"&&<><button className={tab==="products"?"btn":"btn secondary"} onClick={()=>setTab("products")}>Produktet dhe stoku</button><button className={tab==="purchases"?"btn":"btn secondary"} onClick={()=>setTab("purchases")}>Blerjet &amp; shpenzimet</button><button className={tab==="atk"?"btn":"btn secondary"} onClick={()=>setTab("atk")}>ATK / POS</button><button className={tab==="sales"?"btn":"btn secondary"} onClick={()=>{setTab("sales");void loadSales();}}>Shitjet</button></>}</div>
     {message&&<p className="notice" role="status">{message}</p>}
