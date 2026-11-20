@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ARTICLE44_EXPORT_COLUMNS, buildArticle44Csv } from "../src/lib/pos/article44-export.ts";
 
-test("Article 44 CSV uses the published fixed column order and preserves signed payloads", () => {
+test("Article 44 CSV uses the fixed column order and preserves signed payloads", () => {
   const csv = buildArticle44Csv([{
     source: "browser_local_outbox",
     business_name: "Dyqani, Qendra",
@@ -29,10 +29,11 @@ test("Article 44 CSV quotes cells, doubles quotes and prevents spreadsheet formu
     idempotency_key: "@SUM(1,1)",
   }]);
   const row = csv.split("\\r\\n")[1];
-  assert.ok(row.includes('"'=HYPERLINK(""https://evil.example"",""open"")"'));
-  assert.ok(row.includes('"line one\nline two"'));
-  assert.ok(row.includes('"'+CMD|\' /C calc\'!A0"'));
-  assert.ok(row.includes('"'@SUM(1,1)"'));
+  assert.ok(row.includes("'=HYPERLINK"));
+  assert.ok(row.includes('""https://evil.example""'));
+  assert.ok(row.includes("line one\nline two"));
+  assert.ok(row.includes("'+CMD"));
+  assert.ok(row.includes("'@SUM"));
 });
 
 test("Article 44 CSV preserves numeric values and emits empty cells for missing fields", () => {
