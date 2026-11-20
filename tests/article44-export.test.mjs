@@ -12,7 +12,7 @@ test("Article 44 CSV uses the fixed column order and preserves signed payloads",
     citizen_payload_base64: "Y2l0aXplbg==",
     citizen_signature_base64: "c2ln",
   }]);
-  const lines = csv.trimEnd().split("\\r\\n");
+  const lines = csv.trimEnd().split("\r\n");
   assert.equal(lines.length, 2);
   assert.equal(lines[0].split(",").length, ARTICLE44_EXPORT_COLUMNS.length);
   assert.ok(lines[0].includes('"signed_payload_base64"'));
@@ -28,7 +28,7 @@ test("Article 44 CSV quotes cells, doubles quotes and prevents spreadsheet formu
     authority_request_reference: "+CMD|' /C calc'!A0",
     idempotency_key: "@SUM(1,1)",
   }]);
-  const row = csv.split("\\r\\n")[1];
+  const row = csv.split("\r\n")[1];
   assert.ok(row.includes("'=HYPERLINK"));
   assert.ok(row.includes('""https://evil.example""'));
   assert.ok(row.includes("line one\nline two"));
@@ -38,7 +38,7 @@ test("Article 44 CSV quotes cells, doubles quotes and prevents spreadsheet formu
 
 test("Article 44 CSV preserves numeric values and emits empty cells for missing fields", () => {
   const csv = buildArticle44Csv([{ branch_id: 1, total_eur: -2.5 }]);
-  const row = csv.split("\\r\\n")[1];
+  const row = csv.split("\r\n")[1];
   assert.ok(row.includes(',"1",'));
   assert.ok(row.includes(',"-2.5",'));
 });
