@@ -45,6 +45,11 @@ begin
   if not has_manifest_column or not has_incident_column then
     raise exception 'Authority export audit must retain the incident and request evidence manifest';
   end if;
+  if has_table_privilege('authenticated','fiskalo_private.fiskalo_basic_authority_exports','SELECT') or
+     has_table_privilege('authenticated','fiskalo_private.fiskalo_basic_authority_exports','INSERT') or
+     has_table_privilege('anon','fiskalo_private.fiskalo_basic_authority_exports','SELECT') then
+    raise exception 'Authority export audit table must not be directly accessible to client roles';
+  end if;
 end
 $test$;
 rollback;
