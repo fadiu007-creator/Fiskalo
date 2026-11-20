@@ -15,6 +15,7 @@ export const ARTICLE44_EXPORT_COLUMNS = [
   "coupon_id",
   "document_type",
   "reference_coupon_id",
+  "original_transaction_id",
   "sale_created_at",
   "document_created_at",
   "issued_at_utc",
