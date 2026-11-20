@@ -43,12 +43,12 @@ export type Article44ExportRow = Partial<Record<Article44ExportColumn, string | 
 
 function csvCell(value: string | number | null | undefined): string {
   const raw = value === null || value === undefined ? "" : String(value);
-  const safe = typeof value === "string" && /^[=+@\\t\\r-]/.test(raw) ? "'" + raw : raw;
+  const safe = typeof value === "string" && /^[=+@\t\r-]/.test(raw) ? "'" + raw : raw;
   return '"' + safe.replace(/"/g, '""') + '"';
 }
 
 export function buildArticle44Csv(rows: readonly Article44ExportRow[]): string {
   const header = ARTICLE44_EXPORT_COLUMNS.map(csvCell).join(",");
   const records = rows.map(row => ARTICLE44_EXPORT_COLUMNS.map(column => csvCell(row[column])).join(","));
-  return [header, ...records].join("\\r\\n") + "\\r\\n";
+  return [header, ...records].join("\r\n") + "\r\n";
 }
