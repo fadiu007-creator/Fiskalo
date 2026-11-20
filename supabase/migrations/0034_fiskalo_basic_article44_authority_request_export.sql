@@ -1,3 +1,21 @@
+-- This audit table existed in the connected project but was absent from the
+-- clean-install migration chain. Define its complete baseline before extending it.
+create schema if not exists fiskalo_private;
+create table if not exists fiskalo_private.fiskalo_basic_authority_exports (
+  id uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.fiskalo_basic_businesses(id) on delete restrict,
+  requested_by uuid not null references auth.users(id) on delete restrict,
+  authority_request_reference text not null
+    check (char_length(trim(authority_request_reference)) between 3 and 100),
+  document_count integer not null check (document_count >= 0),
+  created_at timestamptz not null default now(),
+  incident_id uuid references public.fiskalo_basic_article44_incidents(id) on delete restrict,
+  authority_request_evidence_manifest jsonb not null default '[]'::jsonb
+    check (jsonb_typeof(authority_request_evidence_manifest) = 'array'
+      and jsonb_array_length(authority_request_evidence_manifest) <= 20)
+);
+revoke all on table fiskalo_private.fiskalo_basic_authority_exports from public, anon, authenticated;
+
 -- Restrict untransmitted fiscal-data exports to documented ATK/state-authority requests.
 -- The 22 June 2026 ATK technical-specification amendment requires CSV/PDF export
 -- of untransmitted data only upon request by ATK or another state authority.
