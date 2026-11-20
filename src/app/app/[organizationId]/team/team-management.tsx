@@ -22,7 +22,6 @@ export default function TeamManagement({ organizationId }: { organizationId: str
   const [email,setEmail] = useState("");
   const [displayName,setDisplayName] = useState("");
   const [phone,setPhone] = useState("");
-  const [password,setPassword] = useState("");
   const [role,setRole] = useState("cashier");
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
@@ -48,11 +47,11 @@ export default function TeamManagement({ organizationId }: { organizationId: str
     try {
       const response = await fetch("/api/team/add-worker", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organizationId, email, displayName, phone, password, role }),
+        body: JSON.stringify({ organizationId, email, displayName, phone, role }),
       });
       const result = await response.json() as { error?: string; detail?: string; message?: string };
       if (!response.ok) throw new Error(result.detail || result.error || "Punëtori nuk u shtua.");
-      setEmail(""); setDisplayName(""); setPhone(""); setPassword("");
+      setEmail(""); setDisplayName(""); setPhone("");
       setNotice(result.message || "Punëtori u shtua në ekip.");
       await load();
     } catch (cause) {
@@ -87,9 +86,8 @@ export default function TeamManagement({ organizationId }: { organizationId: str
           <label style={{fontSize:12,fontWeight:700}}>Emri dhe mbiemri<input required value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Emri i punëtorit" style={{...field,display:"block",marginTop:6}}/></label>
           <label style={{fontSize:12,fontWeight:700}}>Email<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="punetori@email.com" style={{...field,display:"block",marginTop:6}}/></label>
           <label style={{fontSize:12,fontWeight:700}}>Telefoni (opsional)<input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+383…" style={{...field,display:"block",marginTop:6}}/></label>
-          <label style={{fontSize:12,fontWeight:700}}>Fjalëkalimi fillestar<input type="password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Së paku 8 karaktere për llogari të re" autoComplete="new-password" style={{...field,display:"block",marginTop:6}}/></label>
           <label style={{fontSize:12,fontWeight:700}}>Roli<select value={role} onChange={e=>setRole(e.target.value)} style={{...field,display:"block",marginTop:6}}>{roles.filter(r=>r.value!=="administrator" || canManageAdministrators).map(r=><option key={r.value} value={r.value}>{r.label}</option>)}</select></label>
-          <p style={{fontSize:12,color:"var(--muted)",lineHeight:1.5,margin:0}}>{roles.find(r=>r.value===role)?.description}. Nëse emaili ka llogari, shtohet menjëherë. Për llogari të re, vendos fjalëkalim fillestar. Llogaria krijohet dhe verifikohet automatikisht nga sistemi; punëtori nuk ka nevojë të konfirmojë email-in.</p>
+          <p style={{fontSize:12,color:"var(--muted)",lineHeight:1.5,margin:0}}>{roles.find(r=>r.value===role)?.description}. Për llogari të re, sistemi dërgon ftesë në email; punëtori e konfirmon vetë adresën dhe vendos fjalëkalimin. Llogaritë ekzistuese duhet ta kenë email-in të verifikuar.</p>
           <button disabled={busy} style={{border:0,borderRadius:10,padding:13,background:"var(--brand)",color:"white",fontWeight:800,cursor:"pointer"}}>{busy?"Duke ruajtur…":"Shto në ekip"}</button>
         </form>
       </div>

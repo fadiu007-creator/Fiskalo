@@ -36,10 +36,21 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - Migration 0019: daily-number trigger compatibility, daily-number consumption ledger and offline sale synchronization RPC. Migrations 0022-0023: atomic CouponId/daily-range capacity reservation with an invoker-only public wrapper. Migration 0024: owner-only daily-number reservations from today through seven days ahead in Kosovo time.
 - Existing Supabase migrations: server-only Basic POS certificate registry and trusted queue/accepted receipt RPCs.
 - Migration 0020: hardens the existing server-only queue/accepted writers with active-certificate binding and keeps signed receipts synchronizable after the 48-hour escalation deadline.
+- Migrations `20261117160000` and `20261117160100`: add append-only signed POS heartbeat evidence and bind new offline fiscal documents to the server-measured outage interval and 48-hour recovery window.
 - Migrations 0025–0033: remove public execution from trigger-only helpers; add Article 44 incident/evidence tracking and the tenth-of-following-month un-fiscalized export; add split-tender online/offline checkout; harden deadline/evidence/idempotency boundaries; and enforce the complete 2026 ATK item-category catalogue.
 - Windows POS Agent: DPAPI-protected private key, certificate, reservation store and fiscal queue; local ATK TEST signing and automatic delivery.
 - PWA: cached business/POS/product workspace, IndexedDB sale journal, local-first checkout and reconnect synchronization.
 - Supabase Edge Function `fiskalo-basic-atk-receipts`: verifies local Agent attestations and signature/snapshot bindings before database persistence.
+
+## Server heartbeat configuration
+
+Set the P-256 PKCS#8 private key as a Cloudflare Worker secret on the `fiskalo` Worker:
+
+```bash
+npx wrangler secret put ATK_HEARTBEAT_PRIVATE_KEY_PEM --name fiskalo
+```
+
+The public key is pinned in the route and browser verifier. The server imports the private key as non-exportable and verifies every signature against the pinned public key before recording evidence. Missing or mismatched keys fail closed. Do not put the private key in source control or any `NEXT_PUBLIC_` variable.
 
 ## Important operational limits
 
@@ -47,7 +58,7 @@ Cloud synchronization and fiscal acceptance are independent state machines.
 - The secure local runtime currently targets Windows. Other operating systems need their own secure-keystore POS Agent.
 - The cached operator identity and paired local Agent are required to issue locally during a network outage. Cloud authorization and data refresh resume when connectivity returns.
 - The local Agent retries only when transport evidence proves the request was not delivered. An ambiguous ATK result remains locked for reconciliation.
-- The Agent's retry/recovery timestamps currently use the Windows device clock; a server-signed heartbeat/time anchor has not yet been implemented. The Article 44 UI separately records an owner-reported outage start, not an independently verified server timestamp.
+- The Cloudflare-hosted `/api/pos/heartbeat` endpoint issues P-256 ECDSA-signed ATK TEST timestamps after authenticating the member and POS. The browser verifies the pinned public key and stores the signed heartbeat in encrypted IndexedDB. When paired, the Windows Agent obtains its own one-time challenge, verifies the same server signature and persists the monotonic time in its DPAPI-protected connectivity journal. A heartbeat gap greater than 90 seconds re-anchors queued offline documents and their 48-hour recovery deadline to the previous signed server timestamp. The database records an append-only nonce, actor, POS, signature, server timestamp and measured gap; new cloud-synchronized offline fiscal documents are linked to the matching server-measured heartbeat interval. This proves an absence of POS heartbeat, not the cause of the interruption or the exact second a local device generated a document.
 - Article 44 paragraph 5 notification is only recorded after the owner has actually notified ATK through an official channel or in person and uploaded evidence. Fiskalo does not submit the notice automatically.
 - Article 44 paragraph 6 export combines server-synchronized unaccepted documents with the local POS Agent queue. It fails closed if the paired local queue cannot be read; a server-only export is not described as complete.
 - The tenth-of-following-month export includes every non-accepted offline fiscal document, including rejected documents. The export must still be reviewed and submitted by the taxpayer to ATK.

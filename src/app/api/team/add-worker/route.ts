@@ -2,9 +2,16 @@ import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createCookieClient } from "@/lib/supabase/server";
 
+function isSameOriginRequest(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+  try { return new URL(origin).origin === new URL(request.url).origin; } catch { return false; }
+}
+
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  if (!isSameOriginRequest(request)) return NextResponse.json({ error: "invalid_origin" }, { status: 403 });
   const authClient = await createCookieClient();
   const { data: { user }, error: authError } = await authClient.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -17,9 +24,8 @@ export async function POST(request: Request) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-  const password = typeof body.password === "string" ? body.password : "";
   const role = typeof body.role === "string" ? body.role : "cashier";
-  if (!organizationId || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !displayName) {
+  if (!organizationId || !email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !displayName || displayName.length > 100 || phone.length > 32) {
     return NextResponse.json({ error: "invalid_input", detail: "Plotëso biznesin, emrin dhe email-in valid." }, { status: 400 });
   }
   if (!["cashier", "manager", "accountant", "administrator"].includes(role)) {
@@ -48,19 +54,14 @@ export async function POST(request: Request) {
   let created = false;
 
   if (!worker) {
-    if (password.length < 8) return NextResponse.json({ error: "password_required", detail: "Për llogari të re vendos fjalëkalim me së paku 8 karaktere." }, { status: 400 });
-    const { data, error } = await admin.auth.admin.createUser({
-      email, password, email_confirm: true,
-      user_metadata: { display_name: displayName, phone },
-    });
-    if (error || !data.user) return NextResponse.json({ error: "worker_create_failed", detail: error?.message || "Llogaria nuk u krijua." }, { status: 400 });
+    const redirectTo = new URL("/auth/callback?next=" + encodeURIComponent("/app/" + organizationId), request.url).toString();
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, { data: { display_name: displayName, phone }, redirectTo });
+    if (error || !data.user) return NextResponse.json({ error: "worker_invitation_failed", detail: error?.message || "Ftesa nuk u dërgua." }, { status: 400 });
     worker = data.user;
     created = true;
   } else {
-    const { error } = await admin.auth.admin.updateUserById(worker.id, {
-      email_confirm: true,
-      user_metadata: { ...(worker.user_metadata || {}), display_name: displayName, phone },
-    });
+    if (!worker.email_confirmed_at && !worker.confirmed_at) return NextResponse.json({ error: "worker_email_unverified", detail: "Punëtori duhet ta konfirmojë email-in ose ta përfundojë ftesën ekzistuese para se t’i jepet qasje." }, { status: 409 });
+    const { error } = await admin.auth.admin.updateUserById(worker.id, { user_metadata: { ...(worker.user_metadata || {}), display_name: displayName, phone } });
     if (error) return NextResponse.json({ error: "worker_profile_update_failed", detail: error.message }, { status: 500 });
   }
 
@@ -79,6 +80,6 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json({ success: true, created, email, role, message: created
-    ? "Llogaria e punëtorit u krijua dhe u shtua pa verifikim email-i."
-    : "Llogaria ekzistuese u shtua në ekip." });
+    ? "Ftesa u dërgua. Punëtori duhet të konfirmojë email-in dhe të vendosë fjalëkalimin para hyrjes."
+    : "Llogaria ekzistuese e verifikuar u shtua në ekip." });
 }

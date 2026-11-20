@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createCookieClient } from "@/lib/supabase/server";
 
+function isSameOriginRequest(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+  try { return new URL(origin).origin === new URL(request.url).origin; } catch { return false; }
+}
+
 export const runtime = "nodejs";
 
 async function getAdminContext() {
@@ -39,6 +45,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!isSameOriginRequest(request)) return NextResponse.json({ error: "invalid_origin" }, { status: 403 });
   const context = await getAdminContext();
   if ("error" in context) return context.error;
   const { admin, user } = context;
@@ -56,6 +63,7 @@ export async function POST(request: Request) {
     if (userError) return NextResponse.json({ error: "owner_lookup_failed", detail: userError.message }, { status: 500 });
     const owner = users.users.find(u => u.email?.toLowerCase() === email);
     if (!owner) return NextResponse.json({ error: "owner_account_not_found", detail: "Ky email nuk ka llogari Fiskalo. Pronari duhet të regjistrohet së pari." }, { status: 404 });
+    if (!owner.email_confirmed_at && !owner.confirmed_at) return NextResponse.json({ error: "owner_email_unverified", detail: "Pronari duhet ta konfirmojë email-in para caktimit të biznesit." }, { status: 409 });
     const { error: membershipError } = await admin.from("fiskalo_organization_users").upsert(
       { organization_id: organizationId, user_id: owner.id, role: "owner" },
       { onConflict: "organization_id,user_id" }
