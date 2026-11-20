@@ -32,7 +32,7 @@ begin
      position('storage.objects' in definition)=0 or
      position('authority-request-' in definition)=0 or
      position('row_count > p_limit' in definition)=0 or
-     position('m.role = ''owner''' in definition)=0 then
+     position('m.role=''owner''' in replace(definition,' ',''))=0 then
     raise exception 'Authority export must verify private request evidence, owner scope and complete bounded output';
   end if;
 
