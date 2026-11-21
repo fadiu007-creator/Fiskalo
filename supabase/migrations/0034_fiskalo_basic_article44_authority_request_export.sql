@@ -44,6 +44,27 @@ revoke all on function public.fiskalo_basic_article44_unfiscalized_export(
   uuid,uuid,timestamptz,timestamptz,text,integer
 ) from public, anon, authenticated;
 
+-- A historical migration in the connected project exposed a second, older
+-- untransmitted-data export RPC that accepted only a caller-supplied reference.
+-- It is not part of the clean-install chain, so revoke it conditionally when present.
+do $legacy_untransmitted$
+declare
+  private_export regprocedure := to_regprocedure(
+    'fiskalo_private.fiskalo_basic_untransmitted_export(uuid,timestamptz,timestamptz,text,integer)'
+  );
+  public_export regprocedure := to_regprocedure(
+    'public.fiskalo_basic_untransmitted_export(uuid,timestamptz,timestamptz,text,integer)'
+  );
+begin
+  if private_export is not null then
+    execute format('revoke all on function %s from public, anon, authenticated', private_export);
+  end if;
+  if public_export is not null then
+    execute format('revoke all on function %s from public, anon, authenticated', public_export);
+  end if;
+end;
+$legacy_untransmitted$;
+
 create or replace function fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
   p_incident_id uuid,
   p_business_id uuid,

@@ -3,6 +3,8 @@ do $test$
 declare
   old_private regprocedure;
   old_public regprocedure;
+  legacy_private regprocedure;
+  legacy_public regprocedure;
   new_private regprocedure;
   new_public regprocedure;
   definition text;
@@ -13,6 +15,8 @@ begin
   old_public := to_regprocedure('public.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,timestamptz,timestamptz,text,integer)');
   new_private := to_regprocedure('fiskalo_private.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer)');
   new_public := to_regprocedure('public.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer)');
+  legacy_private := to_regprocedure('fiskalo_private.fiskalo_basic_untransmitted_export(uuid,timestamptz,timestamptz,text,integer)');
+  legacy_public := to_regprocedure('public.fiskalo_basic_untransmitted_export(uuid,timestamptz,timestamptz,text,integer)');
 
   if old_private is null or old_public is null or new_private is null or new_public is null then
     raise exception 'Article 44 authority export RPC signatures are incomplete';
@@ -20,6 +24,19 @@ begin
   if has_function_privilege('authenticated',old_private,'EXECUTE') or
      has_function_privilege('authenticated',old_public,'EXECUTE') then
     raise exception 'Legacy Article 44 export signature must not remain executable';
+  end if;
+
+  if legacy_private is not null and (
+       has_function_privilege('authenticated',legacy_private,'EXECUTE') or
+       has_function_privilege('anon',legacy_private,'EXECUTE')
+     ) then
+    raise exception 'Legacy untransmitted export helper must not remain API-executable';
+  end if;
+  if legacy_public is not null and (
+       has_function_privilege('authenticated',legacy_public,'EXECUTE') or
+       has_function_privilege('anon',legacy_public,'EXECUTE')
+     ) then
+    raise exception 'Legacy untransmitted export wrapper must not remain API-executable';
   end if;
   if not has_function_privilege('authenticated',new_private,'EXECUTE') or
      not has_function_privilege('authenticated',new_public,'EXECUTE') or
