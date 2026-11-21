@@ -8,6 +8,9 @@ declare
   new_private regprocedure;
   new_public regprocedure;
   definition text;
+  fiscal_policy_qual text;
+  fiscal_rls_enabled boolean;
+  fiscal_select_policy_count integer;
   has_manifest_column boolean;
   has_incident_column boolean;
 begin
@@ -42,6 +45,29 @@ begin
      not has_function_privilege('authenticated',new_public,'EXECUTE') or
      has_function_privilege('anon',new_public,'EXECUTE') then
     raise exception 'Documented authority export must be authenticated-only';
+  end if;
+
+  select c.relrowsecurity into fiscal_rls_enabled
+  from pg_class c
+  join pg_namespace n on n.oid=c.relnamespace
+  where n.nspname='public' and c.relname='fiskalo_basic_fiscal_documents';
+  select qual into fiscal_policy_qual
+  from pg_policies
+  where schemaname='public'
+    and tablename='fiskalo_basic_fiscal_documents'
+    and policyname='fiskalo_basic_fiscal_access'
+    and cmd='SELECT';
+  select count(*) into fiscal_select_policy_count
+  from pg_policies
+  where schemaname='public'
+    and tablename='fiskalo_basic_fiscal_documents'
+    and cmd='SELECT';
+  if not coalesce(fiscal_rls_enabled,false) or fiscal_policy_qual is null or
+     fiscal_select_policy_count <> 1 or
+     position('submission_state' in fiscal_policy_qual)=0 or
+     position('accepted' in fiscal_policy_qual)=0 or
+     position('auth.uid()' in fiscal_policy_qual)=0 then
+    raise exception 'Direct fiscal-document reads must be limited to accepted documents for the authenticated business member';
   end if;
 
   select pg_get_functiondef(new_private) into definition;

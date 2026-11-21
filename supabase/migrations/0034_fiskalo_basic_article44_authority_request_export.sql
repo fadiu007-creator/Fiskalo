@@ -65,6 +65,25 @@ begin
 end;
 $legacy_untransmitted$;
 
+-- Do not expose untransmitted fiscal payloads through direct PostgREST table reads.
+-- The Article 44 RPC above is the only client path for those documents and is
+-- owner-scoped, authority-request-bound, and evidence-gated.
+alter table public.fiskalo_basic_fiscal_documents enable row level security;
+drop policy if exists fiskalo_basic_fiscal_access on public.fiskalo_basic_fiscal_documents;
+create policy fiskalo_basic_fiscal_access
+  on public.fiskalo_basic_fiscal_documents
+  for select
+  to authenticated
+  using (
+    submission_state = 'accepted'
+    and exists (
+      select 1
+      from public.fiskalo_basic_members m
+      where m.business_id = fiskalo_basic_fiscal_documents.business_id
+        and m.user_id = auth.uid()
+    )
+  );
+
 create or replace function fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
   p_incident_id uuid,
   p_business_id uuid,
