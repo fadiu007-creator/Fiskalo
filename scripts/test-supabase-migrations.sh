@@ -17,6 +17,10 @@ echo "Bootstrapping disposable Supabase Auth and Storage compatibility objects"
 
 while IFS= read -r migration; do
   migration_name="$(basename "$migration")"
+  if [[ "$migration_name" == "0034_fiskalo_basic_article44_authority_request_export.sql" ]]; then
+    echo "Seeding legacy Article 44 untransmitted-export RPCs for the revocation contract"
+    "${PSQL[@]}" --file "$ROOT_DIR/supabase/tests/0034_legacy_untransmitted_export_fixture.sql"
+  fi
   echo "Applying supabase/migrations/$migration_name"
   "${PSQL[@]}" --file "$migration"
 
