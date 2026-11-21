@@ -13,7 +13,8 @@
     "test:products": "node --experimental-strip-types --test tests/product-tax.test.mjs tests/product-units.test.mjs tests/product-categories.test.mjs tests/unique-fiscalization-code.test.mjs",
     "test:offline": "node --experimental-strip-types --test tests/offline-ledger.test.mjs tests/atk-protobuf.test.mjs tests/offline-outage-time.test.mjs",
     "test:atk-heartbeat": "node --experimental-strip-types --test tests/atk-heartbeat.test.mjs tests/atk-heartbeat-key-provisioning.test.mjs",
-    "test:payments": "node --experimental-strip-types --test tests/payment-allocation.test.mjs tests/correction-idempotency.test.mjs"
+    "test:payments": "node --experimental-strip-types --test tests/payment-allocation.test.mjs tests/correction-idempotency.test.mjs",
+    "test:reports": "node --experimental-strip-types --test tests/sales-report.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

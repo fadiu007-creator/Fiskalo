@@ -11,12 +11,14 @@ The Full application UI is not yet integrated into `main`. A substantial Full/Ba
 Current route map:
 - `/` — **Basic Agent**: the local Windows POS Agent runtime with DPAPI-protected signing key and local fiscal queue.
 - `/basic` — **Basic Cloud**: the browser-based signing runtime using the Cloudflare ATK TEST gateway. It is a second Basic implementation, not the Full edition.
+- `/basic/reports` — owner-only date-ranged sales, VAT, tender and fiscal-state reports with CSV export.
 - The Full application UI is still absent from `main`; navigation between these two Basic routes does not complete the Full/Basic release selector.
 
 ## Implemented in source
 
 - Owner and cashier access, business and POS setup.
 - Basic product catalogue, checkout, stock deduction and sale history.
+- Owner-only date-ranged sales, VAT-code, split-tender, daily-turnover and ATK fiscal-state management reports with formula-safe CSV export.
 - Official ATK unit, VAT and item-category dropdowns; all 53 published category rows (52 unique codes, with the duplicated PM code labels combined) and a matching database category constraint.
 - Online and local-first offline checkout using the paired Windows POS Agent.
 - Mixed-tender payments: cash, card, bank transfer, voucher, cheque and cryptocurrency, with integer-cent reconciliation and idempotent online/offline writes.
@@ -47,6 +49,7 @@ Migrations documented by the project include:
 - `0033_fiskalo_basic_complete_atk_item_categories.sql` — expands the product category constraint to all 52 unique 2026 ATK codes.
 - `20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql` — verified in the connected project's migration ledger; creates the append-only server heartbeat evidence ledger and service-role-only recording RPC.
 - `20261117160100_fiskalo_basic_offline_heartbeat_binding.sql` — verified in the connected project's migration ledger; binds offline fiscal document timestamps and recovery deadlines to trusted server heartbeat intervals.
+- `20261118090000_fiskalo_basic_owner_sales_report.sql` — additive owner-only read-only sales/VAT/tender/fiscal-state report RPC; not yet verified in the connected project's migration ledger.
 
 Temporary, rolled-back Supabase integration checks exercised online and offline split tender, idempotent retries, rejection of changed payment allocations, Article 44 incident creation, export authorization, deadline enforcement and evidence requirements. No test business or sale records were retained.
 
@@ -62,6 +65,7 @@ The repository's older numbered migration files do not all share the timestamp/v
 - Certificate-chain trust anchor, expiry, renewal and revocation validation against ATK's current process.
 - Physical printer testing across supported thermal widths, offline receipt verification and restart/recovery tests.
 - Cloudflare production deployment and live smoke tests for the exact latest commit. The repository CI builds the Cloudflare Worker but does not deploy it.
+- Apply the additive sales-report migration through the approved database workflow before deploying `/basic/reports`; verify the migration ledger and owner-only RPC in the target environment.
 - Clean-database migration replay, authenticated owner/cashier RLS tests and tenant-isolation tests.
 - Provider/software certification and production authorization.
 
