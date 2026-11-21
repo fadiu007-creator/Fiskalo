@@ -189,7 +189,16 @@ export function computeSaleSnapshotSha256(
   const rawPayments = sale.paymentAllocations?.length
     ? sale.paymentAllocations
     : [{ method: sale.paymentMethod, amount_cents: totalCents }];
-  const paymentTypes: Record<string, number> = { cash: 1, card: 2, bank_transfer: 6 };
+  // ATK's official PaymentType enum: Cash=1, CreditCard=2, Voucher=3,
+  // Cheque=4, CryptoCurrency=5 and Other=6 (used for bank transfer).
+  const paymentTypes: Record<string, number> = {
+    cash: 1,
+    card: 2,
+    voucher: 3,
+    cheque: 4,
+    crypto: 5,
+    bank_transfer: 6,
+  };
   const payments = rawPayments.map(payment => {
     const type = paymentTypes[payment.method];
     const amount = Number(payment.amount_cents);
