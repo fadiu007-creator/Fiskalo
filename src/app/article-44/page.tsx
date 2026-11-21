@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { listFiscalOutboxItems } from "@/lib/pos/browser-outbox";
+import { buildArticle44Csv } from "@/lib/pos/article44-export";
 
 type Business = { id: string; name: string; nui: string };
 type Pos = { id: string; label: string; location: string; branch_id: number; pos_id: number };
@@ -97,6 +98,9 @@ export default function Article44Page() {
   const [monthlyReference, setMonthlyReference] = useState("");
   const [monthlyFiles, setMonthlyFiles] = useState<File[]>([]);
   const [monthlyManifest, setMonthlyManifest] = useState<Array<{storage_path:string;file_name:string;mime_type:string;size_bytes:number;sha256:string}>>([]);
+  const [authorityRequestReference, setAuthorityRequestReference] = useState("");
+  const [authorityRequestFile, setAuthorityRequestFile] = useState<File | null>(null);
+  const [authorityRequestManifest, setAuthorityRequestManifest] = useState<Incident["evidence_manifest"]>([]);
   const [exportingIncidentId, setExportingIncidentId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -216,16 +220,48 @@ export default function Article44Page() {
     const business = businesses.find(b => b.id === incident.business_id);
     const pos = positions.find(p => p.id === incident.pos_id);
     if (!business || !pos) { setMessage("Biznesi ose POS-i i incidentit nuk u gjet."); return; }
-    setExportingIncidentId(incident.id); setMessage("");
+
+    const authorityReference = authorityRequestReference.trim();
+    if (authorityReference.length < 3 || authorityReference.length > 100) {
+      setMessage("Vendos referencën reale të kërkesës zyrtare të ATK-së ose autoritetit tjetër shtetëror.");
+      return;
+    }
+    if (!authorityRequestFile && !authorityRequestManifest.length) {
+      setMessage("Ngarko dokumentin që dëshmon kërkesën zyrtare të ATK-së ose autoritetit tjetër shtetëror.");
+      return;
+    }
+    if (authorityRequestFile) {
+      const mimeType = evidenceMime(authorityRequestFile);
+      if (!ALLOWED.includes(mimeType) || authorityRequestFile.size < 1 || authorityRequestFile.size > 10 * 1024 * 1024) {
+        setMessage("Kërkesa zyrtare duhet të jetë PDF, JPG, PNG ose TXT dhe maksimumi 10 MB.");
+        return;
+      }
+    }
+
+    setExportingIncidentId(incident.id);
+    setMessage("");
     try {
       const to = incident.restored_at ?? new Date().toISOString();
-      const reference = "Article44(6)-" + incident.id.slice(0, 8);
-      const { data, error } = await supabase.rpc("fiskalo_basic_article44_unfiscalized_export", {
-        p_business_id: incident.business_id, p_pos_id: incident.pos_id,
-        p_from: incident.outage_started_at, p_to: to,
-        p_authority_request_reference: reference, p_limit: 5000
-      });
-      if (error) throw error;
+      let requestManifest = authorityRequestManifest;
+      if (!requestManifest.length) {
+        const file = authorityRequestFile!;
+        const mimeType = evidenceMime(file);
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100) || "authority-request";
+        const storagePath = incident.business_id + "/" + incident.id + "/authority-request-" + crypto.randomUUID() + "-" + safeName;
+        const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, file, {
+          upsert: false, contentType: mimeType
+        });
+        if (uploadError) throw uploadError;
+        const hash = hex(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
+        requestManifest = [{
+          storage_path: storagePath, file_name: file.name,
+          mime_type: mimeType, size_bytes: file.size, sha256: hash
+        }];
+        setAuthorityRequestManifest(requestManifest);
+      }
+
+      // Read the browser-local queue before logging the controlled server export.
+      // If the local queue cannot be read, no incomplete export is recorded.
       const outbox = await listFiscalOutboxItems(incident.business_id);
       const localItems = outbox.filter(item => {
         const issued = item.offlineIssuedAtUtc ? Date.parse(item.offlineIssuedAtUtc) : NaN;
@@ -254,52 +290,139 @@ export default function Article44Page() {
         qr_svg_base64: item.qrSvg,
         last_error: item.lastError
       }));
+
+      const { data, error } = await supabase.rpc("fiskalo_basic_article44_unfiscalized_export", {
+        p_incident_id: incident.id,
+        p_business_id: incident.business_id,
+        p_pos_id: incident.pos_id,
+        p_from: incident.outage_started_at,
+        p_to: to,
+        p_authority_request_reference: authorityReference,
+        p_authority_request_evidence_manifest: requestManifest,
+        p_limit: 5000
+      });
+      if (error) throw error;
       if ((data as {truncated?:boolean})?.truncated) {
-        throw new Error("Eksporti i databazës kalon kufirin 5,000 dokumente. Kërko ndarje të eksportit në periudha më të shkurtra përpara dorëzimit.");
+        throw new Error("Eksporti kalon kufirin 5,000 dokumente. Kërko ndarje të periudhës përpara se të vazhdosh.");
       }
-      const allServerDocuments = (data as {documents?:Array<{coupon_id?:string}>})?.documents ?? [];
+
+      const allServerDocuments = ((data as {documents?:Array<Record<string, unknown>>})?.documents ?? []);
       const localCouponIds = new Set(localItems.map(item => String(item.coupon_id)));
       const serverDocuments = allServerDocuments.filter(doc => !localCouponIds.has(String(doc.coupon_id)));
-      const bundle = {
-        format: "Fiskalo Article 44(6) un-fiscalized coupon export v1",
-        legal_reference: "Administrative Instruction MFPT No. 01/2026, Article 44(6)",
-        generated_at_utc: new Date().toISOString(),
-        business: { name: business.name, nui: business.nui },
-        pos: { id: pos.id, label: pos.label, branch_id: pos.branch_id, pos_number: pos.pos_id },
-        period: { from_utc: incident.outage_started_at, to_utc_exclusive: to },
-        database_export: { ...data, documents: serverDocuments, count: serverDocuments.length, duplicates_replaced_by_browser_outbox: allServerDocuments.length - serverDocuments.length },
-        local_browser_outbox_unaccepted_coupons: localItems,
-        totals: {
-          database_unaccepted_documents: serverDocuments.length,
-          local_browser_outbox_unaccepted_documents: localItems.length,
-          database_export_truncated: Boolean((data as {truncated?:boolean})?.truncated),
-          local_browser_outbox_overdue: localItems.filter(item => Date.parse(item.recovery_deadline_utc) < Date.now()).length
-        },
-        notes: [
-          "The export combines server-synchronized fiscal documents and the encrypted browser-local fiscal outbox. Run this export in the same browser profile used by the affected POS.",
-          "Review the export against every POS before submitting it to ATK.",
-          "Downloading this file does not submit it to ATK."
-        ]
+      const generatedAt = new Date().toISOString();
+      const metadata = {
+        generated_at_utc: generatedAt,
+        authority_request_reference: authorityReference,
+        business_name: business.name,
+        business_nui: business.nui,
+        pos_label: pos.label,
+        branch_id: pos.branch_id,
+        pos_number: pos.pos_id,
+        period_from_utc: incident.outage_started_at,
+        period_to_utc: to
       };
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const asText = (value: unknown) => value === null || value === undefined ? "" : String(value);
+      const asNumber = (value: unknown) => {
+        if (value === null || value === undefined || value === "") return "";
+        const number = Number(value);
+        return Number.isFinite(number) ? number : "";
+      };
+      const serverRows = serverDocuments.map(doc => ({
+        ...metadata,
+        source: "server_database",
+        fiscal_document_id: asText(doc.fiscal_document_id),
+        sale_id: asText(doc.sale_id),
+        coupon_id: asText(doc.coupon_id),
+        document_type: asText(doc.document_type),
+        reference_coupon_id: asText(doc.reference_coupon_id),
+        original_transaction_id: "",
+        sale_created_at: asText(doc.sale_created_at),
+        document_created_at: asText(doc.document_created_at),
+        issued_at_utc: asText(doc.document_created_at),
+        offline_issued_at_utc: asText(doc.offline_issued_at),
+        recovery_deadline_utc: asText(doc.recovery_deadline_at),
+        status: asText(doc.submission_state),
+        atk_transaction_id: asText(doc.atk_transaction_id),
+        daily_number: asNumber(doc.daily_number),
+        nui_kf: asText(doc.nui_kf),
+        verification_no: "",
+        fiscalization_number: asText(doc.fiscalization_number),
+        total_eur: asNumber(doc.total),
+        signed_payload_base64: asText(doc.signed_payload),
+        signature_base64: asText(doc.signature),
+        citizen_payload_base64: asText(doc.citizen_payload),
+        citizen_signature_base64: asText(doc.citizen_signature),
+        citizen_qr_payload: "",
+        qr_svg_base64: "",
+        atk_response: doc.atk_response == null ? "" : JSON.stringify(doc.atk_response),
+        last_error: asText(doc.last_error),
+        attempt_count: asNumber(doc.attempt_count),
+        idempotency_key: ""
+      }));
+      const localRows = localItems.map(item => ({
+        ...metadata,
+        source: "browser_local_outbox",
+        fiscal_document_id: "",
+        sale_id: "",
+        coupon_id: asText(item.coupon_id),
+        document_type: asText(item.document_type),
+        reference_coupon_id: asText(item.original_coupon_id),
+        original_transaction_id: asText(item.original_transaction_id),
+        sale_created_at: "",
+        document_created_at: "",
+        issued_at_utc: asText(item.issued_at_utc),
+        offline_issued_at_utc: asText(item.offline_issued_at_utc),
+        recovery_deadline_utc: asText(item.recovery_deadline_utc),
+        status: asText(item.status),
+        atk_transaction_id: asText(item.atk_transaction_id),
+        daily_number: asNumber(item.daily_number),
+        nui_kf: asText(item.nui_kf),
+        verification_no: asText(item.verification_no),
+        fiscalization_number: "",
+        total_eur: "",
+        signed_payload_base64: asText(item.signed_payload_base64),
+        signature_base64: asText(item.signature_base64),
+        citizen_payload_base64: asText(item.citizen_payload_base64),
+        citizen_signature_base64: asText(item.citizen_signature_base64),
+        citizen_qr_payload: asText(item.citizen_qr_payload),
+        qr_svg_base64: asText(item.qr_svg_base64),
+        atk_response: "",
+        last_error: asText(item.last_error),
+        attempt_count: "",
+        idempotency_key: asText(item.idempotency_key)
+      }));
+      const csv = buildArticle44Csv([...serverRows, ...localRows]);
+      const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url; link.download = "fiskalo-article44-unfiscalized-" + incident.id.slice(0, 8) + ".json";
-      document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
-      setMessage("Eksporti u krijua: " + (serverDocuments.length + localItems.length) + " dokumente të pafiskalizuara. Kontrolloje dhe dorëzoje te ATK.");
-    } catch (e) { setMessage(e instanceof Error ? e.message : "Eksporti i kuponëve dështoi."); }
-    finally { setExportingIncidentId(""); }
+      link.href = url;
+      link.download = "fiskalo-article44-unfiscalized-" + incident.id.slice(0, 8) + ".csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+
+      setAuthorityRequestFile(null);
+      setAuthorityRequestManifest([]);
+      setAuthorityRequestReference("");
+      setMessage("Eksporti CSV u krijua për kërkesën zyrtare " + authorityReference + ": " +
+        (serverDocuments.length + localItems.length) + " dokumente. Fiskalo ruajti referencën dhe dëshminë e kërkesës; dorëzimi te ATK mbetet veprim i veçantë.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Eksporti i kuponëve dështoi.");
+    } finally {
+      setExportingIncidentId("");
+    }
   }
 
   async function recordMonthlySubmission(incident: Incident) {
     if (!supabase) return;
-    if (monthlyFiles.length < 2) { setMessage("Ngarko eksportin JSON/CSV dhe dëshminë e dorëzimit te ATK (PDF, JPG, PNG ose TXT)."); return; }
+    if (monthlyFiles.length < 2) { setMessage("Ngarko eksportin CSV dhe dëshminë e dorëzimit te ATK (PDF, JPG, PNG ose TXT)."); return; }
     const monthlyMimes = monthlyFiles.map(evidenceMime);
-    const hasExport = monthlyMimes.some(type => type === "application/json" || type === "text/csv");
+    const hasExport = monthlyMimes.some(type => type === "text/csv");
     const hasProof = monthlyMimes.some(type => ["application/pdf","image/jpeg","image/png","text/plain"].includes(type));
-    if (!hasExport || !hasProof) { setMessage("Kërkohet një eksport JSON/CSV dhe së paku një dëshmi e dorëzimit."); return; }
-    if (monthlyFiles.some((f,index) => f.size < 1 || f.size > 10 * 1024 * 1024 || ![...ALLOWED,"application/json","text/csv"].includes(monthlyMimes[index]))) {
-      setMessage("Çdo skedar duhet të jetë PDF/JPG/PNG/TXT/JSON/CSV dhe maksimumi 10 MB."); return;
+    if (!hasExport || !hasProof) { setMessage("Kërkohet eksport CSV dhe së paku një dëshmi e dorëzimit te ATK."); return; }
+    if (monthlyFiles.some((f,index) => f.size < 1 || f.size > 10 * 1024 * 1024 || ![...ALLOWED,"text/csv"].includes(monthlyMimes[index]))) {
+      setMessage("Çdo skedar duhet të jetë PDF/JPG/PNG/TXT/CSV dhe maksimumi 10 MB."); return;
     }
     setBusy(true); setMessage("");
     try {
@@ -401,12 +524,15 @@ export default function Article44Page() {
           </div>}
           {monthlyRequired && <div className="article44-notice">
             <strong>Afati i datës 10 të muajit vijues ka kaluar.</strong>
-            <p>Sipas Nenit 44(6), nëse lidhja nuk është rivendosur deri më 10 të muajit pasues, tatimpaguesi duhet t’ia paraqesë ATK-së të gjithë kuponët e pafiskalizuar. Gjenero paketën e kombinuar nga databaza dhe radha lokale e enkriptuar e shfletuesit, kontrolloje dhe dorëzoje te ATK.</p>
-            <p className="article44-muted">Afati: {monthlyDue.display}. Eksporti duhet gjeneruar nga i njëjti profil shfletuesi ku është përdorur POS-i.</p>
-            <button className="article44-primary" disabled={!!exportingIncidentId || busy} onClick={() => void exportMonthlyUnfiscalized(incident)}>{exportingIncidentId === incident.id ? "Duke përgatitur…" : "Eksporto kuponët e pafiskalizuar"}</button>
+            <p>Sipas Nenit 44(6), tatimpaguesi duhet t’ia paraqesë ATK-së kuponët e pafiskalizuar kur plotësohen kushtet ligjore. Sipas ndryshimit të kërkesave teknike të ATK-së të datës 22.06.2026, eksporti i të dhënave të patransmetuara nga SEF kufizohet në kërkesë të ATK-së ose të një autoriteti tjetër shtetëror. Ky eksport nuk aktivizohet pa referencë dhe dëshmi të kërkesës zyrtare.</p>
+            <p className="article44-muted">Afati: {monthlyDue.display}. Eksporti CSV përfshin databazën dhe radhën lokale të enkriptuar të POS-it; gjeneroje nga i njëjti profil shfletuesi ku është përdorur POS-i. Nëse nuk ke kërkesë zyrtare, ndiq kanalin dhe formatin e konfirmuar nga ATK për përmbushjen e Nenit 44(6).</p>
+            <label>Referenca e kërkesës së ATK-së/autoritetit shtetëror<input value={authorityRequestReference} onChange={e => setAuthorityRequestReference(e.target.value)} maxLength={100} required/></label>
+            <label>Kërkesa zyrtare (PDF/JPG/PNG/TXT, max 10 MB)<input type="file" accept=".pdf,.jpg,.jpeg,.png,.txt" onChange={e => {setAuthorityRequestFile(e.target.files?.[0] ?? null);setAuthorityRequestManifest([]);}}/></label>
+            {authorityRequestManifest.length > 0 && <p className="article44-muted">Dëshmia e kërkesës është ruajtur privatisht dhe mund të ripërdoret: {authorityRequestManifest[0].file_name}</p>}
+            <button className="article44-primary" disabled={!!exportingIncidentId || busy} onClick={() => void exportMonthlyUnfiscalized(incident)}>{exportingIncidentId === incident.id ? "Duke përgatitur…" : "Eksporto CSV sipas kërkesës zyrtare"}</button>
             <label>Kanal i dorëzimit<select value={monthlyChannel} onChange={e => setMonthlyChannel(e.target.value)}><option value="electronic">Elektronik</option><option value="in_person">Personalisht në zyrën përkatëse</option></select></label>
             <label>Referenca e pranimit (nëse ka)<input value={monthlyReference} onChange={e => setMonthlyReference(e.target.value)} maxLength={200}/></label>
-            <label>Eksporti JSON/CSV dhe dëshmia e dorëzimit (PDF/JPG/PNG/TXT)<input type="file" multiple accept=".json,.csv,.pdf,.jpg,.jpeg,.png,.txt" onChange={e => {setMonthlyFiles(Array.from(e.target.files ?? []));setMonthlyManifest([]);}}/></label>
+            <label>Eksporti CSV dhe dëshmia e dorëzimit (PDF/JPG/PNG/TXT)<input type="file" multiple accept=".csv,.pdf,.jpg,.jpeg,.png,.txt" onChange={e => {setMonthlyFiles(Array.from(e.target.files ?? []));setMonthlyManifest([]);}}/></label>
             {monthlyManifest.length > 0 && <p className="article44-muted">Skedarët janë ngarkuar: {monthlyManifest.length}. Mund ta riprovosh regjistrimin.</p>}
             <button className="article44-primary" disabled={busy || monthlyFiles.length < 2 && monthlyManifest.length < 2} onClick={() => void recordMonthlySubmission(incident)}>{busy ? "Duke ruajtur…" : "Regjistro dorëzimin dhe dëshmitë"}</button>
           </div>}
