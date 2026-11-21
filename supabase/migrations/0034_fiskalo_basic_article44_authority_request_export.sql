@@ -142,7 +142,8 @@ begin
    and o.name=e->>'storage_path'
   where o.owner_id=caller_id::text
     and lower(coalesce(o.metadata->>'mimetype',''))=lower(e->>'mime_type')
-    and coalesce(o.metadata->>'size','') ~ '^[0-9]+
+    and coalesce(o.metadata->>'size','') ~ '^[0-9]+$'
+    and (o.metadata->>'size')::bigint=(e->>'size_bytes')::bigint;
   if found_file_count <> manifest_count then
     raise exception 'One or more authority request evidence files are missing from private storage';
   end if;

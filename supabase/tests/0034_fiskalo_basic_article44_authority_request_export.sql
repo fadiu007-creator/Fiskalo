@@ -49,6 +49,7 @@ begin
      position('storage.objects' in definition)=0 or
      position('o.metadata->>''mimetype''' in replace(definition,' ',''))=0 or
      position('o.metadata->>''size''' in replace(definition,' ',''))=0 or
+     position('(o.metadata->>''size'')::bigint=(e->>''size_bytes'')::bigint' in replace(definition,' ',''))=0 or
      position('o.owner_id=caller_id::text' in replace(definition,' ',''))=0 or
      position('authority-request-' in definition)=0 or
      position('row_count > p_limit' in definition)=0 or
