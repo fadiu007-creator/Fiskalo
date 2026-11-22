@@ -47,7 +47,7 @@ function dateOf(timestamp:string){
   const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Belgrade",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(timestamp));
   const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));return `${values.year}-${values.month}-${values.day}`;
 }
-async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
+async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10,transactionId="987654321",saleCheckoutKey:string|null=null,attestationCheckoutKey:string|null=saleCheckoutKey){
   const keyPair=await testKeyPair();
   const spki=TEST_SPKI;
   const now=new Date();
@@ -59,7 +59,7 @@ async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
   const pos:AtkReceiptPos={id:posUuid,businessId,branchId:1,posNumber:2,applicationId:"3",certificateStatus:"certificate_issued",location:"Ferizaj"};
   const sale:AtkReceiptSale={
     id:saleId,businessId,posId:posUuid,couponId:9001,status:"paid",dailyNumber:42,createdAt,
-    checkoutIdempotencyKey:null,operatorName:"Operator",paymentMethod:"cash",paymentAllocations:null,
+    checkoutIdempotencyKey:saleCheckoutKey,operatorName:"Operator",paymentMethod:"cash",paymentAllocations:null,
     subtotal:"4.00",vatTotal:"0.72",total:"4.72",
   };
   const couponSnapshotSha256=await computeSaleSnapshotSha256(123456789,pos,sale,saleItems,"0123456789ABCDEF",42);
@@ -73,11 +73,11 @@ async function setup(status:"queued"|"accepted"="queued",offlineAgeMinutes=10){
   const offlineIssued=status==="queued"?new Date(now.getTime()-offlineAgeMinutes*60_000).toISOString():null;
   const payload={
     version:1,businessId,posUuid,businessNui:123456789,branchId:1,posNumber:2,applicationId:3,
-    couponId:9001,idempotencyKey:"123456789:1:2:9001",checkoutIdempotencyKey:null,
+    couponId:9001,idempotencyKey:"123456789:1:2:9001",checkoutIdempotencyKey:attestationCheckoutKey,
     businessDate:dateOf(createdAt),documentType:"Sale",
     signedPayloadBase64:b64(posPayload),signatureBase64:b64(posSignature),
     payloadSha256:await hash(posPayload),signatureSha256:await hash(posSignature),couponSnapshotSha256,
-    status,transactionId:status==="accepted"?"987654321":null,
+    status,transactionId:status==="accepted"?transactionId:null,
     atkResponseMessage:status==="accepted"?"Accepted by ATK TEST":null,
     nuiKf:"0123456789ABCDEF",verificationNo:"0123456789ABCDEF",
     citizenPayloadBase64:b64(citizenPayload),citizenSignatureBase64:b64(citizenSignature),
@@ -222,6 +222,22 @@ Deno.test("keeps an offline fiscal document synchronizable after the 48-hour dea
   assert(typeof result.recoveryDeadlineAt==="string","the original recovery deadline must be retained");
 });
 
+Deno.test("rejects zero and overflowing ATK uint64 transaction IDs before persistence",async()=>{
+  for (const transactionId of ["0","18446744073709551616"]) {
+    const fixture=await setup("accepted",10,transactionId);
+    const response=await fixture.handler(fixture.request());
+    assert(response.status===409,`invalid transaction ID ${transactionId} must be rejected`);
+    assert(fixture.recorded()===null,"invalid ATK transaction IDs must never reach the database writer");
+  }
+});
+
+
+Deno.test("requires exact offline checkout idempotency-key binding to the cloud sale",async()=>{
+  const fixture=await setup("accepted",10,"987654321","11111111-1111-4111-8111-111111111111",null);
+  const response=await fixture.handler(fixture.request());
+  assert(response.status===409,"a signed attestation that omits the sale checkout key must be rejected");
+  assert(fixture.recorded()===null,"a mismatched checkout identity must never reach the database writer");
+});
 
 Deno.test("matches every official ATK payment type in the POS Agent snapshot hash",async()=>{
   const pos:AtkReceiptPos={

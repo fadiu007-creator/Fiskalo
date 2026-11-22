@@ -1,27 +1,31 @@
 # ATK product fiscal classifications
 
+This file documents the exact catalogues currently implemented by Fiskalo. Product category and VAT classification are separate fields: **never infer the VAT treatment from the category code alone**.
+
 ## VAT code mapping
 
-Fiskalo uses one canonical ATK VAT classification for each product. The selected ATK code determines the numeric rate sent to checkout and the signed POS coupon:
+Fiskalo uses the ATK tax-rate letters in the signed coupon. The official ATK POS integration sample, linked from the ATK SEF portal, documents these values:
 
 | ATK code | Rate | Meaning |
 |---|---:|---|
 | A | 0% | Exempt from VAT |
-| C | 0% | Zero-rated supply |
-| D | 8% | Reduced VAT rate |
-| E | 18% | Standard VAT rate |
+| C | 0% | Zero-rated |
+| D | 8% | Reduced rate |
+| E | 18% | Standard rate |
 
-**A and C are not interchangeable.** Both calculate zero VAT, but they represent different tax treatments and must remain separate in the product catalogue and fiscal coupon.
+**A and C are not interchangeable.** Both calculate zero VAT, but they represent different fiscal classifications and must remain distinct in product records and fiscal coupons.
 
-The mapping follows the published ATK POS integration model in [fiskalizimi/pos-csharp](https://github.com/fiskalizimi/pos-csharp), which is linked from the [official ATK SEF portal](https://apps.atk-ks.org/sefaplikimi/).
+Sources:
+- [ATK SEF portal — implementation specifications and official documents](https://apps.atk-ks.org/sefaplikimi/)
+- [ATK-linked POS C# integration sample](https://github.com/fiskalizimi/pos-csharp)
+
+The VAT code is selected per product/supply. A category such as food, medicine or fuel does not by itself establish whether A, C, D or E applies; the taxpayer must apply the relevant VAT law and current ATK guidance.
 
 ## Measurement-unit catalogue
 
-ATK's SEF portal lists **“Njësitë Matëse dhe Kategoritë e mallrave dhe shërbimeve”**, published 29 September 2026:
+The current source snapshot in `src/lib/atk/product-units.ts` uses the 21 codes from ATK's later catalogue, **“Njësitë Matëse dhe Kategoritë e mallrave dhe shërbimeve”**, published 29 September 2026:
 
 [Open the official ATK DOCX catalogue](https://apps.atk-ks.org/sefaplikimi/uploads/documents/1d551126-ea39-49eb-8b89-6e0deb6e117f.docx)
-
-The complete measurement-unit table contains 21 codes. Fiskalo now uses those exact codes in a dropdown and validates the selected code before saving a product.
 
 | Code | Official label |
 |---|---|
@@ -47,12 +51,76 @@ The complete measurement-unit table contains 21 codes. Fiskalo now uses those ex
 | MSK | m/s2 |
 | KWH | KWH |
 
-The unit catalogue is versioned in `src/lib/atk/product-units.ts`; its source date, URL, all 21 codes, and normalization/validation behavior have regression tests. Existing product records are not rewritten by this change. A legacy unit value that is not in the current ATK table must be replaced with a valid code before that product can be saved again.
+The May 2026 technical-requirements PDF contains an earlier 31-row measurement-unit table on page 86. Fiskalo's current code snapshot intentionally points to the later 29 September 2026 ATK catalogue; do not reintroduce codes from the older table without checking the latest ATK publication. The UI validates the selected code before saving a product. Existing product records are not silently rewritten.
 
-## Goods/services categories — not yet validated
+## Goods and services categories
 
-The same official document contains the goods/services category table. The extraction available for this change exposed only rows 45–53; rows 1–44 were not visible. **No partial category list has been presented as complete and no guessed category codes have been imported.**
+The complete category annex is in the ATK **Specific Technical and Functional Requirements for PEF/SF/SEF**, published 29 May 2026, pages 87–88:
 
-The product category remains a manually entered code with an explicit warning. A complete, independently checked extraction of every category row is still required before Fiskalo can provide a validated category dropdown.
+[Open the official ATK technical-requirements PDF](https://apps.atk-ks.org/sefaplikimi/uploads/documents/150ab6cc-084f-490d-b5fc-d8639d0287dc.pdf)
 
-Do not treat a non-empty category value as proof that ATK recognizes it. Preserve the source's exact code and label, record the document/version date, and add a regression test for every row before enabling category validation.
+The annex contains **53 published rows and 52 unique category codes**. The code `PM` appears twice in the source (medical equipment and flour products); Fiskalo preserves both rows and combines their labels in the dropdown.
+
+| Code | Official category name |
+|---|---|
+| TT | Të tjera |
+| UR | Ushqime restoranti |
+| AU | Artikuj ushqimorë |
+| VM | Veshmbathje |
+| KO | Kozmetikë |
+| AP | Autopjesë |
+| BM | Barna mjekësore |
+| PM | Pajisje mjekësore / Produkte të miellit |
+| PP | Pemë dhe perime |
+| PE | Pajisje elektronike |
+| PS | Pajisje shtëpiake |
+| PB | Pajisje bujqësore |
+| BB | Barna bujqësore |
+| KB | Karburante |
+| EE | Energji elektrike |
+| PSE | Pajisje speciale elektrike |
+| SM | Shërbime mjekësore |
+| SJ | Shërbime juridike |
+| ST | Shërbime të tjera |
+| SK | Shërbime të kontabilitetit |
+| SMK | Shërbime mekanike |
+| STR | Shërbime transporti |
+| PI | Pajisje industriale |
+| PT | Pajisje transporti |
+| SEA | Shërbime edukative dhe arsimore |
+| KS | Klube sportive |
+| MN | Materiale ndërtimore |
+| SHN | Shërbime ndërtimore |
+| SDG | Shtyp dhe dizajn grafik |
+| HT | Hoteleri dhe turizëm |
+| SHB | Shërbime bankare |
+| STI | Shërbime të TI-së |
+| SHT | Shërbime telekomunikimi |
+| PBS | Prodhimi bimor dhe shtazor |
+| MPM | Mish dhe produkte të mishit |
+| PPD | Produkte të drurit |
+| PPH | Produkte të hekurit |
+| PPP | Produkte të plastikës |
+| PPA | Produkte të aluminit |
+| PHN | Pajisje hidraulike dhe të ngrohjes |
+| SHH | Shërbime hidraulike |
+| SUA | Shërbime udhëtimi dhe akomodimi |
+| SHZ | Shërbime të zbukurimit |
+| PJA | Pije joalkoolike |
+| PAL | Pije alkoolike |
+| DUH | Duhan |
+| SHM | Shërbime marketingu |
+| PRO | Prodhimtari |
+| SFV | Shpërndarje filmash, videosh dhe programesh televizive |
+| BSH | Blegtori dhe shpezëtari |
+| RPK | Riparimi i pajisjeve të komunikimit |
+| PTI | Pajisje të teknologjisë informative |
+
+The source annex notes that the listed categories are examples and that additional categories may exist; the SEF must support configuration of categories for the relevant goods or services. Fiskalo validates the 52 unique codes published in this annex but does not claim that this finite dropdown is an exhaustive legal classification of every possible business activity.
+
+Implementation:
+- `src/lib/atk/product-categories.ts` preserves all 53 source rows and builds 52 unique dropdown options.
+- `supabase/migrations/0033_fiskalo_basic_complete_atk_item_categories.sql` enforces the 52 unique codes in the Basic products table.
+- `tests/product-categories.test.mjs` checks the source row count, unique code count, duplicate `PM` label and rejection of arbitrary values.
+
+The 22 June 2026 amendment updates other SEF technical requirements but does not replace the May 2026 category annex. Check the ATK portal for any later catalogue or annex before changing these constants.
