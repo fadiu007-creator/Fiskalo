@@ -104,6 +104,9 @@ while IFS= read -r migration; do
     20261117160100_fiskalo_basic_offline_heartbeat_binding.sql)
       run_test "20261117160100_fiskalo_basic_offline_heartbeat_binding.sql"
       ;;
+    20261118090000_fiskalo_basic_owner_sales_report.sql)
+      run_test "20261118090000_fiskalo_basic_owner_sales_report.sql"
+      ;;
   esac
 done < <(find "$ROOT_DIR/supabase/migrations" -maxdepth 1 -type f -name '*.sql' -print | sort)
 
