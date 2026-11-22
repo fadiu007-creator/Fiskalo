@@ -1,3 +1,4 @@
+import { isPaymentMethod, toAtkPaymentType } from "../../../src/lib/atk/payment-allocation.ts";
 export type AtkReceiptActor = { id: string };
 export type AtkReceiptBusiness = { nui: string | number; name?: string };
 export type AtkReceiptPos = {
@@ -189,11 +190,13 @@ export function computeSaleSnapshotSha256(
   const rawPayments = sale.paymentAllocations?.length
     ? sale.paymentAllocations
     : [{ method: sale.paymentMethod, amount_cents: totalCents }];
-  const paymentTypes: Record<string, number> = { cash: 1, card: 2, bank_transfer: 6 };
   const payments = rawPayments.map(payment => {
-    const type = paymentTypes[payment.method];
+    if (!isPaymentMethod(payment.method)) {
+      throw new AtkReceiptRequestError(409, "Sale payment allocation cannot be represented in the signed ATK coupon.");
+    }
+    const type = toAtkPaymentType(payment.method);
     const amount = Number(payment.amount_cents);
-    if (type === undefined || !Number.isSafeInteger(amount) || amount < 0)
+    if (!Number.isSafeInteger(amount) || amount < 0)
       throw new AtkReceiptRequestError(409, "Sale payment allocation cannot be represented in the signed ATK coupon.");
     return { type, amount };
   }).sort((a,b)=>a.type-b.type||a.amount-b.amount);
