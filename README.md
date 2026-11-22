@@ -6,19 +6,32 @@ Kosovo fiscalization software focused on owner/cashier workflows, ATK TEST coupo
 
 This repository's current `main` application is the **Basic MVP**. It remains separate from `Fiskalo1`; no files or deployment settings in `Fiskalo1` are modified.
 
-The Full application UI is not yet integrated into `main`. A substantial Full/Basic release-candidate branch exists, but it cannot be merged blindly because it removes or replaces the current Windows POS Agent and offline implementation. The Full UI must be reconciled with the current Basic implementation before a selectable Full/Basic launcher can be considered complete.
+The Full application UI is restored as a separate authenticated edition under `/app`. The existing Basic Agent (`/`) and Basic Cloud (`/basic`) routes remain intact; no Basic route or Basic table is replaced.
 
 Current route map:
 - `/` — **Basic Agent**: the local Windows POS Agent runtime with DPAPI-protected signing key and local fiscal queue.
-- `/basic` — **Basic Cloud**: the browser-based signing runtime using the Cloudflare ATK TEST gateway. It is a second Basic implementation, not the Full edition.
-- `/basic/reports` — owner-only date-ranged sales, VAT, tender and fiscal-state reports with CSV export.
-- The Full application UI is still absent from `main`; navigation between these two Basic routes does not complete the Full/Basic release selector.
+- `/basic` — **Basic Cloud**: the browser-based Basic POS and ATK TEST gateway.
+- `/basic/reports` — owner-only date-ranged sales, VAT-code, split-tender, daily-turnover and ATK fiscal-state reports with CSV export.
+- `/app` — **Fiskalo Full** workspace picker.
+- `/app/[organizationId]` — Full business workspace: invoices, customers, POS, cashier shifts, purchases, expenses, inventory, team and reports.
+- `/login`, `/register`, `/onboarding`, `/account` — Full-edition authentication and account workflows.
+
+The editions use separate data models (`fiskalo_*` for Full and `fiskalo_basic_*` for Basic). They share the Supabase project only through separate tables and functions; there is no implicit cross-edition record synchronization. Both Basic headers link to Full, and Full navigation links back to Basic.
+
+## Full edition security and release boundaries
+
+- Full fiscalization endpoints are restricted to the ATK TEST service. A successful local build or TEST response is not ATK certification or production acceptance.
+- Server routes authenticate the caller, verify organization membership and allowed role, match the taxpayer NUI, bind the exact POS installation and certificate, and validate the signed POS/CitizenCoupon payload before writing a fiscal document.
+- `SUPABASE_SERVICE_ROLE_KEY` is server-only. The API fails closed when it is missing; it is never exposed through a `NEXT_PUBLIC_*` variable.
+- Full POS signing keys are non-exportable browser CryptoKeys stored in IndexedDB. This is not an OS/hardware-backed keystore and remains a security/certification review item.
+- Full checkout can retain an order draft while disconnected, but it does not represent an offline draft as a paid or ATK-accepted fiscal sale. Basic has its separate offline queue and Windows POS Agent.
+- The repository does not contain the complete historical Full-schema baseline. The Full migration directory contains only additive category work; it is not a fresh-install sequence and must not be replayed against a production database without schema and migration-ledger verification.
+- Provider/developer registration, the assigned unique EFS code, ATK software certification, production credentials, and real-device ATK TEST acceptance remain external release gates. Production fiscalization remains disabled.
 
 ## Implemented in source
 
 - Owner and cashier access, business and POS setup.
 - Basic product catalogue, checkout, stock deduction and sale history.
-- Owner-only date-ranged sales, VAT-code, split-tender, daily-turnover and ATK fiscal-state management reports with formula-safe CSV export.
 - Official ATK unit, VAT and item-category dropdowns; all 53 published category rows (52 unique codes, with the duplicated PM code labels combined) and a matching database category constraint.
 - Online and local-first offline checkout using the paired Windows POS Agent.
 - Mixed-tender payments: cash, card, bank transfer, voucher, cheque and cryptocurrency, with integer-cent reconciliation and idempotent online/offline writes.
@@ -31,6 +44,7 @@ Current route map:
 - Article 44 owner workflow: outage register, 48-hour notice tracking, private evidence storage, 10th-of-following-month un-fiscalized coupon export and manual submission record.
 - Server-side verification of POS Agent attestations before offline queue/ATK acceptance records are written.
 - Basic inventory, supplier purchases and expense source.
+- Full business workspace modules: invoices, customers, POS, cashier shifts, purchases, expenses, inventory, team permissions and management reports, kept separate from Basic data.
 
 ## Verified against the live Supabase project
 
@@ -47,9 +61,9 @@ Migrations documented by the project include:
 - `0031_fiskalo_article44_deadline_boundary.sql` — fixes the exact midnight boundary after the 10th day.
 - `0032_fiskalo_article44_monthly_export_proof_guard.sql` — enforces both the JSON/CSV export and actual ATK filing proof at the database boundary.
 - `0033_fiskalo_basic_complete_atk_item_categories.sql` — expands the product category constraint to all 52 unique 2026 ATK codes.
+- `20261118090000_fiskalo_basic_owner_sales_report.sql` — additive owner-only read-only sales/VAT/tender/fiscal-state report RPC; not verified in the connected project's migration ledger.
 - `20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql` — verified in the connected project's migration ledger; creates the append-only server heartbeat evidence ledger and service-role-only recording RPC.
 - `20261117160100_fiskalo_basic_offline_heartbeat_binding.sql` — verified in the connected project's migration ledger; binds offline fiscal document timestamps and recovery deadlines to trusted server heartbeat intervals.
-- `20261118090000_fiskalo_basic_owner_sales_report.sql` — additive owner-only read-only sales/VAT/tender/fiscal-state report RPC; not yet verified in the connected project's migration ledger.
 
 Temporary, rolled-back Supabase integration checks exercised online and offline split tender, idempotent retries, rejection of changed payment allocations, Article 44 incident creation, export authorization, deadline enforcement and evidence requirements. No test business or sale records were retained.
 
@@ -59,13 +73,12 @@ The repository's older numbered migration files do not all share the timestamp/v
 
 - Confirm the unit, VAT and category catalogues against every subsequent ATK publication and run representative product/coupon scenarios in the official ATK TEST environment.
 - Cancellation and return POS screens, with end-to-end ATK TEST correction/return scenarios.
-- Full application UI restoration and a safe selectable Full/Basic launcher.
 - Server-signed POS heartbeat implementation is merged to `main` (merge commit `35f5fa9448ba1cf20f4fe7734939e893caa5ec33`). The P-256 public key is pinned in the browser, server and Windows Agent; the private signing key must remain a Cloudflare secret. CI and Windows Agent checks passed on this commit. Live Cloudflare deployment and authenticated heartbeat/evidence verification remain unverified. A heartbeat gap proves missing POS check-ins, not by itself an ISP outage or an Article 44-qualifying cause.
 - Actual ATK TEST acceptance using ATK-issued certificates and registered POS devices, including QR scan/verification and exactly-once transaction confirmation.
 - Certificate-chain trust anchor, expiry, renewal and revocation validation against ATK's current process.
 - Physical printer testing across supported thermal widths, offline receipt verification and restart/recovery tests.
 - Cloudflare production deployment and live smoke tests for the exact latest commit. The repository CI builds the Cloudflare Worker but does not deploy it.
-- Apply the additive sales-report migration through the approved database workflow before deploying `/basic/reports`; verify the migration ledger and owner-only RPC in the target environment.
+- Apply the additive sales-report migration through the approved database workflow before deploying `/basic/reports`; verify the target migration ledger and owner-only RPC.
 - Clean-database migration replay, authenticated owner/cashier RLS tests and tenant-isolation tests.
 - Provider/software certification and production authorization.
 
@@ -77,4 +90,5 @@ See:
 - [Article 44 implementation and limits](docs/ATK-ARTICLE-44.md)
 - [Offline fiscalization architecture](docs/ATK-OFFLINE-ARCHITECTURE.md)
 - [Basic MVP scope](docs/ATK-MVP-SCOPE.md)
+- [Full application restoration and release boundaries](docs/FULL-APP-RESTORE.md)
 - [Official ATK C# POS sample](https://github.com/fiskalizimi/pos-csharp)
