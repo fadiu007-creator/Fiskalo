@@ -265,3 +265,29 @@ Deno.test("matches every official ATK payment type in the POS Agent snapshot has
   assert(splitHash==="0c0ac72f0be5dc4d8b822991fff470f87f467ec601546b8139bc474ea8e09d23",
     "split-tender snapshot must preserve the exact ATK payment enum values and amounts");
 });
+
+Deno.test("rejects aggregate or unknown payment methods in the signed ATK coupon snapshot", async () => {
+  const pos: AtkReceiptPos = {
+    id: posUuid, businessId, branchId: 1, posNumber: 2, applicationId: "3",
+    certificateStatus: "certificate_issued", location: "Ferizaj",
+  };
+  const sale: AtkReceiptSale = {
+    id: saleId, businessId, posId: posUuid, couponId: 9001, status: "paid", dailyNumber: 12,
+    createdAt: new Date(1799999999 * 1000).toISOString(), checkoutIdempotencyKey: null,
+    operatorName: "Operator", paymentMethod: "mixed",
+    paymentAllocations: [{ method: "mixed", amount_cents: 472 }],
+    subtotal: "4.00", vatTotal: "0.72", total: "4.72",
+  };
+  const items: AtkReceiptSaleItem[] = [
+    { description: "Bread", unitPrice: "1.0000", quantity: "2.000", lineTotal: "2.36", lineNet: "2.00", lineVat: "0.36", unitCode: "C62", categoryCode: "P", vatCode: "A" },
+    { description: "Milk", unitPrice: "2.0000", quantity: "1.000", lineTotal: "2.36", lineNet: "2.00", lineVat: "0.36", unitCode: "C62", categoryCode: "P", vatCode: "A" },
+  ];
+  let rejected = false;
+  try {
+    await computeSaleSnapshotSha256(123456789, pos, sale, items, "0123456789ABCDEF", 12);
+  } catch (error) {
+    rejected = error instanceof Error &&
+      error.message === "Sale payment allocation cannot be represented in the signed ATK coupon.";
+  }
+  assert(rejected, "aggregate mixed tender must not be serialized as an ATK payment type");
+});
