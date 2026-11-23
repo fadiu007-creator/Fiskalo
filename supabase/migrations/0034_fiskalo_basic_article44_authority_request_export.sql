@@ -19,6 +19,15 @@ revoke all on table fiskalo_private.fiskalo_basic_authority_exports from public,
 -- Restrict untransmitted fiscal-data exports to documented ATK/state-authority requests.
 -- The 22 June 2026 ATK technical-specification amendment requires CSV/PDF export
 -- of untransmitted data only upon request by ATK or another state authority.
+
+-- The same private bucket also stores the taxpayer's Article 44(6) monthly
+-- submission package. Its CSV/JSON files are accepted only by the separate
+-- monthly-submission RPC; authority-request evidence remains PDF/JPG/PNG/TXT.
+update storage.buckets
+set allowed_mime_types = array[
+  'application/pdf','image/jpeg','image/png','text/plain','application/json','text/csv'
+]
+where id = 'fiskalo-article44-evidence';
 alter table fiskalo_private.fiskalo_basic_authority_exports
   add column if not exists incident_id uuid
     references public.fiskalo_basic_article44_incidents(id) on delete restrict,
