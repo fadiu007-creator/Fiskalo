@@ -24,9 +24,9 @@ create or replace function auth.role()
 returns text
 language sql
 stable
-as $
+as $role$
   select nullif(current_setting('request.jwt.claim.role', true), '')
-$;
+$role$;
 
 grant execute on function auth.role() to anon, authenticated, service_role;
 
