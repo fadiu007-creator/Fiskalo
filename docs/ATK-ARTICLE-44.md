@@ -19,14 +19,12 @@ The application does **not** submit the notice to ATK. The taxpayer must first u
 
 If the internet interruption has not been resolved by the 10th day of the following month, the taxpayer must submit all un-fiscalized coupons to ATK.
 
-Fiskalo now:
+Fiskalo:
 - calculates the deadline using the Europe/Belgrade (Kosovo) time zone;
-- exports server-synchronized offline documents whose ATK state is not accepted, including rejected documents;
-- combines those records with the unaccepted local POS Agent queue for the selected POS;
-- includes the signed payloads, signatures, NUIKF, daily number, CouponId and submission state;
-- requires the owner to archive the export and evidence of actual submission.
+- records a taxpayer-prepared CSV/JSON submission package, the submission channel/reference and evidence of actual delivery after the owner uploads them;
+- does not claim that recording a package submits it to ATK or that the uploaded file contains every required coupon.
 
-The export is scoped to one POS and requires that POS's paired Agent on the device holding its local queue. If an interruption affects multiple POS devices, the owner must record and export each affected POS from its corresponding Agent. It fails closed if that local queue cannot be read. A database-only export is not represented as a complete export of offline coupons.
+The separate technical export is scoped to one POS and requires that POS's paired Agent on the device holding its local queue. If an interruption affects multiple POS devices, the owner must use each corresponding Agent. The technical export fails closed if that local queue cannot be read. A database-only export is not represented as a complete export of offline coupons.
 
 ## ATK technical-specification amendment — 22 June 2026
 
