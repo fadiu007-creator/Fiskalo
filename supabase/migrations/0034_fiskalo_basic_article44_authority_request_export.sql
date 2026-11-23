@@ -264,7 +264,7 @@ create or replace function public.fiskalo_basic_article44_unfiscalized_export(
   p_authority_request_reference text,
   p_authority_request_evidence_manifest jsonb,
   p_limit integer default 5000
-) returns jsonb language sql security definer set search_path=pg_catalog,public,pg_temp as $article44$
+) returns jsonb language sql security definer set search_path='' as $article44$
   select fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
     p_actor_id,p_incident_id,p_business_id,p_pos_id,p_from,p_to,
     p_authority_request_reference,p_authority_request_evidence_manifest,p_limit)
