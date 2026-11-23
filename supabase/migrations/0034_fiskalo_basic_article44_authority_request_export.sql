@@ -84,7 +84,17 @@ create policy fiskalo_basic_fiscal_access
     )
   );
 
+-- The browser must never invoke the export RPC directly. The server route
+-- downloads each private evidence object and verifies its SHA-256 bytes first.
+drop function if exists public.fiskalo_basic_article44_unfiscalized_export(
+  uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
+);
+drop function if exists fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
+  uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
+);
+
 create or replace function fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
+  p_actor_id uuid,
   p_incident_id uuid,
   p_business_id uuid,
   p_pos_id uuid,
@@ -95,7 +105,7 @@ create or replace function fiskalo_private.fiskalo_basic_article44_unfiscalized_
   p_limit integer default 5000
 ) returns jsonb language plpgsql security definer set search_path='' as $article44$
 declare
-  caller_id uuid := auth.uid();
+  caller_id uuid := p_actor_id;
   v_incident public.fiskalo_basic_article44_incidents%rowtype;
   result jsonb;
   row_count integer;
@@ -104,8 +114,11 @@ declare
   found_file_count integer;
   request_prefix text;
 begin
+  if coalesce(auth.role(),'') <> 'service_role' then
+    raise exception 'Server-side evidence verification is required' using errcode='42501';
+  end if;
   if caller_id is null then
-    raise exception 'Authentication required' using errcode='42501';
+    raise exception 'Authenticated owner identity is required' using errcode='42501';
   end if;
   if p_business_id is null or p_pos_id is null or p_incident_id is null or
      p_from is null or p_to is null or p_to <= p_from then
@@ -229,13 +242,11 @@ begin
 end;
 $article44$;
 revoke all on function fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
-  uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
-) from public, anon, authenticated;
-grant execute on function fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
-  uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
-) to authenticated;
+  uuid,uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
+) from public, anon, authenticated, service_role;
 
 create or replace function public.fiskalo_basic_article44_unfiscalized_export(
+  p_actor_id uuid,
   p_incident_id uuid,
   p_business_id uuid,
   p_pos_id uuid,
@@ -244,14 +255,14 @@ create or replace function public.fiskalo_basic_article44_unfiscalized_export(
   p_authority_request_reference text,
   p_authority_request_evidence_manifest jsonb,
   p_limit integer default 5000
-) returns jsonb language sql security invoker set search_path=pg_catalog,public,pg_temp as $article44$
+) returns jsonb language sql security definer set search_path=pg_catalog,public,pg_temp as $article44$
   select fiskalo_private.fiskalo_basic_article44_unfiscalized_export(
-    p_incident_id,p_business_id,p_pos_id,p_from,p_to,
+    p_actor_id,p_incident_id,p_business_id,p_pos_id,p_from,p_to,
     p_authority_request_reference,p_authority_request_evidence_manifest,p_limit)
 $article44$;
 revoke all on function public.fiskalo_basic_article44_unfiscalized_export(
-  uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
-) from public, anon;
+  uuid,uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
+) from public, anon, authenticated;
 grant execute on function public.fiskalo_basic_article44_unfiscalized_export(
-  uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
-) to authenticated;
+  uuid,uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer
+) to service_role;
