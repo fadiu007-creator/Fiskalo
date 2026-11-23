@@ -14,6 +14,7 @@ declare
   has_manifest_column boolean;
   has_incident_column boolean;
   evidence_mimes text[];
+  wrapper_security_definer boolean;
 begin
   old_private := to_regprocedure('fiskalo_private.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,timestamptz,timestamptz,text,integer)');
   old_public := to_regprocedure('public.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,timestamptz,timestamptz,text,integer)');
@@ -49,6 +50,11 @@ begin
      has_function_privilege('anon',new_public,'EXECUTE') or
      not has_function_privilege('service_role',new_public,'EXECUTE') then
     raise exception 'Only the server service role may invoke the verified authority export wrapper';
+  end if;
+  select p.prosecdef into wrapper_security_definer
+  from pg_proc p where p.oid=new_public;
+  if not coalesce(wrapper_security_definer,false) then
+    raise exception 'The service-role wrapper must run with its protected function-owner privileges';
   end if;
 
   select allowed_mime_types into evidence_mimes
