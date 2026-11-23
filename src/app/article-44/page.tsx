@@ -246,7 +246,7 @@ export default function Article44Page() {
       if (!requestManifest.length) {
         const file = authorityRequestFile!;
         const mimeType = evidenceMime(file);
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100) || "authority-request";
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.\.+/g, "_").slice(-100) || "authority-request";
         const storagePath = incident.business_id + "/" + incident.id + "/authority-request-" + crypto.randomUUID() + "-" + safeName;
         const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, file, {
           upsert: false, contentType: mimeType
