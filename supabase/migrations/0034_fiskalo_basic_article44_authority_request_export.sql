@@ -66,8 +66,8 @@ end;
 $legacy_untransmitted$;
 
 -- Do not expose untransmitted fiscal payloads through direct PostgREST table reads.
--- The Article 44 RPC above is the only client path for those documents and is
--- owner-scoped, authority-request-bound, and evidence-gated.
+-- The server-only Article 44 API is the only export path for those documents;
+-- it is owner-scoped, authority-request-bound, and verifies evidence bytes.
 alter table public.fiskalo_basic_fiscal_documents enable row level security;
 drop policy if exists fiskalo_basic_fiscal_access on public.fiskalo_basic_fiscal_documents;
 create policy fiskalo_basic_fiscal_access
