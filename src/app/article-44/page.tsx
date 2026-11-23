@@ -291,17 +291,28 @@ export default function Article44Page() {
         last_error: item.lastError
       }));
 
-      const { data, error } = await supabase.rpc("fiskalo_basic_article44_unfiscalized_export", {
-        p_incident_id: incident.id,
-        p_business_id: incident.business_id,
-        p_pos_id: incident.pos_id,
-        p_from: incident.outage_started_at,
-        p_to: to,
-        p_authority_request_reference: authorityReference,
-        p_authority_request_evidence_manifest: requestManifest,
-        p_limit: 5000
+      const exportResponse = await fetch("/api/article-44/authority-export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          incidentId: incident.id,
+          businessId: incident.business_id,
+          posId: incident.pos_id,
+          from: incident.outage_started_at,
+          to,
+          authorityRequestReference: authorityReference,
+          authorityRequestEvidenceManifest: requestManifest
+        })
       });
-      if (error) throw error;
+      const exportData: unknown = await exportResponse.json();
+      if (!exportResponse.ok) {
+        const detail = exportData && typeof exportData === "object" &&
+          "error" in exportData && typeof exportData.error === "string"
+          ? exportData.error : "Eksporti i kontrolluar nuk u përfundua.";
+        throw new Error(detail);
+      }
+      const data = exportData as { truncated?: boolean; documents?: Array<Record<string, unknown>> };
       if ((data as {truncated?:boolean})?.truncated) {
         throw new Error("Eksporti kalon kufirin 5,000 dokumente. Kërko ndarje të periudhës përpara se të vazhdosh.");
       }
@@ -474,7 +485,7 @@ export default function Article44Page() {
       <span className="article44-kicker">PAJTUESHMËRIA · UDHËZIMI ADMINISTRATIV MFPT NR. 01/2026</span>
       <h1>Neni 44 — Ndërprerja e lidhjes së internetit</h1>
       <p>Regjistro ndërprerjen, afatin 48-orësh, dëshmitë dhe njoftimin që tatimpaguesi duhet t’ia paraqesë ATK-së kur plotësohen kushtet ligjore.</p>
-      <p className="article44-warning">Ora e fillimit këtu regjistrohet nga pronari. Fiskalo ende nuk e vërteton automatikisht me orë të nënshkruar nga serveri.</p>
+      <p className="article44-warning">Ora e fillimit të incidentit raportohet nga pronari. Heartbeat-i i nënshkruar nga serveri dokumenton boshllëqet e aktivitetit të POS-it, por nuk provon vetvetiu ndërprerjen e ISP-së ose shkakun ligjor. Ruaj edhe dëshmitë e ofruesit, pajisjes ose forcës madhore.</p>
       <p className="article44-warning">Incidenti dhe eksporti lidhen me një POS. Nëse ndërprerja prek disa POS, regjistro incident dhe krijo eksport për secilin POS nga profili i shfletuesit ku është përdorur ai POS, që të përfshihen të gjitha radhët lokale.</p>
     </section>
     {message && <p className="article44-message" role="status">{message}</p>}
