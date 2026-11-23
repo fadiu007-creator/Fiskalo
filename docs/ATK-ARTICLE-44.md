@@ -34,7 +34,8 @@ The ATK amendment to the specific technical and functional requirements (approve
 
 Fiskalo's controlled Article 44 export now:
 - requires a real authority-request reference and an uploaded copy of the request (PDF/JPG/PNG/TXT);
-- verifies that the evidence exists in the private, business-scoped storage bucket and records its manifest against the exact incident;
+- downloads each private evidence object on the server, recomputes SHA-256 over the actual stored bytes, and rejects mismatches before invoking the service-role-only export RPC;
+- records the verified evidence manifest against the exact incident;
 - disables the old RPC signature that accepted an arbitrary reference without request evidence;
 - produces CSV, not an unrestricted JSON dump, and safely quotes spreadsheet cells to prevent formula injection;
 - refuses incomplete server exports and reads the browser-local queue before creating the server audit record.
