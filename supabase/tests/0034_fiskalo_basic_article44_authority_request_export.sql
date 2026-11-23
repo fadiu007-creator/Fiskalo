@@ -13,6 +13,7 @@ declare
   fiscal_select_policy_count integer;
   has_manifest_column boolean;
   has_incident_column boolean;
+  evidence_mimes text[];
 begin
   old_private := to_regprocedure('fiskalo_private.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,timestamptz,timestamptz,text,integer)');
   old_public := to_regprocedure('public.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,timestamptz,timestamptz,text,integer)');
@@ -50,6 +51,13 @@ begin
     raise exception 'Only the server service role may invoke the verified authority export wrapper';
   end if;
 
+  select allowed_mime_types into evidence_mimes
+  from storage.buckets
+  where id='fiskalo-article44-evidence';
+  if not (array['application/json','text/csv']::text[] <@ coalesce(evidence_mimes,array[]::text[])) then
+    raise exception 'Article 44(6) monthly CSV/JSON evidence must be accepted by the private evidence bucket';
+  end if;
+
   select c.relrowsecurity into fiscal_rls_enabled
   from pg_class c
   join pg_namespace n on n.oid=c.relnamespace
@@ -85,7 +93,9 @@ begin
      position('o.owner_id=caller_id::text' in replace(definition,' ',''))=0 or
      position('authority-request-' in definition)=0 or
      position('row_count > p_limit' in definition)=0 or
-     position('m.role=''owner''' in replace(definition,' ',''))=0 then
+     position('m.role=''owner''' in replace(definition,' ',''))=0 or
+     position('text/csv' in definition)>0 or
+     position('application/json' in definition)>0 then
     raise exception 'Authority export must verify private request evidence, owner scope and complete bounded output';
   end if;
 
