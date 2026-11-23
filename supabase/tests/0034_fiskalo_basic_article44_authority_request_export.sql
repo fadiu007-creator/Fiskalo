@@ -16,8 +16,8 @@ declare
 begin
   old_private := to_regprocedure('fiskalo_private.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,timestamptz,timestamptz,text,integer)');
   old_public := to_regprocedure('public.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,timestamptz,timestamptz,text,integer)');
-  new_private := to_regprocedure('fiskalo_private.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer)');
-  new_public := to_regprocedure('public.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer)');
+  new_private := to_regprocedure('fiskalo_private.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer)');
+  new_public := to_regprocedure('public.fiskalo_basic_article44_unfiscalized_export(uuid,uuid,uuid,uuid,timestamptz,timestamptz,text,jsonb,integer)');
   legacy_private := to_regprocedure('fiskalo_private.fiskalo_basic_untransmitted_export(uuid,timestamptz,timestamptz,text,integer)');
   legacy_public := to_regprocedure('public.fiskalo_basic_untransmitted_export(uuid,timestamptz,timestamptz,text,integer)');
 
@@ -41,10 +41,13 @@ begin
      ) then
     raise exception 'Legacy untransmitted export wrapper must not remain API-executable';
   end if;
-  if not has_function_privilege('authenticated',new_private,'EXECUTE') or
-     not has_function_privilege('authenticated',new_public,'EXECUTE') or
-     has_function_privilege('anon',new_public,'EXECUTE') then
-    raise exception 'Documented authority export must be authenticated-only';
+  if has_function_privilege('authenticated',new_private,'EXECUTE') or
+     has_function_privilege('anon',new_private,'EXECUTE') or
+     has_function_privilege('service_role',new_private,'EXECUTE') or
+     has_function_privilege('authenticated',new_public,'EXECUTE') or
+     has_function_privilege('anon',new_public,'EXECUTE') or
+     not has_function_privilege('service_role',new_public,'EXECUTE') then
+    raise exception 'Only the server service role may invoke the verified authority export wrapper';
   end if;
 
   select c.relrowsecurity into fiscal_rls_enabled
@@ -72,6 +75,9 @@ begin
 
   select pg_get_functiondef(new_private) into definition;
   if position('authority_request_evidence_manifest' in definition)=0 or
+     position('p_actor_id' in definition)=0 or
+     position('auth.role()' in definition)=0 or
+     position('service_role' in definition)=0 or
      position('storage.objects' in definition)=0 or
      position('o.metadata->>''mimetype''' in replace(definition,' ',''))=0 or
      position('o.metadata->>''size''' in replace(definition,' ',''))=0 or
