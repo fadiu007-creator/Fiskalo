@@ -107,7 +107,7 @@ public sealed class AtkTestClientTests
                 do { header = await reader.ReadLineAsync(); } while (!string.IsNullOrEmpty(header));
 
                 var redirect = Encoding.ASCII.GetBytes(
-                    $"HTTP/1.1 302 Found\\r\\nLocation: http://127.0.0.1:{endpoint.Port}/redirected\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n");
+                    $"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{endpoint.Port}/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                 await stream.WriteAsync(redirect);
                 listener.Stop();
                 return requestLine;
@@ -118,7 +118,7 @@ public sealed class AtkTestClientTests
             var requestLine = await serverTask;
 
             Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-            Assert.StartsWith("GET /coupon ", requestLine);
+            Assert.StartsWith("GET /coupon ", requestLine ?? string.Empty);
             Assert.Equal("/coupon", response.RequestMessage?.RequestUri?.AbsolutePath);
         }
         finally
