@@ -1,4 +1,18 @@
 import test from "node:test";
+import { readFileSync } from "node:fs";
+
+test("ATK coupon submission never follows redirects", () => {
+  const routePath = new URL("../src/app/api/atk/test/coupon/route.ts", import.meta.url);
+  const source = readFileSync(routePath, "utf8");
+  const requestStart = source.indexOf('fetch("https://fiskalizimi-test.atk-ks.org/pos/coupon"');
+  assert.notEqual(requestStart, -1, "the fixed ATK TEST coupon endpoint must remain explicit");
+  const requestEnd = source.indexOf("});", requestStart);
+  assert.notEqual(requestEnd, -1, "the ATK fetch options must be present");
+  const requestOptions = source.slice(requestStart, requestEnd);
+  assert.match(requestOptions, /redirect:\s*"manual"/,
+    "a redirect must remain a 3xx ambiguous outcome; never forward signed coupon data to another host");
+});
+
 import assert from "node:assert/strict";
 import { classifyAtkHttpFailure } from "../src/lib/atk/http-submission-outcome.ts";
 
