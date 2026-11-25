@@ -284,6 +284,10 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ details, signature }),
+      // Never follow an ATK redirect: doing so could send the signed coupon to a
+      // different host or accept a transaction ID from a non-ATK endpoint.
+      // The 3xx response is handled as ambiguous and requires reconciliation.
+      redirect: "manual",
       signal: AbortSignal.timeout(30000),
       cache: "no-store",
     });
