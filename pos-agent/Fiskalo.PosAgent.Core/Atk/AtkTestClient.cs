@@ -21,6 +21,16 @@ public sealed class AtkTestClient
         _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
     }
 
+    /// <summary>
+    /// Creates the production ATK TEST client transport. Redirects are disabled so
+    /// signed coupon, CSR and taxpayer data can never be forwarded to a redirect target.
+    /// </summary>
+    public static HttpClientHandler CreateHttpClientHandler() =>
+        new() { AllowAutoRedirect = false };
+
+    public static HttpClient CreateHttpClient(TimeSpan timeout) =>
+        new(CreateHttpClientHandler()) { Timeout = timeout };
+
     public Task<AtkVerificationResponse> VerifyPosAsync(
         ulong nui, string fiscalizationNumber, ulong posId, ulong branchId, ulong applicationId,
         CancellationToken cancellationToken = default)

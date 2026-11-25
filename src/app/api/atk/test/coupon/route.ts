@@ -3,6 +3,7 @@ import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk
 import { readAtkPosCouponVerificationNo, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 import { recordFiscalSubmissionStartBestEffort } from "@/lib/atk/submission-start";
 import { parseAtkTransactionId } from "@/lib/atk/transaction-id";
+import { classifyAtkHttpFailure } from "@/lib/atk/http-submission-outcome";
 
 export const runtime = "nodejs";
 
@@ -283,6 +284,10 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ details, signature }),
+      // Never follow an ATK redirect: doing so could send the signed coupon to a
+      // different host or accept a transaction ID from a non-ATK endpoint.
+      // The 3xx response is handled as ambiguous and requires reconciliation.
+      redirect: "manual",
       signal: AbortSignal.timeout(30000),
       cache: "no-store",
     });
@@ -291,9 +296,10 @@ export async function POST(request: Request) {
     try { result = JSON.parse(raw) as Record<string, unknown>; } catch { /* checked below */ }
     if (!response.ok) {
       const detail = readableProviderMessage(result, readableProviderMessage(raw, "ATK rejected the TEST coupon."));
-      // A 4xx is a definitive rejection. A 5xx is ambiguous: ATK may have persisted
-      // the coupon before failing to produce the response, so never label it rejected.
-      const definitiveRejection = response.status >= 400 && response.status < 500;
+      // Match the Windows POS Agent's conservative allowlist. Only known ATK
+      // validation/auth responses are definitive; unknown 4xx, redirects, timeouts,
+      // conflicts, throttling and 5xx responses remain ambiguous to prevent duplicates.
+      const definitiveRejection = classifyAtkHttpFailure(response.status) === "rejected";
       const fiscalStatus = definitiveRejection ? "rejected" : "offline_pending";
       const eventType = definitiveRejection ? "rejected" : "response_unconfirmed";
       await service.from("fiskalo_atk_fiscal_documents").update({

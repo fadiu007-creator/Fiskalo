@@ -25,7 +25,8 @@ test("rejects invalid, zero, negative, fractional, and overflowing identifiers",
   assert.equal(parseAtkTransactionId('[]'), null);
 });
 
-test("uses the final top-level value when duplicate JSON keys are present", () => {
+test("rejects duplicate top-level transaction identifiers as ambiguous", () => {
   assert.equal(parseAtkTransactionId('{"transaction_id":12,"transaction_id":0}'), null);
-  assert.equal(parseAtkTransactionId('{"transaction_id":0,"transaction_id":12}'), "12");
+  assert.equal(parseAtkTransactionId('{"transaction_id":0,"transaction_id":12}'), null);
+  assert.equal(parseAtkTransactionId('{"transaction_id":12,"\\u0074ransaction_id":13}'), null);
 });

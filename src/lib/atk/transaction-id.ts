@@ -80,6 +80,9 @@ export function parseAtkTransactionId(raw: string): string | null {
     if (valueEnd === null) return null;
 
     if (key === "transaction_id") {
+      // Duplicate JSON object names are not interoperable across parsers. A
+      // fiscal transaction ID must have exactly one unambiguous top-level value.
+      if (found) return null;
       found = true;
       if (raw[valueStart] === '"') {
         try {

@@ -89,6 +89,13 @@ public sealed class AtkTestClientTests
         Assert.Equal(HttpStatusCode.BadRequest, error.StatusCode);
     }
 
+    [Fact]
+    public void CreateHttpClientHandler_DisablesAutomaticRedirects()
+    {
+        using var handler = AtkTestClient.CreateHttpClientHandler();
+        Assert.False(handler.AllowAutoRedirect);
+    }
+
     private static HttpResponseMessage Json(string body) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(body, Encoding.UTF8, "application/json")
