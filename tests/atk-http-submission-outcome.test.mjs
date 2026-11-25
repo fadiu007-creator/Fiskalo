@@ -1,5 +1,7 @@
 import test from "node:test";
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { classifyAtkHttpFailure } from "../src/lib/atk/http-submission-outcome.ts";
 
 test("ATK coupon submission never follows redirects", () => {
   const routePath = new URL("../src/app/api/atk/test/coupon/route.ts", import.meta.url);
@@ -12,9 +14,6 @@ test("ATK coupon submission never follows redirects", () => {
   assert.match(requestOptions, /redirect:\s*"manual"/,
     "a redirect must remain a 3xx ambiguous outcome; never forward signed coupon data to another host");
 });
-
-import assert from "node:assert/strict";
-import { classifyAtkHttpFailure } from "../src/lib/atk/http-submission-outcome.ts";
 
 test("classifies only known ATK validation and authorization responses as definitive rejections", () => {
   for (const status of [400, 401, 403, 404, 422]) {
