@@ -616,7 +616,7 @@ app.MapPost(AtkVerifyPath, async (AtkVerifyRequest request, HttpContext context,
     if (!HasValidSession(context, sessionToken)) return Results.Unauthorized();
     if (request.Nui == 0 || request.PosId == 0 || request.BranchId == 0 || request.ApplicationId == 0 || string.IsNullOrWhiteSpace(request.FiscalizationNumber)) return Results.BadRequest(new { error = "NUI, fiscalization number, POS ID, branch ID and ATK application ID are required." });
     try {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        using var http = AtkTestClient.CreateHttpClient(TimeSpan.FromSeconds(20));
         var result = await new AtkTestClient(http).VerifyPosAsync(request.Nui, request.FiscalizationNumber, request.PosId, request.BranchId, request.ApplicationId, cancellationToken);
         installationStore.Save(new AtkTestInstallationProfile(
             request.Nui, result.BusinessName, request.FiscalizationNumber, request.BranchId,
@@ -645,7 +645,7 @@ app.MapPost(AtkSignCsrPath, async (AtkSignCsrRequest request, HttpContext contex
         Directory.CreateDirectory(dataDirectory);
         using var key = keyStore.LoadOrCreate(keyPath);
         var csr = AtkPki.CreateCsrPem(key, request.BusinessName, request.BusinessNui, request.BranchId, request.PosId);
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var http = AtkTestClient.CreateHttpClient(TimeSpan.FromSeconds(30));
         var response = await new AtkTestClient(http).SignCsrAsync(request.BusinessName, request.BusinessNui, request.BranchId, request.VerificationCode, request.PosId, request.ApplicationId, csr, cancellationToken);
         using var certificate = ParseCertificate(response.SignedCertificate);
         using var certificateKey = certificate.GetECDsaPublicKey();
@@ -823,7 +823,7 @@ app.MapPost(AtkCouponPath, async (AtkCouponRequest request, HttpContext context,
         var signedToSubmit = new SignedAtkCoupon(persisted.PayloadBase64, persisted.SignatureBase64, "");
         await queueStore.MarkSubmittingAsync(request.IdempotencyKey, cancellationToken);
         try {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            using var http = AtkTestClient.CreateHttpClient(TimeSpan.FromSeconds(30));
             var result = await new AtkTestClient(http).SubmitSignedPosCouponAsync(signedToSubmit, cancellationToken);
             await queueStore.MarkAcceptedAsync(request.IdempotencyKey, result.TransactionId.ToString(), cancellationToken, result.Message);
             return Results.Ok(new { status = "accepted", transactionId = result.TransactionId.ToString(),
@@ -944,14 +944,14 @@ if (OperatingSystem.IsWindows())
             var stoppingToken = app.Lifetime.ApplicationStopping;
             var connectivity = new FiscalConnectivityMonitor(queueStore, async token =>
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                using var http = AtkTestClient.CreateHttpClient(TimeSpan.FromSeconds(5));
                 using var request = new HttpRequestMessage(HttpMethod.Head, AtkTestClient.TestBaseUri);
                 using var response = await http.SendAsync(request, token);
                 return (int)response.StatusCode < 500;
             });
             var delivery = new FiscalQueueDeliveryService(queueStore, async (signed, token) =>
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                using var http = AtkTestClient.CreateHttpClient(TimeSpan.FromSeconds(30));
                 return await new AtkTestClient(http).SubmitSignedPosCouponAsync(signed, token);
             });
             while (!stoppingToken.IsCancellationRequested)
