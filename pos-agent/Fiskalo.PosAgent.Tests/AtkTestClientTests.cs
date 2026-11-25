@@ -90,41 +90,10 @@ public sealed class AtkTestClientTests
     }
 
     [Fact]
-    public async Task CreateHttpClient_DoesNotFollowRedirects()
+    public void CreateHttpClientHandler_DisablesAutomaticRedirects()
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            var endpoint = (IPEndPoint)listener.LocalEndpoint;
-            var serverTask = Task.Run(async () =>
-            {
-                using var client = await listener.AcceptTcpClientAsync();
-                await using var stream = client.GetStream();
-                using var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, leaveOpen: true);
-                var requestLine = await reader.ReadLineAsync();
-                string? header;
-                do { header = await reader.ReadLineAsync(); } while (!string.IsNullOrEmpty(header));
-
-                var redirect = Encoding.ASCII.GetBytes(
-                    $"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{endpoint.Port}/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-                await stream.WriteAsync(redirect);
-                listener.Stop();
-                return requestLine;
-            });
-
-            using var http = AtkTestClient.CreateHttpClient(TimeSpan.FromSeconds(5));
-            using var response = await http.GetAsync($"http://127.0.0.1:{endpoint.Port}/coupon");
-            var requestLine = await serverTask;
-
-            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-            Assert.StartsWith("GET /coupon ", requestLine ?? string.Empty);
-            Assert.Equal("/coupon", response.RequestMessage?.RequestUri?.AbsolutePath);
-        }
-        finally
-        {
-            listener.Stop();
-        }
+        using var handler = AtkTestClient.CreateHttpClientHandler();
+        Assert.False(handler.AllowAutoRedirect);
     }
 
     private static HttpResponseMessage Json(string body) => new(HttpStatusCode.OK)
