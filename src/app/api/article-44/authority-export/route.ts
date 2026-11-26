@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAtkServiceRoleClient } from "@/lib/atk/server-auth";
 import { verifyArticle44AuthorityEvidenceManifest } from "@/lib/pos/article44-export";
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "@/lib/http/read-json-limited";
 
 export const dynamic = "force-dynamic";
 
@@ -30,15 +35,19 @@ function jsonError(message: string, status: number) {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const contentLength = Number(request.headers.get("content-length") ?? "0");
-    if (Number.isFinite(contentLength) && contentLength > 32 * 1024) {
-      return jsonError("Authority export request is too large.", 413);
-    }
     let body: unknown;
     try {
-      body = await request.json();
-    } catch {
-      return jsonError("A valid JSON authority export request is required.", 400);
+      // Enforce the limit against bytes actually read from the stream. A missing
+      // or understated Content-Length must not allow an oversized JSON body.
+      body = await readJsonBodyLimited(request, 32 * 1024);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return jsonError("Authority export request is too large.", 413);
+      }
+      if (error instanceof InvalidRequestBodyError) {
+        return jsonError("A valid UTF-8 JSON authority export request is required.", 400);
+      }
+      throw error;
     }
     if (!isRecord(body)) return jsonError("A valid authority export request is required.", 400);
 
