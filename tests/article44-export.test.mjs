@@ -5,6 +5,11 @@ import {
   buildArticle44Csv,
   verifyArticle44AuthorityEvidenceManifest,
 } from "../src/lib/pos/article44-export.ts";
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "../src/lib/http/read-json-limited.ts";
 
 test("Article 44 CSV uses the fixed column order and preserves signed payloads", () => {
   const csv = buildArticle44Csv([{
@@ -46,7 +51,6 @@ test("Article 44 CSV preserves numeric values and emits empty cells for missing 
   assert.ok(row.includes(',"1",'));
   assert.ok(row.includes(',"-2.5",'));
 });
-
 
 async function sha256Hex(bytes) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
@@ -134,4 +138,66 @@ test("Article 44 server verifier rejects storage MIME and size mismatches", asyn
     ),
     /size/,
   );
+});
+
+test("bounded JSON reader accepts valid JSON without Content-Length", async () => {
+  const request = new Request("https://example.test/article-44", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ incidentId: "incident-1" }),
+  });
+  assert.deepEqual(await readJsonBodyLimited(request, 128), { incidentId: "incident-1" });
+});
+
+test("bounded JSON reader rejects an oversized declared Content-Length before reading", async () => {
+  const request = new Request("https://example.test/article-44", {
+    method: "POST",
+    headers: { "Content-Length": "129" },
+    body: "{}",
+  });
+  await assert.rejects(readJsonBodyLimited(request, 128), RequestBodyTooLargeError);
+});
+
+test("bounded JSON reader rejects oversized streamed bytes when Content-Length is absent", async () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(129));
+      controller.close();
+    },
+  });
+  const request = new Request("https://example.test/article-44", {
+    method: "POST",
+    body: stream,
+    duplex: "half",
+  });
+  await assert.rejects(readJsonBodyLimited(request, 128), RequestBodyTooLargeError);
+});
+
+test("bounded JSON reader rejects a Content-Length that understates the received body", async () => {
+  const request = new Request("https://example.test/article-44", {
+    method: "POST",
+    headers: { "Content-Length": "1" },
+    body: "{}",
+  });
+  await assert.rejects(readJsonBodyLimited(request, 128), InvalidRequestBodyError);
+});
+
+test("bounded JSON reader rejects malformed JSON and invalid UTF-8", async () => {
+  const malformed = new Request("https://example.test/article-44", {
+    method: "POST",
+    body: "{not-json}",
+  });
+  await assert.rejects(readJsonBodyLimited(malformed, 128), InvalidRequestBodyError);
+
+  const invalidUtf8 = new Request("https://example.test/article-44", {
+    method: "POST",
+    body: new Uint8Array([0xff, 0xfe, 0xfd]),
+  });
+  await assert.rejects(readJsonBodyLimited(invalidUtf8, 128), InvalidRequestBodyError);
+});
+
+test("bounded JSON reader rejects empty bodies and invalid limits", async () => {
+  const empty = new Request("https://example.test/article-44", { method: "POST" });
+  await assert.rejects(readJsonBodyLimited(empty, 128), InvalidRequestBodyError);
+  await assert.rejects(readJsonBodyLimited(empty, 0), RangeError);
 });
