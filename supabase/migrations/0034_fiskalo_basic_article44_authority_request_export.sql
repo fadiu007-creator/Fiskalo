@@ -78,7 +78,24 @@ $legacy_untransmitted$;
 -- The server-only Article 44 API is the only export path for those documents;
 -- it is owner-scoped, authority-request-bound, and verifies evidence bytes.
 alter table public.fiskalo_basic_fiscal_documents enable row level security;
-drop policy if exists fiskalo_basic_fiscal_access on public.fiskalo_basic_fiscal_documents;
+-- Remove every existing policy on this sensitive table, not just the
+-- historical policy name. An additional permissive SELECT or ALL policy would
+-- OR with the accepted-only rule and could expose untransmitted fiscal payloads.
+do $fiscal_document_policy_cleanup$
+declare
+  existing_policy record;
+begin
+  for existing_policy in
+    select policyname
+    from pg_policies
+    where schemaname='public'
+      and tablename='fiskalo_basic_fiscal_documents'
+  loop
+    execute format('drop policy %I on public.fiskalo_basic_fiscal_documents', existing_policy.policyname);
+  end loop;
+end;
+$fiscal_document_policy_cleanup$;
+
 create policy fiskalo_basic_fiscal_access
   on public.fiskalo_basic_fiscal_documents
   for select
