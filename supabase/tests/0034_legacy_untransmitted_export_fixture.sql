@@ -44,3 +44,10 @@ revoke all on function public.fiskalo_basic_untransmitted_export(
 grant execute on function public.fiskalo_basic_untransmitted_export(
   uuid,timestamptz,timestamptz,text,integer
 ) to authenticated;
+-- Recreate a broad permissive policy to prove migration 0034 removes ALL
+-- policy bypasses, not merely the historical SELECT policy by name.
+create policy fiskalo_basic_fiscal_test_all_bypass
+  on public.fiskalo_basic_fiscal_documents
+  for all to authenticated
+  using (true)
+  with check (true);
