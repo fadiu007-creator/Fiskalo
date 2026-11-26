@@ -10,7 +10,11 @@ declare
   definition text;
   fiscal_policy_qual text;
   fiscal_rls_enabled boolean;
+  fiscal_policy_count integer;
   fiscal_select_policy_count integer;
+  fiscal_policy_roles name[];
+  fiscal_policy_permissive text;
+  fiscal_policy_command text;
   has_manifest_column boolean;
   has_incident_column boolean;
   evidence_mimes text[];
@@ -68,23 +72,26 @@ begin
   from pg_class c
   join pg_namespace n on n.oid=c.relnamespace
   where n.nspname='public' and c.relname='fiskalo_basic_fiscal_documents';
-  select qual into fiscal_policy_qual
+  select qual, roles, permissive, cmd
+    into fiscal_policy_qual, fiscal_policy_roles, fiscal_policy_permissive, fiscal_policy_command
   from pg_policies
   where schemaname='public'
     and tablename='fiskalo_basic_fiscal_documents'
-    and policyname='fiskalo_basic_fiscal_access'
-    and cmd='SELECT';
-  select count(*) into fiscal_select_policy_count
+    and policyname='fiskalo_basic_fiscal_access';
+  select count(*), count(*) filter (where cmd='SELECT')
+    into fiscal_policy_count, fiscal_select_policy_count
   from pg_policies
   where schemaname='public'
-    and tablename='fiskalo_basic_fiscal_documents'
-    and cmd='SELECT';
+    and tablename='fiskalo_basic_fiscal_documents';
   if not coalesce(fiscal_rls_enabled,false) or fiscal_policy_qual is null or
-     fiscal_select_policy_count <> 1 or
+     fiscal_policy_count <> 1 or fiscal_select_policy_count <> 1 or
+     fiscal_policy_command <> 'SELECT' or
+     fiscal_policy_permissive <> 'PERMISSIVE' or
+     fiscal_policy_roles <> array['authenticated']::name[] or
      position('submission_state' in fiscal_policy_qual)=0 or
      position('accepted' in fiscal_policy_qual)=0 or
      position('auth.uid()' in fiscal_policy_qual)=0 then
-    raise exception 'Direct fiscal-document reads must be limited to accepted documents for the authenticated business member';
+    raise exception 'Fiscal-document RLS must have exactly one authenticated SELECT policy limited to accepted business-member documents; permissive ALL/extra policies are forbidden';
   end if;
 
   select pg_get_functiondef(new_private) into definition;
