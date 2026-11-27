@@ -102,8 +102,13 @@ export async function POST(request: Request): Promise<Response> {
   if (membershipError) return jsonError("Nuk u verifikuan të drejtat e pronarit.", 503);
   if (!membership) return jsonError("Vetëm pronari i biznesit mund të regjistrojë këtë dëshmi.", 403);
 
-  const serviceClient = getAtkServiceRoleClient();
-  let verifiedManifest;
+  let serviceClient: ReturnType<typeof getAtkServiceRoleClient>;
+  try {
+    serviceClient = getAtkServiceRoleClient();
+  } catch {
+    return jsonError("Shërbimi i dëshmive private nuk është i konfiguruar.", 503);
+  }
+  let verifiedManifest: Awaited<ReturnType<typeof verifyArticle44FilingEvidenceManifest>>;
   try {
     verifiedManifest = await verifyArticle44FilingEvidenceManifest(
       body.evidenceManifest,
@@ -145,7 +150,13 @@ export async function POST(request: Request): Promise<Response> {
         p_evidence_manifest: verifiedManifest,
       };
 
-  const { error: rpcError } = await serviceClient.rpc(rpcName, rpcArgs);
+  let rpcError: { message?: string } | null = null;
+  try {
+    const rpcResult = await serviceClient.rpc(rpcName, rpcArgs);
+    rpcError = rpcResult.error;
+  } catch {
+    return jsonError("Shërbimi i regjistrimit të dëshmive nuk është i disponueshëm.", 503);
+  }
   if (rpcError) {
     return jsonError(
       action === "notice"

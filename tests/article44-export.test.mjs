@@ -277,7 +277,7 @@ test("Article 44(6) monthly evidence requires a CSV and independently verified d
 
 test("Article 44 filing evidence rejects client hashes that do not match stored bytes", async () => {
   const uploadedBytes = new TextEncoder().encode("uploaded evidence").buffer;
-  const storedBytes = new TextEncoder().encode("different stored bytes").buffer;
+  const storedBytes = new TextEncoder().encode("tampered evidence").buffer;
   const manifest = [filingEntry("notice","application/pdf","notice.pdf",uploadedBytes,await filingDigest(uploadedBytes))];
   await assert.rejects(
     verifyArticle44FilingEvidenceManifest(
