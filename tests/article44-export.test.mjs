@@ -196,6 +196,25 @@ test("bounded JSON reader rejects malformed JSON and invalid UTF-8", async () =>
   await assert.rejects(readJsonBodyLimited(invalidUtf8, 128), InvalidRequestBodyError);
 });
 
+test("bounded JSON reader cancels an unbounded stream at the first oversized chunk", async () => {
+  let cancelled = false;
+  const stream = new ReadableStream({
+    pull(controller) {
+      controller.enqueue(new Uint8Array(129));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const request = new Request("https://example.test/atk", {
+    method: "POST",
+    body: stream,
+    duplex: "half",
+  });
+  await assert.rejects(readJsonBodyLimited(request, 128), RequestBodyTooLargeError);
+  assert.equal(cancelled, true);
+});
+
 test("bounded JSON reader rejects empty bodies and invalid limits", async () => {
   const empty = new Request("https://example.test/article-44", { method: "POST" });
   await assert.rejects(readJsonBodyLimited(empty, 128), InvalidRequestBodyError);
