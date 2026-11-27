@@ -4,7 +4,7 @@ import {
   InvalidRequestBodyError,
   readJsonBodyLimited,
   RequestBodyTooLargeError,
-} from "@/lib/http/read-json-limited";
+} from "../http/read-json-limited.ts";
 
 const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/91jk1axO5ADKK0odht23M6AHgzF7b0ZnYzNQUbiYEL4DoscsAMMbMtDgXdimHdtBppXE6c3F+rUl+y17X9BEw==";
 const MAX_BODY_BYTES = 4096;
