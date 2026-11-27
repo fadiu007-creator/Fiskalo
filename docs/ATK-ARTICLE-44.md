@@ -19,14 +19,31 @@ The application does **not** submit the notice to ATK. The taxpayer must first u
 
 If the internet interruption has not been resolved by the 10th day of the following month, the taxpayer must submit all un-fiscalized coupons to ATK.
 
-Fiskalo now:
+Fiskalo:
 - calculates the deadline using the Europe/Belgrade (Kosovo) time zone;
-- exports server-synchronized offline documents whose ATK state is not accepted, including rejected documents;
-- combines those records with the unaccepted local POS Agent queue for the selected POS;
-- includes the signed payloads, signatures, NUIKF, daily number, CouponId and submission state;
-- requires the owner to archive the export and evidence of actual submission.
+- records a taxpayer-prepared CSV/JSON submission package, the submission channel/reference and evidence of actual delivery after the owner uploads them;
+- does not claim that recording a package submits it to ATK or that the uploaded file contains every required coupon.
 
-The export is scoped to one POS and requires that POS's paired Agent on the device holding its local queue. If an interruption affects multiple POS devices, the owner must record and export each affected POS from its corresponding Agent. It fails closed if that local queue cannot be read. A database-only export is not represented as a complete export of offline coupons.
+The separate technical export is scoped to one POS and requires that POS's paired Agent on the device holding its local queue. If an interruption affects multiple POS devices, the owner must use each corresponding Agent. The technical export fails closed if that local queue cannot be read. A database-only export is not represented as a complete export of offline coupons.
+
+## ATK technical-specification amendment — 22 June 2026
+
+The ATK amendment to the specific technical and functional requirements (approved 22 June 2026) updates the SEF data-storage and export rules. It requires transaction data to remain protected and intact during failures/interruption, and states that untransmitted data must be exportable in suitable formats such as CSV/PDF **only upon request by ATK or another state authority**.
+
+Fiskalo's controlled Article 44 export now:
+- requires a real authority-request reference and an uploaded copy of the request (PDF/JPG/PNG/TXT);
+- downloads each private evidence object on the server, recomputes SHA-256 over the actual stored bytes, and rejects mismatches before invoking the service-role-only export RPC;
+- records the verified evidence manifest against the exact incident;
+- disables the old RPC signature that accepted an arbitrary reference without request evidence;
+- produces CSV, not an unrestricted JSON dump, and safely quotes spreadsheet cells to prevent formula injection;
+- refuses incomplete server exports and reads the browser-local queue before creating the server audit record.
+
+This controlled export is not an automatic submission to ATK and is not evidence that ATK accepted any coupon. Article 44(6) filing obligations and the authority-requested technical export are separate workflows. If no ATK/state-authority request has been received, the taxpayer must confirm the approved filing channel and format directly with ATK rather than fabricating a request reference.
+
+Official documents:
+- [Administrative Instruction (MF) No. 01/2026](https://apps.atk-ks.org/sefaplikimi/uploads/documents/87a43adf-6ee2-42e5-a5af-043c031f514f.pdf)
+- [Specific technical and functional requirements for PEF/SF/SEF](https://apps.atk-ks.org/sefaplikimi/uploads/documents/150ab6cc-084f-490d-b5fc-d8639d0287dc.pdf)
+- [ATK amendment dated 22 June 2026](https://apps.atk-ks.org/sefaplikimi/uploads/documents/4994a4cd-75c8-46fd-bb7c-d541e4aa0e40.pdf)
 
 ## Important limitations
 
@@ -61,6 +78,7 @@ Migrations:
 - `0030_fiskalo_article44_scope_and_offline_payment_integrity.sql`
 - `0031_fiskalo_article44_deadline_boundary.sql`
 - `0032_fiskalo_article44_monthly_export_proof_guard.sql`
+- `0034_fiskalo_basic_article44_authority_request_export.sql`
 
 The owner UI is available at `/article-44`.
 

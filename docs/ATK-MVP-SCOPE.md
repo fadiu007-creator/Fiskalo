@@ -4,7 +4,7 @@
 
 Deliver a complete, small-business Kosovo fiscalization workspace with a secure Windows POS runtime, online and local-first offline checkout, ATK TEST onboarding, signed coupons, receipts, sales records and the legally required outage evidence workflow.
 
-The Basic MVP is the smaller product edition, not a POS-only demo. The Full application UI is not yet integrated into `main`; see the repository README for that separate release gate.
+The Basic MVP is the smaller product edition, not a POS-only demo. Fiskalo Full is restored as a separate authenticated edition under `/app`; Basic Agent (`/`) and Basic Cloud (`/basic`) remain separate runtimes backed by `fiskalo_basic_*`.
 
 ## Included in current source
 
@@ -20,7 +20,7 @@ The Basic MVP is the smaller product edition, not a POS-only demo. The Full appl
 - Automatic background delivery when ATK connectivity returns, safe retries only when transport proves the request was not delivered, and reconciliation lock for ambiguous outcomes.
 - Receipt preview with taxpayer/operator/POS identity, item lines, VAT groups, payment allocations, coupon and daily numbers, NUIKF, signed QR, RKS MF mark, `e-Kuponi`, `TEST I LIRË` and explicit ATK TEST/offline markings.
 - Basic inventory, supplier purchase and expense source.
-- Article 44 outage register, 48-hour notice tracking, private evidence storage, monthly un-fiscalized coupon export and recording of actual manual submission.
+- Article 44 outage register, 48-hour notice tracking, private evidence storage and manual filing evidence. Untransmitted fiscal-data exports are restricted to CSV and require a documented ATK/state-authority request under the 22 June 2026 technical-specification amendment; no fabricated authority references or automatic ATK submissions.
 
 ## Explicitly deferred or incomplete
 
@@ -30,8 +30,8 @@ The Basic MVP is the smaller product edition, not a POS-only demo. The Full appl
 - Subscription plans, billing and product limits.
 - ARBK registry lookup.
 - Android signing/queue runtime and multi-client parity.
-- Full application UI and a selectable Full/Basic launcher on `main`.
-- Server-signed connectivity heartbeat/time anchor for independent outage-start evidence.
+- Full-edition clean-install schema baseline and independent migration replay; the Full UI is selectable, but its historical schema is not a fresh-install migration chain.
+- Live deployment and real-device validation of the server-signed heartbeat endpoint. A heartbeat gap records missing POS check-ins; it does not by itself prove ISP unavailability or an Article 44-qualifying cause.
 - Formal ATK provider/software certification and production authorization.
 
 ## 2026 ATK legal and technical cross-check
@@ -47,7 +47,7 @@ Baseline: ATK's current specific technical/functional requirements (29 May 2026)
 | Article 35(8)-(12): provider/software registration, developer NUI and unique SEF code | The software cannot invent ATK-issued provider/developer identifiers. | Blocked until ATK completes provider/software registration and issues the required values. |
 | Article 39: QR on every fiscal coupon, including offline coupons, with unique NUIKF | Agent signs CitizenCoupon, generates QR before delivery and persists it with NUIKF in the encrypted queue. | Scan with the official ATK verifier in real online and offline TEST scenarios; confirm the exact QR payload is accepted. |
 | Article 43: corrective coupon references original coupon | Basic exposes owner-only full cancellation and full return for an ATK-accepted sale. The workflow reserves unique correction identifiers server-side, signs the correction and CitizenCoupon, references the original CouponId/Transaction ID, finalizes through the trusted server route and retains the correction receipt/journal. | Partial returns and proportional refund allocation are not implemented. ATK TEST end-to-end acceptance, physical receipt verification and production certification remain external release gates. |
-| Article 44(5)-(6): notice after specified 48-hour internet interruption and submit un-fiscalized coupons by the tenth of the following month | Owner incident register, private evidence, deadline logic, combined server/local queue export and filing evidence record are implemented. | Owner-entered outage time is not independently server-signed. Fiskalo does not send the notice/export to ATK automatically; taxpayer must use the official channel and record the actual filing. |
+| Article 44(5)-(6): notice after specified 48-hour internet interruption and submit un-fiscalized coupons by the tenth of the following month | Owner incident register, private evidence, deadline logic, server-signed heartbeat evidence, combined server/local queue export and filing evidence record are implemented. | Heartbeat evidence bounds POS activity but does not prove ISP unavailability or a qualifying cause. The authority-requested technical export requires a real request reference and evidence; it is not the same as Article 44(6) filing. Fiskalo does not submit either workflow to ATK automatically. |
 
 ## Receipt and signature implementation
 
@@ -62,7 +62,7 @@ Baseline: ATK's current specific technical/functional requirements (29 May 2026)
 1. **Agent operational retry/escalation timer:** based on the Windows device clock and observed ATK endpoint reachability. It helps surface overdue queued documents and does not stop delivery after 48 hours. It is not a server-signed legal outage timestamp.
 2. **Article 44 legal internet-outage clock:** recorded separately by the business owner in `/article-44`, using Kosovo local time. The application checks the 48-hour threshold and the tenth-of-following-month deadline, stores evidence and records actual filing. It does not automatically notify ATK.
 
-The Article 44 monthly export combines server-synchronized non-accepted offline documents (including rejected documents) with the selected POS Agent's local unaccepted queue. If the local queue cannot be read, the UI refuses to describe a server-only export as complete.
+The authority-requested Article 44 technical export combines server-synchronized non-accepted offline documents (including rejected documents) with the selected POS Agent's local unaccepted queue, and is available only with a documented ATK/state-authority request. The taxpayer's separate Article 44(6) filing obligation is not automated. If the local queue cannot be read, the UI refuses to describe a server-only export as complete.
 
 ## Supabase deployment and migration status
 
@@ -88,7 +88,7 @@ The repository's numbered migrations do not all share the timestamp/version iden
 4. Issue while the network is disconnected with pre-reserved capacity; restart browser and Agent; reconnect and verify automatic delivery and exactly one ATK transaction.
 5. Scan offline and online CitizenCoupon QR values with the official ATK verifier.
 6. Exercise midnight rollover, two POS devices, two tabs, clock skew, local storage tampering/full disk, Windows account change, certificate expiry/revocation and 48-hour recovery.
-7. Test Article 44 evidence and monthly export against an actual ATK filing.
+7. Test the authority-requested technical export and the separate Article 44(6) filing workflow against an actual ATK request/filing.
 8. Complete Cancel/Return, discounts and all remaining receipt fields using official examples.
 9. Run physical printer tests, current Cloudflare deployment smoke tests and clean-database migration replay.
 10. Submit provider/software certification evidence and obtain production authorization.
