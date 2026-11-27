@@ -40,6 +40,8 @@ Fiskalo's controlled Article 44 export now:
 
 This controlled export is not an automatic submission to ATK and is not evidence that ATK accepted any coupon. Article 44(6) filing obligations and the authority-requested technical export are separate workflows. If no ATK/state-authority request has been received, the taxpayer must confirm the approved filing channel and format directly with ATK rather than fabricating a request reference.
 
+The Article 44(5) notice and Article 44(6) monthly filing records also use server-verified evidence. The browser uploads files to the private bucket, but cannot call the recording RPCs directly. The server downloads the stored bytes, checks their actual size, MIME type and SHA-256 digest, and only then invokes service-role-only RPCs that re-check owner membership, incident eligibility, filing deadlines and Storage ownership. This prevents a client from recording a fabricated digest or bypassing the evidence check with a direct PostgREST call.
+
 Official documents:
 - [Administrative Instruction (MF) No. 01/2026](https://apps.atk-ks.org/sefaplikimi/uploads/documents/87a43adf-6ee2-42e5-a5af-043c031f514f.pdf)
 - [Specific technical and functional requirements for PEF/SF/SEF](https://apps.atk-ks.org/sefaplikimi/uploads/documents/150ab6cc-084f-490d-b5fc-d8639d0287dc.pdf)

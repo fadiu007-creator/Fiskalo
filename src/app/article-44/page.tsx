@@ -201,12 +201,22 @@ export default function Article44Page() {
           mime_type: mimeType, size_bytes: evidenceFile.size, sha256: hash }];
         setPendingManifest(manifest);
       }
-      const { error } = await supabase.rpc("fiskalo_basic_record_article44_notice", {
-        p_incident_id: incident.id, p_notice_channel: noticeChannel,
-        p_authority_reference: authorityReference.trim() || null,
-        p_evidence_manifest: manifest
+      const noticeResponse = await fetch("/api/article-44/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "notice",
+          incidentId: incident.id,
+          channel: noticeChannel,
+          authorityReference: authorityReference.trim() || null,
+          evidenceManifest: manifest
+        })
       });
-      if (error) throw error;
+      const noticeResult: unknown = await noticeResponse.json().catch(() => null);
+      const noticeError = noticeResult && typeof noticeResult === "object" &&
+        "error" in noticeResult && typeof noticeResult.error === "string"
+        ? noticeResult.error : "Nuk u regjistrua njoftimi. Kontrollo dëshminë dhe afatin.";
+      if (!noticeResponse.ok) throw new Error(noticeError);
       setEvidenceFile(null); setPendingManifest([]); setAuthorityReference("");
       await loadIncidents(businessId);
       setMessage("Regjistrimi i njoftimit u ruajt me dëshminë. Kjo nuk e dërgon njoftimin te ATK: dërgoje fillimisht përmes kanalit zyrtar ose paraqite në zyrën përkatëse.");
@@ -450,11 +460,22 @@ export default function Article44Page() {
         }
         setMonthlyManifest(manifest);
       }
-      const { error } = await supabase.rpc("fiskalo_basic_record_article44_monthly_submission", {
-        p_incident_id: incident.id, p_submission_channel: monthlyChannel,
-        p_authority_reference: monthlyReference.trim() || null, p_evidence_manifest: manifest
+      const monthlyResponse = await fetch("/api/article-44/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "monthly_submission",
+          incidentId: incident.id,
+          channel: monthlyChannel,
+          authorityReference: monthlyReference.trim() || null,
+          evidenceManifest: manifest
+        })
       });
-      if (error) throw error;
+      const monthlyResult: unknown = await monthlyResponse.json().catch(() => null);
+      const monthlyError = monthlyResult && typeof monthlyResult === "object" &&
+        "error" in monthlyResult && typeof monthlyResult.error === "string"
+        ? monthlyResult.error : "Nuk u regjistrua dorëzimi mujor. Kontrollo eksportin, dëshminë dhe afatin.";
+      if (!monthlyResponse.ok) throw new Error(monthlyError);
       setMonthlyFiles([]); setMonthlyManifest([]); setMonthlyReference("");
       await loadIncidents(businessId);
       setMessage("Dorëzimi sipas Nenit 44(6) u regjistrua bashkë me eksportin dhe dëshminë. Fiskalo nuk e dërgon paketën automatikisht te ATK.");

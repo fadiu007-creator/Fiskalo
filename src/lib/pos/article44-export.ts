@@ -145,3 +145,101 @@ export async function verifyArticle44AuthorityEvidenceManifest(
   }
   return verified;
 }
+
+
+export type Article44FilingEvidenceKind = "notice" | "monthly_submission";
+
+/**
+ * Verify Article 44(5)/(6) filing evidence against the exact bytes held in
+ * private Storage. The database RPCs are server-role-only, so callers cannot
+ * bypass this byte-level verification with a forged client-side digest.
+ */
+export async function verifyArticle44FilingEvidenceManifest(
+  input: unknown,
+  businessId: string,
+  incidentId: string,
+  kind: Article44FilingEvidenceKind,
+  download: (storagePath: string) => Promise<Article44EvidenceDownload>,
+): Promise<Article44AuthorityEvidenceManifestEntry[]> {
+  if (!UUID_PATTERN.test(businessId) || !UUID_PATTERN.test(incidentId)) {
+    throw new Error("A valid business and incident identity are required.");
+  }
+  if (!Array.isArray(input) || input.length < 1 || input.length > 20) {
+    throw new Error("One to twenty filing evidence files are required.");
+  }
+
+  const allowedMimes = kind === "notice"
+    ? new Set(["application/pdf", "image/jpeg", "image/png", "text/plain"])
+    : new Set(["application/pdf", "image/jpeg", "image/png", "text/plain", "application/json", "text/csv"]);
+  const storedNamePattern = kind === "notice"
+    ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-[A-Za-z0-9._-]{1,100}$/i
+    : /^monthly-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-[A-Za-z0-9._-]{1,100}$/i;
+  const maxBytes = 10 * 1024 * 1024;
+  const seen = new Set<string>();
+  const verified: Article44AuthorityEvidenceManifestEntry[] = [];
+
+  for (const candidate of input) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error("Filing evidence manifest contains an invalid entry.");
+    }
+    const entry = candidate as Record<string, unknown>;
+    const storagePath = typeof entry.storage_path === "string" ? entry.storage_path : "";
+    const fileName = typeof entry.file_name === "string" ? entry.file_name : "";
+    const mimeType = typeof entry.mime_type === "string" ? entry.mime_type.toLowerCase().trim() : "";
+    const sizeBytes = entry.size_bytes;
+    const expectedHash = typeof entry.sha256 === "string" ? entry.sha256 : "";
+    const pathParts = storagePath.split("/");
+    const storedName = pathParts[2] ?? "";
+
+    if (pathParts.length !== 3 || pathParts[0] !== businessId || pathParts[1] !== incidentId ||
+        !storedNamePattern.test(storedName) || storedName.includes("..") ||
+        storagePath.length > 512 || seen.has(storagePath)) {
+      throw new Error("Filing evidence must use a unique private path for this business and incident.");
+    }
+    if (!fileName || fileName.length > 255 || /[\u0000-\u001f\u007f]/.test(fileName)) {
+      throw new Error("Filing evidence has an invalid file name.");
+    }
+    if (!allowedMimes.has(mimeType)) {
+      throw new Error(kind === "notice"
+        ? "Notice evidence must be PDF, JPG, PNG or TXT."
+        : "Monthly filing evidence must be PDF, JPG, PNG, TXT, CSV or JSON.");
+    }
+    if (typeof sizeBytes !== "number" || !Number.isSafeInteger(sizeBytes) ||
+        sizeBytes < 1 || sizeBytes > maxBytes) {
+      throw new Error("Filing evidence must be between 1 byte and 10 MB.");
+    }
+    if (!/^[a-f0-9]{64}$/.test(expectedHash)) {
+      throw new Error("Filing evidence must include a lowercase SHA-256 digest.");
+    }
+
+    seen.add(storagePath);
+    const stored = await download(storagePath);
+    if (!(stored.bytes instanceof ArrayBuffer) || stored.bytes.byteLength !== sizeBytes ||
+        stored.bytes.byteLength > maxBytes) {
+      throw new Error("Stored filing evidence size does not match its manifest.");
+    }
+    if (typeof stored.mimeType !== "string" || stored.mimeType.toLowerCase().trim() !== mimeType) {
+      throw new Error("Stored filing evidence MIME type does not match its manifest.");
+    }
+    if (await sha256Hex(stored.bytes) !== expectedHash) {
+      throw new Error("Stored filing evidence SHA-256 does not match its manifest.");
+    }
+    verified.push({
+      storage_path: storagePath,
+      file_name: fileName,
+      mime_type: mimeType,
+      size_bytes: sizeBytes,
+      sha256: expectedHash
+    });
+  }
+
+  if (kind === "monthly_submission") {
+    const hasCsv = verified.some(entry => entry.mime_type === "text/csv");
+    const hasDeliveryProof = verified.some(entry =>
+      ["application/pdf", "image/jpeg", "image/png", "text/plain"].includes(entry.mime_type));
+    if (!hasCsv || !hasDeliveryProof) {
+      throw new Error("Monthly filing evidence must include a CSV export and proof of delivery.");
+    }
+  }
+  return verified;
+}

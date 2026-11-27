@@ -4,6 +4,7 @@ import {
   ARTICLE44_EXPORT_COLUMNS,
   buildArticle44Csv,
   verifyArticle44AuthorityEvidenceManifest,
+  verifyArticle44FilingEvidenceManifest,
 } from "../src/lib/pos/article44-export.ts";
 import {
   InvalidRequestBodyError,
@@ -219,4 +220,97 @@ test("bounded JSON reader rejects empty bodies and invalid limits", async () => 
   const empty = new Request("https://example.test/article-44", { method: "POST" });
   await assert.rejects(readJsonBodyLimited(empty, 128), InvalidRequestBodyError);
   await assert.rejects(readJsonBodyLimited(empty, 0), RangeError);
+});
+
+
+const FILING_BUSINESS_ID = "550e8400-e29b-41d4-a716-446655440011";
+const FILING_INCIDENT_ID = "550e8400-e29b-41d4-a716-446655440012";
+
+async function filingDigest(bytes) {
+  return sha256Hex(bytes);
+}
+
+function filingEntry(kind, mimeType, fileName, bytes, sha256) {
+  const nonce = "550e8400-e29b-41d4-a716-446655440013";
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100) || "evidence";
+  const prefix = kind === "monthly_submission" ? "monthly-" : "";
+  return {
+    storage_path: FILING_BUSINESS_ID + "/" + FILING_INCIDENT_ID + "/" + prefix + nonce + "-" + safeName,
+    file_name: fileName,
+    mime_type: mimeType,
+    size_bytes: bytes.byteLength,
+    sha256
+  };
+}
+
+test("Article 44(5) notice evidence is verified against exact private-storage bytes", async () => {
+  const bytes = new TextEncoder().encode("actual notice filing evidence").buffer;
+  const manifest = [filingEntry("notice","application/pdf","notice.pdf",bytes,await filingDigest(bytes))];
+  let downloaded = 0;
+  const verified = await verifyArticle44FilingEvidenceManifest(
+    manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"notice",
+    async path => {
+      downloaded += 1;
+      assert.equal(path,manifest[0].storage_path);
+      return {bytes,mimeType:"application/pdf"};
+    }
+  );
+  assert.equal(downloaded,1);
+  assert.equal(verified[0].sha256,manifest[0].sha256);
+});
+
+test("Article 44(6) monthly evidence requires a CSV and independently verified delivery proof", async () => {
+  const csvBytes = new TextEncoder().encode("coupon_id,total\r\n123,10.00").buffer;
+  const proofBytes = new TextEncoder().encode("ATK submission acknowledgement").buffer;
+  const manifest = [
+    filingEntry("monthly_submission","text/csv","untransmitted.csv",csvBytes,await filingDigest(csvBytes)),
+    filingEntry("monthly_submission","application/pdf","delivery.pdf",proofBytes,await filingDigest(proofBytes))
+  ];
+  const verified = await verifyArticle44FilingEvidenceManifest(
+    manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"monthly_submission",
+    async path => path === manifest[0].storage_path
+      ? {bytes:csvBytes,mimeType:"text/csv"}
+      : {bytes:proofBytes,mimeType:"application/pdf"}
+  );
+  assert.equal(verified.length,2);
+});
+
+test("Article 44 filing evidence rejects client hashes that do not match stored bytes", async () => {
+  const uploadedBytes = new TextEncoder().encode("uploaded evidence").buffer;
+  const storedBytes = new TextEncoder().encode("different stored bytes").buffer;
+  const manifest = [filingEntry("notice","application/pdf","notice.pdf",uploadedBytes,await filingDigest(uploadedBytes))];
+  await assert.rejects(
+    verifyArticle44FilingEvidenceManifest(
+      manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"notice",
+      async () => ({bytes:storedBytes,mimeType:"application/pdf"})
+    ),
+    /SHA-256 does not match/
+  );
+});
+
+test("Article 44 filing evidence rejects cross-incident paths before downloading", async () => {
+  const bytes = new TextEncoder().encode("notice").buffer;
+  const manifest = [filingEntry("notice","application/pdf","notice.pdf",bytes,await filingDigest(bytes))];
+  manifest[0].storage_path = FILING_BUSINESS_ID + "/550e8400-e29b-41d4-a716-446655440099/" + manifest[0].storage_path.split("/")[2];
+  let downloaded = false;
+  await assert.rejects(
+    verifyArticle44FilingEvidenceManifest(
+      manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"notice",
+      async () => { downloaded = true; return {bytes,mimeType:"application/pdf"}; }
+    ),
+    /unique private path/
+  );
+  assert.equal(downloaded,false);
+});
+
+test("Article 44 monthly evidence rejects a manifest without delivery proof", async () => {
+  const csvBytes = new TextEncoder().encode("coupon_id,total\r\n123,10.00").buffer;
+  const manifest = [filingEntry("monthly_submission","text/csv","untransmitted.csv",csvBytes,await filingDigest(csvBytes))];
+  await assert.rejects(
+    verifyArticle44FilingEvidenceManifest(
+      manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"monthly_submission",
+      async () => ({bytes:csvBytes,mimeType:"text/csv"})
+    ),
+    /CSV export and proof of delivery/
+  );
 });

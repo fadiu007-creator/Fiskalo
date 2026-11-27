@@ -20,7 +20,7 @@ The Basic MVP is the smaller product edition, not a POS-only demo. Fiskalo Full 
 - Automatic background delivery when ATK connectivity returns, safe retries only when transport proves the request was not delivered, and reconciliation lock for ambiguous outcomes.
 - Receipt preview with taxpayer/operator/POS identity, item lines, VAT groups, payment allocations, coupon and daily numbers, NUIKF, signed QR, RKS MF mark, `e-Kuponi`, `TEST I LIRË` and explicit ATK TEST/offline markings.
 - Basic inventory, supplier purchase and expense source.
-- Article 44 outage register, 48-hour notice tracking, private evidence storage and manual filing evidence. Untransmitted fiscal-data exports are restricted to CSV and require a documented ATK/state-authority request under the 22 June 2026 technical-specification amendment; no fabricated authority references or automatic ATK submissions.
+- Article 44 outage register, 48-hour notice tracking, private evidence storage and manual filing evidence. Notice, monthly filing and authority-request evidence is re-downloaded and SHA-256 verified server-side before service-role-only recording RPCs; direct client execution of those RPCs is revoked. Untransmitted fiscal-data exports are restricted to CSV and require a documented ATK/state-authority request under the 22 June 2026 technical-specification amendment; no fabricated authority references or automatic ATK submissions.
 
 ## Explicitly deferred or incomplete
 
