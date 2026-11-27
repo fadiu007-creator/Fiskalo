@@ -8,6 +8,7 @@ import {
   RequestBodyTooLargeError,
 } from "@/lib/http/read-json-limited";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BUCKET = "fiskalo-article44-evidence";
@@ -78,27 +79,42 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError("Referenca e autoritetit është e pavlefshme.", 400);
   }
 
-  const supabase = await createClient();
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const supabase = await createClient().catch(() => null);
+  if (!supabase) return jsonError("Shërbimi i autentikimit nuk është i disponueshëm.", 503);
+  const authResult = await supabase.auth.getUser().catch(() => null);
+  if (!authResult) return jsonError("Shërbimi i autentikimit nuk është i disponueshëm.", 503);
+  const { data: authData, error: authError } = authResult;
   if (authError || !authData.user) return jsonError("Duhet të kyçesh përsëri.", 401);
 
-  const { data: incident, error: incidentError } = await supabase
-    .from("fiskalo_basic_article44_incidents")
-    .select("id,business_id")
-    .eq("id", incidentId)
-    .maybeSingle();
+  let incidentResult;
+  try {
+    incidentResult = await supabase
+      .from("fiskalo_basic_article44_incidents")
+      .select("id,business_id")
+      .eq("id", incidentId)
+      .maybeSingle();
+  } catch {
+    return jsonError("Nuk u verifikua incidenti i Nenit 44.", 503);
+  }
+  const { data: incident, error: incidentError } = incidentResult;
   if (incidentError) return jsonError("Nuk u verifikua incidenti i Nenit 44.", 503);
   if (!incident || typeof incident.business_id !== "string" || !UUID_PATTERN.test(incident.business_id)) {
     return jsonError("Incidenti nuk u gjet ose nuk ke qasje.", 404);
   }
 
-  const { data: membership, error: membershipError } = await supabase
-    .from("fiskalo_basic_members")
-    .select("business_id")
-    .eq("business_id", incident.business_id)
-    .eq("user_id", authData.user.id)
-    .eq("role", "owner")
-    .maybeSingle();
+  let membershipResult;
+  try {
+    membershipResult = await supabase
+      .from("fiskalo_basic_members")
+      .select("business_id")
+      .eq("business_id", incident.business_id)
+      .eq("user_id", authData.user.id)
+      .eq("role", "owner")
+      .maybeSingle();
+  } catch {
+    return jsonError("Nuk u verifikuan të drejtat e pronarit.", 503);
+  }
+  const { data: membership, error: membershipError } = membershipResult;
   if (membershipError) return jsonError("Nuk u verifikuan të drejtat e pronarit.", 503);
   if (!membership) return jsonError("Vetëm pronari i biznesit mund të regjistrojë këtë dëshmi.", 403);
 
