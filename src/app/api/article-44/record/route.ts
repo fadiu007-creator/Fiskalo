@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAtkServiceRoleClient } from "@/lib/atk/server-auth";
 import { verifyArticle44FilingEvidenceManifest } from "@/lib/pos/article44-export";
+import { validateSameOriginJsonPost } from "@/lib/http/request-security";
 import {
   InvalidRequestBodyError,
   readJsonBodyLimited,
@@ -35,21 +36,10 @@ function jsonError(message: string, status: number) {
   });
 }
 
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try {
-    return new URL(origin).origin === new URL(request.url).origin;
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(request: Request): Promise<Response> {
-  if (!sameOrigin(request)) return jsonError("Kërkesë nga burim i palejuar.", 403);
-  if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) {
-    return jsonError("Kërkohet përmbajtje JSON.", 415);
-  }
+  const requestSecurityFailure = validateSameOriginJsonPost(request);
+  if (requestSecurityFailure === "origin") return jsonError("Kërkesë nga burim i palejuar.", 403);
+  if (requestSecurityFailure === "content-type") return jsonError("Kërkohet përmbajtje JSON.", 415);
 
   let body: unknown;
   try {
