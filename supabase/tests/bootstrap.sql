@@ -20,16 +20,6 @@ $$;
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on function auth.uid() to anon, authenticated, service_role;
 
-create or replace function auth.role()
-returns text
-language sql
-stable
-as $role$
-  select nullif(current_setting('request.jwt.claim.role', true), '')
-$role$;
-
-grant execute on function auth.role() to anon, authenticated, service_role;
-
 -- Minimal private Supabase Storage compatibility layer for disposable CI.
 create schema storage;
 create table storage.buckets (

@@ -1,3 +1,9 @@
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "../_shared/read-json-limited.ts";
+
 export type WorkerMemberRow = {
   userId: string;
   role: "owner" | "cashier";
@@ -62,26 +68,17 @@ export function createWorkerHandler(deps: WorkerHandlerDependencies) {
     }
     if (!user) return jsonResponse(401, { error: "Sesioni nuk është i vlefshëm. Hyr përsëri." });
 
-    const contentLength = request.headers.get("content-length");
-    if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_REQUEST_BYTES) {
-      return jsonResponse(413, { error: "Kërkesa është shumë e madhe." });
-    }
-
-    let rawBody: string;
-    try {
-      rawBody = await request.text();
-    } catch {
-      return jsonResponse(400, { error: "Kërkesa nuk përmban JSON të vlefshëm." });
-    }
-    if (new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
-      return jsonResponse(413, { error: "Kërkesa është shumë e madhe." });
-    }
-
     let body: unknown;
     try {
-      body = JSON.parse(rawBody);
-    } catch {
-      return jsonResponse(400, { error: "Kërkesa nuk përmban JSON të vlefshëm." });
+      body = await readJsonBodyLimited(request, MAX_REQUEST_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return jsonResponse(413, { error: "Kërkesa është shumë e madhe." });
+      }
+      if (error instanceof InvalidRequestBodyError) {
+        return jsonResponse(400, { error: "Kërkesa nuk përmban JSON të vlefshëm UTF-8." });
+      }
+      throw error;
     }
     if (!isRecord(body)) return jsonResponse(400, { error: "Kërkesa nuk është e vlefshme." });
 

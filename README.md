@@ -11,7 +11,6 @@ The Full application UI is restored as a separate authenticated edition under `/
 Current route map:
 - `/` — **Basic Agent**: the local Windows POS Agent runtime with DPAPI-protected signing key and local fiscal queue.
 - `/basic` — **Basic Cloud**: the browser-based Basic POS and ATK TEST gateway.
-- `/article-44` — owner-only outage register, filing evidence and authority-request-gated technical export.
 - `/app` — **Fiskalo Full** workspace picker.
 - `/app/[organizationId]` — Full business workspace: invoices, customers, POS, cashier shifts, purchases, expenses, inventory, team and reports.
 - `/login`, `/register`, `/onboarding`, `/account` — Full-edition authentication and account workflows.
@@ -41,7 +40,7 @@ The editions use separate data models (`fiskalo_*` for Full and `fiskalo_basic_*
 - DPAPI-protected local private key and encrypted local fiscal queue.
 - Pre-reserved CouponIds and Kosovo-local daily-number ranges for offline issuance.
 - Background delivery, safe retry, ambiguous-result reconciliation and cloud synchronization.
-- Article 44 owner workflow: outage register, 48-hour notice tracking, private evidence storage and separate filing evidence. The technical export is CSV-only and requires a real ATK/state-authority request plus supporting evidence; it is not an automatic filing.
+- Article 44 owner workflow: outage register, 48-hour notice tracking, private evidence storage, 10th-of-following-month un-fiscalized coupon export and manual submission record.
 - Server-side verification of POS Agent attestations before offline queue/ATK acceptance records are written.
 - Basic inventory, supplier purchases and expense source.
 - Full business workspace modules: invoices, customers, POS, cashier shifts, purchases, expenses, inventory, team permissions and management reports, kept separate from Basic data.
@@ -61,7 +60,6 @@ Migrations documented by the project include:
 - `0031_fiskalo_article44_deadline_boundary.sql` — fixes the exact midnight boundary after the 10th day.
 - `0032_fiskalo_article44_monthly_export_proof_guard.sql` — enforces both the JSON/CSV export and actual ATK filing proof at the database boundary.
 - `0033_fiskalo_basic_complete_atk_item_categories.sql` — expands the product category constraint to all 52 unique 2026 ATK codes.
-- `0034_fiskalo_basic_article44_authority_request_export.sql` — adds authority-request/evidence-gated CSV export controls and revokes legacy unverified export RPCs; not applied or verified in the connected project's migration ledger during this run.
 - `20261117160000_fiskalo_atk_pos_heartbeat_evidence.sql` — verified in the connected project's migration ledger; creates the append-only server heartbeat evidence ledger and service-role-only recording RPC.
 - `20261117160100_fiskalo_basic_offline_heartbeat_binding.sql` — verified in the connected project's migration ledger; binds offline fiscal document timestamps and recovery deadlines to trusted server heartbeat intervals.
 
@@ -78,7 +76,6 @@ The repository's older numbered migration files do not all share the timestamp/v
 - Certificate-chain trust anchor, expiry, renewal and revocation validation against ATK's current process.
 - Physical printer testing across supported thermal widths, offline receipt verification and restart/recovery tests.
 - Cloudflare production deployment and live smoke tests for the exact latest commit. The repository CI builds the Cloudflare Worker but does not deploy it.
-- Apply migration 0034 through the approved database workflow, then verify the target migration ledger, fiscal-document RLS and legacy RPC revocation before deploying the Article 44 page.
 - Clean-database migration replay, authenticated owner/cashier RLS tests and tenant-isolation tests.
 - Provider/software certification and production authorization.
 
