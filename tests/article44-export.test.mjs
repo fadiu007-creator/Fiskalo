@@ -58,6 +58,10 @@ async function sha256Hex(bytes) {
   return Array.from(digest, value => value.toString(16).padStart(2, "0")).join("");
 }
 
+function pdfBytes(body) {
+  return new TextEncoder().encode("%PDF-1.7\\n" + body + "\\n%%EOF\\n").buffer;
+}
+
 function evidenceEntry(businessId, incidentId, bytes, sha256) {
   return {
     storage_path: businessId + "/" + incidentId + "/authority-request-550e8400-e29b-41d4-a716-446655440000-request.pdf",
@@ -71,7 +75,7 @@ function evidenceEntry(businessId, incidentId, bytes, sha256) {
 test("Article 44 server verifier hashes the exact private-storage bytes", async () => {
   const businessId = "550e8400-e29b-41d4-a716-446655440001";
   const incidentId = "550e8400-e29b-41d4-a716-446655440002";
-  const bytes = new TextEncoder().encode("signed ATK authority request").buffer;
+  const bytes = pdfBytes("signed ATK authority request");
   const manifest = [evidenceEntry(businessId, incidentId, bytes, await sha256Hex(bytes))];
   let downloadedPath = "";
   const verified = await verifyArticle44AuthorityEvidenceManifest(
@@ -90,8 +94,8 @@ test("Article 44 server verifier hashes the exact private-storage bytes", async 
 test("Article 44 server verifier rejects evidence bytes changed after browser hashing", async () => {
   const businessId = "550e8400-e29b-41d4-a716-446655440001";
   const incidentId = "550e8400-e29b-41d4-a716-446655440002";
-  const original = new TextEncoder().encode("original authority request").buffer;
-  const tampered = new TextEncoder().encode("tampered authority request").buffer;
+  const original = pdfBytes("original authority request");
+  const tampered = pdfBytes("tampered authority request");
   const manifest = [evidenceEntry(businessId, incidentId, original, await sha256Hex(original))];
   await assert.rejects(
     verifyArticle44AuthorityEvidenceManifest(manifest, businessId, incidentId, async () => ({
@@ -105,7 +109,7 @@ test("Article 44 server verifier rejects evidence bytes changed after browser ha
 test("Article 44 server verifier rejects evidence outside the incident storage scope before download", async () => {
   const businessId = "550e8400-e29b-41d4-a716-446655440001";
   const incidentId = "550e8400-e29b-41d4-a716-446655440002";
-  const bytes = new TextEncoder().encode("request").buffer;
+  const bytes = pdfBytes("request");
   const manifest = [evidenceEntry("550e8400-e29b-41d4-a716-446655440099", incidentId, bytes, await sha256Hex(bytes))];
   let downloaded = false;
   await assert.rejects(
@@ -121,7 +125,7 @@ test("Article 44 server verifier rejects evidence outside the incident storage s
 test("Article 44 server verifier rejects storage MIME and size mismatches", async () => {
   const businessId = "550e8400-e29b-41d4-a716-446655440001";
   const incidentId = "550e8400-e29b-41d4-a716-446655440002";
-  const bytes = new TextEncoder().encode("request").buffer;
+  const bytes = pdfBytes("request");
   const manifest = [evidenceEntry(businessId, incidentId, bytes, await sha256Hex(bytes))];
   await assert.rejects(
     verifyArticle44AuthorityEvidenceManifest(manifest, businessId, incidentId, async () => ({
@@ -138,6 +142,92 @@ test("Article 44 server verifier rejects storage MIME and size mismatches", asyn
       async () => ({ bytes, mimeType: "application/pdf" }),
     ),
     /size/,
+  );
+});
+
+
+test("Article 44 authority evidence rejects a text file spoofed as a PDF in Storage metadata", async () => {
+  const businessId = "550e8400-e29b-41d4-a716-446655440001";
+  const incidentId = "550e8400-e29b-41d4-a716-446655440002";
+  const bytes = new TextEncoder().encode("this is not a PDF").buffer;
+  const manifest = [evidenceEntry(businessId, incidentId, bytes, await sha256Hex(bytes))];
+  await assert.rejects(
+    verifyArticle44AuthorityEvidenceManifest(manifest, businessId, incidentId, async () => ({
+      bytes,
+      mimeType: "application/pdf",
+    })),
+    /declared MIME type/,
+  );
+});
+
+test("Article 44 filing verifier checks PDF, PNG, JPEG and UTF-8 text signatures", async () => {
+  const pngBytes = new Uint8Array([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]).buffer;
+  const jpegBytes = new Uint8Array([0xff,0xd8,0xff,0xd9]).buffer;
+  const cases = [
+    ["application/pdf","request.pdf",pdfBytes("valid request")],
+    ["image/png","photo.png",pngBytes],
+    ["image/jpeg","photo.jpg",jpegBytes],
+    ["text/plain","notes.txt",new TextEncoder().encode("valid UTF-8 evidence").buffer],
+  ];
+  const manifest = await Promise.all(cases.map(async ([mimeType,fileName,bytes]) =>
+    filingEntry("notice",mimeType,fileName,bytes,await sha256Hex(bytes))));
+  const stored = new Map(cases.map((entry,index)=>[manifest[index].storage_path,{bytes:entry[2],mimeType:entry[0]}]));
+  const verified = await verifyArticle44FilingEvidenceManifest(
+    manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"notice",
+    async path => stored.get(path),
+  );
+  assert.equal(verified.length,cases.length);
+});
+
+test("Article 44 monthly evidence validates JSON and rejects invalid JSON bytes", async () => {
+  const csvBytes = new TextEncoder().encode("coupon_id,total\\r\\n123,10.00").buffer;
+  const pdf = pdfBytes("delivery acknowledgement");
+  const json = new TextEncoder().encode('{"delivery":"recorded"}').buffer;
+  const manifest = [
+    filingEntry("monthly_submission","text/csv","untransmitted.csv",csvBytes,await sha256Hex(csvBytes)),
+    filingEntry("monthly_submission","application/pdf","delivery.pdf",pdf,await sha256Hex(pdf)),
+    filingEntry("monthly_submission","application/json","delivery.json",json,await sha256Hex(json)),
+  ];
+  const stored = new Map([
+    [manifest[0].storage_path,{bytes:csvBytes,mimeType:"text/csv"}],
+    [manifest[1].storage_path,{bytes:pdf,mimeType:"application/pdf"}],
+    [manifest[2].storage_path,{bytes:json,mimeType:"application/json"}],
+  ]);
+  const verified = await verifyArticle44FilingEvidenceManifest(
+    manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"monthly_submission",
+    async path => stored.get(path),
+  );
+  assert.equal(verified.length,3);
+
+  const invalidJson = new TextEncoder().encode("{not-json}").buffer;
+  const invalidManifest = [
+    manifest[0],
+    manifest[1],
+    filingEntry("monthly_submission","application/json","invalid.json",invalidJson,await sha256Hex(invalidJson)),
+  ];
+  const invalidStored = new Map([
+    [invalidManifest[0].storage_path,{bytes:csvBytes,mimeType:"text/csv"}],
+    [invalidManifest[1].storage_path,{bytes:pdf,mimeType:"application/pdf"}],
+    [invalidManifest[2].storage_path,{bytes:invalidJson,mimeType:"application/json"}],
+  ]);
+  await assert.rejects(
+    verifyArticle44FilingEvidenceManifest(
+      invalidManifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"monthly_submission",
+      async path => invalidStored.get(path),
+    ),
+    /declared MIME type/,
+  );
+});
+
+test("Article 44 text evidence rejects invalid UTF-8 and binary control bytes", async () => {
+  const invalidUtf8 = new Uint8Array([0xff,0xfe,0xfd]).buffer;
+  const manifest = [filingEntry("notice","text/plain","notes.txt",invalidUtf8,await sha256Hex(invalidUtf8))];
+  await assert.rejects(
+    verifyArticle44FilingEvidenceManifest(
+      manifest,FILING_BUSINESS_ID,FILING_INCIDENT_ID,"notice",
+      async () => ({bytes:invalidUtf8,mimeType:"text/plain"}),
+    ),
+    /declared MIME type/,
   );
 });
 
@@ -244,7 +334,7 @@ function filingEntry(kind, mimeType, fileName, bytes, sha256) {
 }
 
 test("Article 44(5) notice evidence is verified against exact private-storage bytes", async () => {
-  const bytes = new TextEncoder().encode("actual notice filing evidence").buffer;
+  const bytes = pdfBytes("actual notice filing evidence");
   const manifest = [filingEntry("notice","application/pdf","notice.pdf",bytes,await filingDigest(bytes))];
   let downloaded = 0;
   const verified = await verifyArticle44FilingEvidenceManifest(
@@ -261,7 +351,7 @@ test("Article 44(5) notice evidence is verified against exact private-storage by
 
 test("Article 44(6) monthly evidence requires a CSV and independently verified delivery proof", async () => {
   const csvBytes = new TextEncoder().encode("coupon_id,total\r\n123,10.00").buffer;
-  const proofBytes = new TextEncoder().encode("ATK submission acknowledgement").buffer;
+  const proofBytes = pdfBytes("ATK submission acknowledgement");
   const manifest = [
     filingEntry("monthly_submission","text/csv","untransmitted.csv",csvBytes,await filingDigest(csvBytes)),
     filingEntry("monthly_submission","application/pdf","delivery.pdf",proofBytes,await filingDigest(proofBytes))
@@ -276,8 +366,8 @@ test("Article 44(6) monthly evidence requires a CSV and independently verified d
 });
 
 test("Article 44 filing evidence rejects client hashes that do not match stored bytes", async () => {
-  const uploadedBytes = new TextEncoder().encode("uploaded evidence").buffer;
-  const storedBytes = new TextEncoder().encode("tampered evidence").buffer;
+  const uploadedBytes = pdfBytes("uploaded evidence");
+  const storedBytes = pdfBytes("tampered evidence");
   const manifest = [filingEntry("notice","application/pdf","notice.pdf",uploadedBytes,await filingDigest(uploadedBytes))];
   await assert.rejects(
     verifyArticle44FilingEvidenceManifest(
@@ -289,7 +379,7 @@ test("Article 44 filing evidence rejects client hashes that do not match stored 
 });
 
 test("Article 44 filing evidence rejects cross-incident paths before downloading", async () => {
-  const bytes = new TextEncoder().encode("notice").buffer;
+  const bytes = pdfBytes("notice");
   const manifest = [filingEntry("notice","application/pdf","notice.pdf",bytes,await filingDigest(bytes))];
   manifest[0].storage_path = FILING_BUSINESS_ID + "/550e8400-e29b-41d4-a716-446655440099/" + manifest[0].storage_path.split("/")[2];
   let downloaded = false;
