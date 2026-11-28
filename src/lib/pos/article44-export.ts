@@ -81,6 +81,73 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return Array.from(digest, value => value.toString(16).padStart(2, "0")).join("");
 }
 
+function evidenceMimeMismatch(): never {
+  throw new Error("Stored evidence bytes do not match the declared MIME type.");
+}
+
+function decodeEvidenceText(bytes: Uint8Array): string {
+  try {
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded;
+  } catch {
+    return evidenceMimeMismatch();
+  }
+}
+
+/**
+ * Storage content-type metadata is supplied at upload time and is not proof of
+ * the file format. Verify a conservative signature or text encoding against
+ * the downloaded bytes before recording Article 44 evidence.
+ */
+function assertEvidenceBytesMatchMime(bytes: ArrayBuffer, mimeType: string): void {
+  const data = new Uint8Array(bytes);
+  switch (mimeType) {
+    case "application/pdf": {
+      const header = data.subarray(0, Math.min(data.byteLength, 1024));
+      const marker = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+      let found = false;
+      for (let offset = 0; offset <= header.byteLength - marker.length; offset += 1) {
+        if (marker.every((value, index) => header[offset + index] === value)) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) evidenceMimeMismatch();
+      return;
+    }
+    case "image/png": {
+      const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+      if (data.byteLength < signature.length ||
+          !signature.every((value, index) => data[index] === value)) evidenceMimeMismatch();
+      return;
+    }
+    case "image/jpeg":
+      if (data.byteLength < 3 || data[0] !== 0xff || data[1] !== 0xd8 || data[2] !== 0xff) {
+        evidenceMimeMismatch();
+      }
+      return;
+    case "text/plain":
+    case "text/csv": {
+      const text = decodeEvidenceText(data);
+      if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(text)) {
+        evidenceMimeMismatch();
+      }
+      return;
+    }
+    case "application/json": {
+      const text = decodeEvidenceText(data);
+      try {
+        JSON.parse(text);
+      } catch {
+        evidenceMimeMismatch();
+      }
+      return;
+    }
+    default:
+      evidenceMimeMismatch();
+  }
+}
+
 /** Verify authority-request evidence against bytes downloaded from private Storage. */
 export async function verifyArticle44AuthorityEvidenceManifest(
   input: unknown,
@@ -138,6 +205,7 @@ export async function verifyArticle44AuthorityEvidenceManifest(
     if (typeof stored.mimeType !== "string" || stored.mimeType.toLowerCase().trim() !== mimeType) {
       throw new Error("Stored authority-request evidence MIME type does not match its manifest.");
     }
+    assertEvidenceBytesMatchMime(stored.bytes, mimeType);
     if (await sha256Hex(stored.bytes) !== expectedHash) {
       throw new Error("Stored authority-request evidence SHA-256 does not match its manifest.");
     }
@@ -221,6 +289,7 @@ export async function verifyArticle44FilingEvidenceManifest(
     if (typeof stored.mimeType !== "string" || stored.mimeType.toLowerCase().trim() !== mimeType) {
       throw new Error("Stored filing evidence MIME type does not match its manifest.");
     }
+    assertEvidenceBytesMatchMime(stored.bytes, mimeType);
     if (await sha256Hex(stored.bytes) !== expectedHash) {
       throw new Error("Stored filing evidence SHA-256 does not match its manifest.");
     }
