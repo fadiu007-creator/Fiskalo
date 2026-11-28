@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createCookieClient } from "@/lib/supabase/server";
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "@/lib/http/read-json-limited";
 
 function isSameOriginRequest(request: Request): boolean {
   const origin = request.headers.get("origin");
@@ -9,6 +14,7 @@ function isSameOriginRequest(request: Request): boolean {
 }
 
 export const runtime = "nodejs";
+const MAX_JSON_REQUEST_BYTES = 32 * 1024;
 
 async function getAdminContext() {
   const authClient = await createCookieClient();
@@ -49,9 +55,22 @@ export async function POST(request: Request) {
   const context = await getAdminContext();
   if ("error" in context) return context.error;
   const { admin, user } = context;
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return NextResponse.json({ error: "invalid_json" }, { status: 400 }); }
+  let parsedBody: unknown;
+  try {
+    parsedBody = await readJsonBodyLimited(request, MAX_JSON_REQUEST_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "request_too_large" }, { status: 413 });
+    }
+    if (error instanceof InvalidRequestBodyError) {
+      return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    }
+    throw error;
+  }
+  if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const body = parsedBody as Record<string, unknown>;
 
   const organizationId = typeof body.organizationId === "string" ? body.organizationId : "";
   if (!organizationId) return NextResponse.json({ error: "organization_required" }, { status: 400 });

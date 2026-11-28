@@ -1,5 +1,10 @@
 
 import { createPosHeartbeatCanonicalMessage } from "./heartbeat-canonical.ts";
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "../http/read-json-limited.ts";
 
 const PINNED_HEARTBEAT_PUBLIC_KEY_SPKI_BASE64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/91jk1axO5ADKK0odht23M6AHgzF7b0ZnYzNQUbiYEL4DoscsAMMbMtDgXdimHdtBppXE6c3F+rUl+y17X9BEw==";
 const MAX_BODY_BYTES = 4096;
@@ -83,17 +88,18 @@ export async function handleHeartbeat(
     return jsonError("heartbeat_server_not_configured", 503);
   }
   if (!env.ATK_HEARTBEAT_PRIVATE_KEY_PEM) return jsonError("heartbeat_signing_secret_missing", 503);
-  if (Number(request.headers.get("Content-Length") ?? 0) > MAX_BODY_BYTES) return jsonError("request_too_large", 413);
   const authorization = request.headers.get("Authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
   if (!token || token.length > 8192) return jsonError("authentication_required", 401);
 
   let body: unknown;
   try {
-    const raw = await request.text();
-    if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) return jsonError("request_too_large", 413);
-    body = JSON.parse(raw);
-  } catch { return jsonError("invalid_json", 400); }
+    body = await readJsonBodyLimited(request, MAX_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return jsonError("request_too_large", 413);
+    if (error instanceof InvalidRequestBodyError) return jsonError("invalid_json", 400);
+    throw error;
+  }
   if (!isRecord(body) || !isUuid(body.businessId) || !isUuid(body.posUuid) ||
       typeof body.nonce !== "string" || !decodeNonce(body.nonce)) {
     return jsonError("invalid_heartbeat_request", 400);

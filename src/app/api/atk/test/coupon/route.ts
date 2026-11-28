@@ -3,8 +3,14 @@ import { certificateSpkiFingerprint, verifySignedBase64Payload } from "@/lib/atk
 import { readAtkPosCouponVerificationNo, validateAtkCitizenCouponPayload, validateAtkCouponPayload } from "@/lib/atk/validate-coupon-payload";
 import { recordFiscalSubmissionStartBestEffort } from "@/lib/atk/submission-start";
 import { parseAtkTransactionId } from "@/lib/atk/transaction-id";
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "@/lib/http/read-json-limited";
 
 export const runtime = "nodejs";
+const MAX_ATK_SIGNED_REQUEST_BYTES = 9 * 1024 * 1024;
 
 function readVarint(bytes: Uint8Array, start: number): { value: bigint; next: number } {
   let value = BigInt(0); let shift = BigInt(0); let cursor = start;
@@ -61,12 +67,26 @@ function isBase64(value: string): boolean {
 }
 
 export async function POST(request: Request) {
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
-
   const { supabase, user, authError } = await getAtkRequestContext(request);
   if (authError || !user) return Response.json({ error: "unauthorized" }, { status: 401 });
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = await readJsonBodyLimited(request, MAX_ATK_SIGNED_REQUEST_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json({ error: "request_too_large" }, { status: 413 });
+    }
+    if (error instanceof InvalidRequestBodyError) {
+      return Response.json({ error: "invalid_json" }, { status: 400 });
+    }
+    throw error;
+  }
+  if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const body = parsedBody as Record<string, unknown>;
+
 
   const organizationId = typeof body.organizationId === "string" ? body.organizationId : "";
   const nui = typeof body.nui === "string" ? body.nui : "";

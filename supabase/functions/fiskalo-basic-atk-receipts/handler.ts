@@ -1,3 +1,9 @@
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "../_shared/read-json-limited.ts";
+
 export type AtkReceiptActor = { id: string };
 export type AtkReceiptBusiness = { nui: string | number; name?: string };
 export type AtkReceiptPos = {
@@ -295,16 +301,18 @@ export function createAtkReceiptHandler(deps: AtkReceiptDependencies) {
     try {
       const actor = await deps.authenticate(bearer[1]);
       if (!actor) return json(401, { error: "The authenticated session is invalid." }, headers);
-      const contentLength = request.headers.get("content-length");
-      if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_BODY_BYTES) {
-        return json(413, { error: "Request body is too large." }, headers);
-      }
-      const raw = await request.text();
-      if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) {
-        return json(413, { error: "Request body is too large." }, headers);
-      }
       let body: unknown;
-      try { body = JSON.parse(raw); } catch { return json(400, { error: "Request JSON is invalid." }, headers); }
+      try {
+        body = await readJsonBodyLimited(request, MAX_BODY_BYTES);
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) {
+          return json(413, { error: "Request body is too large." }, headers);
+        }
+        if (error instanceof InvalidRequestBodyError) {
+          return json(400, { error: "Request JSON must be valid UTF-8." }, headers);
+        }
+        throw error;
+      }
       if (!isRecord(body)) return json(400, { error: "Request body must be an object." }, headers);
 
       const action = body.action;

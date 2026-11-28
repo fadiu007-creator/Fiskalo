@@ -238,3 +238,19 @@ Deno.test("requires exact offline checkout idempotency-key binding to the cloud 
   assert(response.status===409,"a signed attestation that omits the sale checkout key must be rejected");
   assert(fixture.recorded()===null,"a mismatched checkout identity must never reach the database writer");
 });
+
+
+Deno.test("rejects oversized streamed receipt requests without trusting Content-Length",async()=>{
+  const fixture=await setup("accepted");
+  const response=await fixture.handler(new Request("https://example.test/functions/v1/fiskalo-basic-atk-receipts",{
+    method:"POST",
+    headers:{
+      authorization:"Bearer valid-token",
+      "content-type":"application/json",
+      origin:"https://fiskalo.shqiptare.workers.dev",
+    },
+    body:"x".repeat(1_500_001),
+  }));
+  assert(response.status===413,"oversized attestation requests must be rejected");
+  assert(fixture.recorded()===null,"oversized requests must never reach the fiscal receipt writer");
+});

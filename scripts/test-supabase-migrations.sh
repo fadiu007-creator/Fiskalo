@@ -17,6 +17,10 @@ echo "Bootstrapping disposable Supabase Auth and Storage compatibility objects"
 
 while IFS= read -r migration; do
   migration_name="$(basename "$migration")"
+  if [[ "$migration_name" == "0034_fiskalo_basic_article44_authority_request_export.sql" ]]; then
+    echo "Seeding legacy Article 44 untransmitted-export RPCs for the revocation contract"
+    "${PSQL[@]}" --file "$ROOT_DIR/supabase/tests/0034_legacy_untransmitted_export_fixture.sql"
+  fi
   echo "Applying supabase/migrations/$migration_name"
   "${PSQL[@]}" --file "$migration"
 
@@ -93,6 +97,12 @@ while IFS= read -r migration; do
       ;;
     0033_fiskalo_basic_complete_atk_item_categories.sql)
       run_test "0033_fiskalo_basic_complete_atk_item_categories.sql"
+      ;;
+    0034_fiskalo_basic_article44_authority_request_export.sql)
+      run_test "0034_fiskalo_basic_article44_authority_request_export.sql"
+      ;;
+    0035_fiskalo_basic_article44_server_verified_filing_evidence.sql)
+      run_test "0035_fiskalo_basic_article44_server_verified_filing_evidence.sql"
       ;;
     20261117113528_fiskalo_server_atk_corrections_20261117.sql)
       run_test "20261117113528_fiskalo_server_atk_corrections_20261117.sql"

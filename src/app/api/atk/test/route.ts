@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "@/lib/http/read-json-limited";
 import { createCitizenQrSvg } from "@/lib/atk/citizen-qr";
 import { encodeAtkBase64 } from "@/lib/atk/protobuf";
 
@@ -308,20 +313,21 @@ export async function POST(request: Request) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!configuredUrl || !anonKey) return jsonError("Supabase authentication is not configured.", 503);
 
-  const length = Number(request.headers.get("content-length") ?? 0);
-  if (length > MAX_BODY_BYTES) return jsonError("Request body is too large.", 413);
-
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
   if (!token || token.length > 8192) return jsonError("Sign in before using ATK TEST.", 401);
 
   let body: unknown;
   try {
-    const raw = await request.text();
-    if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) return jsonError("Request body is too large.", 413);
-    body = JSON.parse(raw);
-  } catch {
-    return jsonError("Request body must be valid JSON.", 400);
+    body = await readJsonBodyLimited(request, MAX_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return jsonError("Request body is too large.", 413);
+    }
+    if (error instanceof InvalidRequestBodyError) {
+      return jsonError("Request body must be valid UTF-8 JSON.", 400);
+    }
+    throw error;
   }
   if (!isRecord(body)) return jsonError("Invalid request.", 400);
 

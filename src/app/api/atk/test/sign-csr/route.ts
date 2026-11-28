@@ -1,14 +1,34 @@
 import { getAtkRequestContext, getAtkServiceRoleClient, positiveInteger } from "@/lib/atk/server-auth";
 import { canManageAtkPos } from "@/lib/atk/pos-authorization";
 import { certificateSpkiFingerprint, equalBytes, getCertificateSpki, getCsrSpki } from "@/lib/atk/certificate-crypto";
+import {
+  InvalidRequestBodyError,
+  readJsonBodyLimited,
+  RequestBodyTooLargeError,
+} from "@/lib/http/read-json-limited";
 
 export async function POST(request: Request) {
-  let body: Record<string, unknown>;
-  try { body = await request.json() as Record<string, unknown>; }
-  catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
-
   const { supabase, user, authError } = await getAtkRequestContext(request);
   if (authError || !user) return Response.json({ error: "unauthorized" }, { status: 401 });
+
+  const MAX_JSON_REQUEST_BYTES = 32 * 1024;
+  let parsedBody: unknown;
+  try {
+    parsedBody = await readJsonBodyLimited(request, MAX_JSON_REQUEST_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json({ error: "request_too_large" }, { status: 413 });
+    }
+    if (error instanceof InvalidRequestBodyError) {
+      return Response.json({ error: "invalid_json" }, { status: 400 });
+    }
+    throw error;
+  }
+  if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const body = parsedBody as Record<string, unknown>;
+
 
   const organizationId = typeof body.organizationId === "string" ? body.organizationId : "";
   const posInstallationId = typeof body.posInstallationId === "string" ? body.posInstallationId : "";
