@@ -59,7 +59,7 @@ async function sha256Hex(bytes) {
 }
 
 function pdfBytes(body) {
-  return new TextEncoder().encode("%PDF-1.7\\n" + body + "\\n%%EOF\\n").buffer;
+  return new TextEncoder().encode("%PDF-1.7\n" + body + "\n%%EOF\n").buffer;
 }
 
 function evidenceEntry(businessId, incidentId, bytes, sha256) {
@@ -180,7 +180,7 @@ test("Article 44 filing verifier checks PDF, PNG, JPEG and UTF-8 text signatures
 });
 
 test("Article 44 monthly evidence validates JSON and rejects invalid JSON bytes", async () => {
-  const csvBytes = new TextEncoder().encode("coupon_id,total\\r\\n123,10.00").buffer;
+  const csvBytes = new TextEncoder().encode("coupon_id,total\r\n123,10.00").buffer;
   const pdf = pdfBytes("delivery acknowledgement");
   const json = new TextEncoder().encode('{"delivery":"recorded"}').buffer;
   const manifest = [
